@@ -1,5 +1,6 @@
--- LiberiumHub
--- Чистый код, собственный UI на Instance.new (без внешних библиотек)
+-- LiberiumHub Premium UI
+-- Чистый код + Красивый GUI
+-- PlaceId: 142823291
 
 if game.PlaceId ~= 142823291 then
     warn("[LiberiumHub] Запусти в Murder Mystery 2")
@@ -16,7 +17,7 @@ local CFG = {
     Aimbot = false,
     Noclip = false,
     Speed = false,
-    SpeedVal = 40,
+    SpeedVal = 35,
     Fly = false,
     MenuOpen = false,
 }
@@ -26,6 +27,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local LP = Players.LocalPlayer
 local Cam = workspace.CurrentCamera
 
@@ -35,14 +37,10 @@ local function setRoles()
     local getData = RS:FindFirstChild("GetPlayerData", true)
     if getData and getData:IsA("RemoteFunction") then
         local success, data = pcall(function() return getData:InvokeServer() end)
-        if success and type(data) == "table" then
-            roles = data
-        end
+        if success and type(data) == "table" then roles = data end
     end
 end
-task.spawn(function()
-    while task.wait(5) do setRoles() end
-end)
+task.spawn(function() while task.wait(5) do setRoles() end end)
 
 local function getRole(plr)
     local roleData = roles[plr.Name]
@@ -59,53 +57,124 @@ local function getChar(plr)
     return nil
 end
 
--- ============ ФУНКЦИИ ============
--- ESP
+-- ============ CORE FUNCTIONS ============
+
+-- 1. ESP (Красивая рамка + Текст)
 local espCache = {}
-local function applyESP(plr)
-    if plr == LP then return end
-    local char = getChar(plr)
-    if not char then return end
-    local role = getRole(plr)
-    
-    local hl = espCache[plr]
-    if not hl or hl.Parent ~= char then
-        if hl then hl:Destroy() end
-        hl = Instance.new("Highlight")
-        hl.FillTransparency = 0.5
-        hl.OutlineTransparency = 0
-        hl.Parent = char
-        espCache[plr] = hl
-    end
-    
-    if role == "Murderer" then
-        hl.FillColor = Color3.fromRGB(220, 60, 60)
-    elseif role == "Sheriff" then
-        hl.FillColor = Color3.fromRGB(60, 140, 255)
-    else
-        hl.FillColor = Color3.fromRGB(80, 200, 120)
-    end
-    hl.Enabled = CFG.ESP
-end
-
-local function clearESP()
-    for plr, hl in pairs(espCache) do
-        pcall(function() hl:Destroy() end)
-        espCache[plr] = nil
-    end
-end
-
-RunService.RenderStepped:Connect(function()
+local function updateESP()
     if not CFG.ESP then
-        for _, hl in pairs(espCache) do hl.Enabled = false end
+        for _, data in pairs(espCache) do
+            if data.Highlight then data.Highlight.Enabled = false end
+            if data.Billboard then data.Billboard.Enabled = false end
+        end
         return
     end
+
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then applyESP(plr) end
+        if plr ~= LP then
+            local char = getChar(plr)
+            if char then
+                local role = getRole(plr)
+                local data = espCache[plr]
+
+                if not data or data.Char ~= char then
+                    if data and data.Highlight then data.Highlight:Destroy() end
+                    if data and data.Billboard then data.Billboard:Destroy() end
+                    
+                    local hl = Instance.new("Highlight")
+                    hl.FillTransparency = 0.6
+                    hl.OutlineTransparency = 0
+                    hl.Parent = char
+                    
+                    local bb = Instance.new("BillboardGui")
+                    bb.Size = UDim2.new(0, 200, 0, 50)
+                    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+                    bb.AlwaysOnTop = true
+                    bb.Parent = char.Head or char.HumanoidRootPart
+                    
+                    local txt = Instance.new("TextLabel")
+                    txt.Size = UDim2.new(1, 0, 1, 0)
+                    txt.BackgroundTransparency = 1
+                    txt.Font = Enum.Font.GothamBold
+                    txt.TextSize = 14
+                    txt.TextStrokeTransparency = 0
+                    txt.Parent = bb
+                    
+                    data = {Char = char, Highlight = hl, Billboard = bb, Text = txt}
+                    espCache[plr] = data
+                end
+                
+                local roleColor = Color3.fromRGB(80, 200, 120)
+                if role == "Murderer" then roleColor = Color3.fromRGB(220, 60, 60) 
+                elseif role == "Sheriff" then roleColor = Color3.fromRGB(60, 140, 255) end
+                
+                data.Highlight.Enabled = true
+                data.Highlight.FillColor = roleColor
+                data.Highlight.OutlineColor = roleColor
+                
+                data.Billboard.Enabled = true
+                data.Text.Text = role
+                data.Text.TextColor3 = roleColor
+            end
+        end
+    end
+end
+RunService.RenderStepped:Connect(updateESP)
+
+-- 2. Auto Farm (Плавный полет к монетам)
+local farmBV, farmBG
+local function toggleFarm(on)
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if on then
+        if not farmBV then
+            farmBV = Instance.new("BodyVelocity")
+            farmBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+            farmBV.Parent = hrp
+            farmBG = Instance.new("BodyGyro")
+            farmBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+            farmBG.P = 1000
+            farmBG.Parent = hrp
+        end
+    else
+        if farmBV then farmBV:Destroy(); farmBV = nil end
+        if farmBG then farmBG:Destroy(); farmBG = nil end
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    if not CFG.AutoFarm then return end
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    if not farmBV then toggleFarm(true) end
+    
+    local main = LP.PlayerGui:FindFirstChild("MainGUI")
+    local bags = main and ((main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")))
+    
+    if bags then
+        local closest, dist = nil, 100
+        for _, bag in ipairs(bags:GetChildren()) do
+            if bag:IsA("BasePart") then
+                local d = (bag.Position - hrp.Position).Magnitude
+                if d < dist then dist = d; closest = bag end
+            end
+        end
+        
+        if closest then
+            local targetPos = closest.Position
+            local dir = (targetPos - hrp.Position).Unit
+            farmBV.Velocity = dir * 50
+            farmBG.CFrame = CFrame.new(hrp.Position, targetPos)
+        end
     end
 end)
 
--- Silent Aim
+-- 3. Silent Aim (В голову)
 local mt = getrawmetatable(game)
 local oldIndex = mt.__index
 setreadonly(mt, false)
@@ -117,10 +186,12 @@ mt.__index = newcclosure(function(self, key)
             local origin = Cam.CFrame.Position
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LP then
-                    local _, hrp, hum = getChar(plr)
-                    if hrp and hum.Health > 0 then
-                        local d = (hrp.Position - origin).Magnitude
-                        if d < dist then dist = d; closest = hrp end
+                    local char = plr.Character
+                    local head = char and char:FindFirstChild("Head")
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if head and hum and hum.Health > 0 then
+                        local d = (head.Position - origin).Magnitude
+                        if d < dist then dist = d; closest = head end
                     end
                 end
             end
@@ -134,22 +205,18 @@ mt.__index = newcclosure(function(self, key)
 end)
 setreadonly(mt, true)
 
--- Aimbot
+-- 4. Aimbot (Плавный)
 local aimTarget = nil
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if CFG.Aimbot and (input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch) then
         local best, bd = nil, math.huge
-        local origin = Cam.CFrame.Position
         for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                local role = getRole(plr)
-                if role == "Murderer" or role == "Sheriff" then
-                    local _, hrp, hum = getChar(plr)
-                    if hrp and hum.Health > 0 then
-                        local d = (hrp.Position - origin).Magnitude
-                        if d < bd then bd = d; best = hrp end
-                    end
+            if plr ~= LP and (getRole(plr) == "Murderer" or getRole(plr) == "Sheriff") then
+                local char, hrp, hum = getChar(plr)
+                if hrp then
+                    local d = (hrp.Position - Cam.CFrame.Position).Magnitude
+                    if d < bd then bd = d; best = char.Head or hrp end
                 end
             end
         end
@@ -157,50 +224,22 @@ UIS.InputBegan:Connect(function(input, gp)
     end
 end)
 UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
-        aimTarget = nil
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then aimTarget = nil end
 end)
 RunService.RenderStepped:Connect(function()
     if aimTarget and aimTarget.Parent then
-        Cam.CFrame = CFrame.new(Cam.CFrame.Position, aimTarget.Position)
+        Cam.CFrame = Cam.CFrame:Lerp(CFrame.new(Cam.CFrame.Position, aimTarget.Position), 0.2)
     end
 end)
 
--- Auto Farm
-local function getCoinBags()
-    local main = LP.PlayerGui:FindFirstChild("MainGUI")
-    if not main then return {} end
-    local bags = (main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags"))
-    if bags then return bags:GetChildren() end
-    return {}
-end
-RunService.Heartbeat:Connect(function()
-    if not CFG.AutoFarm then return end
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    for _, bag in ipairs(getCoinBags()) do
-        if bag:IsA("BasePart") then
-            hrp.CFrame = CFrame.new(bag.Position + Vector3.new(0, 3, 0))
-            task.wait(0.1)
-        end
-    end
-end)
-
--- Movement
+-- 5. Movement (Speed / Noclip / Fly)
 local noclipConn
 local function setNoclip(on)
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
     if not on then return end
     noclipConn = RunService.Stepped:Connect(function()
         local char = LP.Character
-        if char then
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then p.CanCollide = false end
-            end
-        end
+        if char then for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
     end)
 end
 
@@ -221,14 +260,10 @@ local function setFly(on)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    flyBV.Velocity = Vector3.zero
-    flyBV.Parent = hrp
-    flyBG = Instance.new("BodyGyro")
-    flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-    flyBG.P = 1000
-    flyBG.Parent = hrp
+
+    flyBV = Instance.new("BodyVelocity"); flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5); flyBV.Velocity = Vector3.zero; flyBV.Parent = hrp
+    flyBG = Instance.new("BodyGyro"); flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5); flyBG.P = 1000; flyBG.Parent = hrp
+
     flyConn = RunService.RenderStepped:Connect(function()
         local move = Vector3.zero
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -244,16 +279,15 @@ local function setFly(on)
     end)
 end
 
--- ============ UI ============
+-- ============ PREMIUM UI ============
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LiberiumHub_UI"
 ScreenGui.ResetOnSpawn = false
-local s, e = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not s or not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
+pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
+if not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
 
--- Иконка
+-- 1. Иконка
 local IconBtn = Instance.new("ImageButton")
-IconBtn.Name = "LiberiumIcon"
 IconBtn.Size = UDim2.new(0, 50, 0, 50)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
 IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
@@ -262,105 +296,210 @@ IconBtn.AutoButtonColor = false
 IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
 IconBtn.Parent = ScreenGui
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = IconBtn
+local UICorner = Instance.new("UICorner"); UICorner.CornerRadius = UDim.new(0, 12); UICorner.Parent = IconBtn
+local UIStroke = Instance.new("UIStroke"); UIStroke.Color = Color3.fromRGB(0, 255, 102); UIStroke.Thickness = 2; UIStroke.Parent = IconBtn
 
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(0, 255, 102)
-UIStroke.Thickness = 2
-UIStroke.Parent = IconBtn
-
--- Меню
+-- 2. Главное окно (Glassmorphism стиль)
 local MenuFrame = Instance.new("Frame")
-MenuFrame.Name = "MenuFrame"
-MenuFrame.Size = UDim2.new(0, 250, 0, 300)
-MenuFrame.Position = UDim2.new(0.5, -125, 0.5, -150)
+MenuFrame.Size = UDim2.new(0, 450, 0, 320)
+MenuFrame.Position = UDim2.new(0.5, -225, 0.5, -160)
 MenuFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MenuFrame.BackgroundTransparency = 0.1
 MenuFrame.BorderSizePixel = 0
-MenuFrame.Visible = false -- Скрыто по умолчанию
+MenuFrame.Visible = false
 MenuFrame.Parent = ScreenGui
 
-local MenuCorner = Instance.new("UICorner")
-MenuCorner.CornerRadius = UDim.new(0, 8)
-MenuCorner.Parent = MenuFrame
+local MenuCorner = Instance.new("UICorner"); MenuCorner.CornerRadius = UDim.new(0, 12); MenuCorner.Parent = MenuFrame
+local MenuStroke = Instance.new("UIStroke"); MenuStroke.Color = Color3.fromRGB(0, 255, 102); MenuStroke.Thickness = 1.5; MenuStroke.Transparency = 0.5; MenuStroke.Parent = MenuFrame
+local MenuGradient = Instance.new("UIGradient"); MenuGradient.Color = ColorSequence.new(Color3.fromRGB(20, 20, 20), Color3.fromRGB(10, 10, 10)); MenuGradient.Parent = MenuFrame
 
-local MenuStroke = Instance.new("UIStroke")
-MenuStroke.Color = Color3.fromRGB(0, 255, 102)
-MenuStroke.Thickness = 2
-MenuStroke.Parent = MenuFrame
+-- 3. Боковая панель (Вкладки)
+local SideBar = Instance.new("Frame")
+SideBar.Size = UDim2.new(0, 120, 1, 0)
+SideBar.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+SideBar.BackgroundTransparency = 0.2
+SideBar.BorderSizePixel = 0
+SideBar.Parent = MenuFrame
+local SideCorner = Instance.new("UICorner"); SideCorner.CornerRadius = UDim.new(0, 12); SideCorner.Parent = SideBar
 
--- Заголовок
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Position = UDim2.new(0, 0, 0, 10)
 Title.BackgroundTransparency = 1
-Title.Text = "LiberiumHub"
-Title.TextColor3 = Color3.fromRGB(0, 255, 102)
+Title.Text = "Liberium"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 20
-Title.Parent = MenuFrame
+Title.TextSize = 18
+Title.Parent = SideBar
 
--- Контейнер для кнопок
-local Scroll = Instance.new("ScrollingFrame")
-Scroll.Size = UDim2.new(1, -20, 1, -50)
-Scroll.Position = UDim2.new(0, 10, 0, 45)
-Scroll.BackgroundTransparency = 1
-Scroll.BorderSizePixel = 0
-Scroll.ScrollBarThickness = 2
-Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-Scroll.Parent = MenuFrame
+-- Контейнер вкладок
+local TabHolder = Instance.new("Frame")
+TabHolder.Size = UDim2.new(1, -20, 1, -60)
+TabHolder.Position = UDim2.new(0, 10, 0, 50)
+TabHolder.BackgroundTransparency = 1
+TabHolder.Parent = SideBar
+Instance.new("UIListLayout", TabHolder).Padding = UDim.new(0, 5)
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Padding = UDim.new(0, 5)
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Parent = Scroll
+local Pages = {}
+local ActiveTab = nil
 
--- Функция для создания кнопок-тумблеров
-local function CreateToggle(name, default, callback)
-    local isToggled = default
-    
+-- Функция создания вкладки
+local function CreateTab(name, layoutOrder)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 30)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    btn.BackgroundTransparency = 0.5
     btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    btn.Font = Enum.Font.Gotham
+    btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    btn.Font = Enum.Font.GothamSemibold
     btn.TextSize = 14
+    btn.LayoutOrder = layoutOrder
     btn.AutoButtonColor = false
-    btn.Parent = Scroll
+    btn.Parent = TabHolder
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
     
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 4)
-    btnCorner.Parent = btn
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, -130, 1, -20)
+    page.Position = UDim2.new(0, 125, 0, 10)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 2
+    page.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 102)
+    page.Visible = false
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.Parent = MenuFrame
+    Instance.new("UIListLayout", page).Padding = UDim.new(0, 8)
     
-    local indicator = Instance.new("Frame")
-    indicator.Size = UDim2.new(0, 10, 0, 10)
-    indicator.Position = UDim2.new(1, -15, 0.5, -5)
-    indicator.BackgroundColor3 = isToggled and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(80, 80, 80)
-    indicator.Parent = btn
-    
-    local indCorner = Instance.new("UICorner")
-    indCorner.CornerRadius = UDim.new(1, 0)
-    indCorner.Parent = indicator
+    Pages[name] = { Button = btn, Page = page }
     
     btn.MouseButton1Click:Connect(function()
-        isToggled = not isToggled
-        indicator.BackgroundColor3 = isToggled and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(80, 80, 80)
-        if callback then callback(isToggled) end
+        for _, p in pairs(Pages) do
+            p.Page.Visible = false
+            TweenService:Create(p.Button, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(150, 150, 150), BackgroundTransparency = 0.5}):Play()
+        end
+        page.Visible = true
+        btn.TextColor3 = Color3.fromRGB(0, 255, 102)
+        btn.BackgroundTransparency = 0
+        ActiveTab = name
+    end)
+    
+    if not ActiveTab then
+        ActiveTab = name
+        page.Visible = true
+        btn.TextColor3 = Color3.fromRGB(0, 255, 102)
+        btn.BackgroundTransparency = 0
+    end
+end
+
+-- 4. Элементы (Кнопки и Слайдеры)
+local function CreateToggle(parent, text, default, callback)
+    local isOn = default
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 35)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    btn.Text = "  " .. text
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 13
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.AutoButtonColor = false
+    btn.Parent = parent
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
+    
+    local indBg = Instance.new("Frame")
+    indBg.Size = UDim2.new(0, 30, 0, 14)
+    indBg.Position = UDim2.new(1, -40, 0.5, -7)
+    indBg.BackgroundColor3 = isOn and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(50, 50, 50)
+    indBg.Parent = btn
+    local indC = Instance.new("UICorner"); indC.CornerRadius = UDim.new(1, 0); indC.Parent = indBg
+    
+    local circle = Instance.new("Frame")
+    circle.Size = UDim2.new(0, 10, 0, 10)
+    circle.Position = isOn and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)
+    circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    circle.Parent = indBg
+    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(1, 0); cc.Parent = circle
+    
+    btn.MouseButton1Click:Connect(function()
+        isOn = not isOn
+        TweenService:Create(indBg, TweenInfo.new(0.2), {BackgroundColor3 = isOn and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(50, 50, 50)}):Play()
+        TweenService:Create(circle, TweenInfo.new(0.2), {Position = isOn and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)}):Play()
+        callback(isOn)
     end)
 end
 
--- Добавляем тумблеры в меню
-CreateToggle("Player ESP", CFG.ESP, function(v) CFG.ESP = v; if not v then clearESP() end end)
-CreateToggle("Silent Aim", CFG.SilentAim, function(v) CFG.SilentAim = v end)
-CreateToggle("Aimbot", CFG.Aimbot, function(v) CFG.Aimbot = v end)
-CreateToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end)
-CreateToggle("Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
-CreateToggle("Speed Hack", CFG.Speed, function(v) CFG.Speed = v end)
-CreateToggle("Fly", CFG.Fly, function(v) CFG.Fly = v; setFly(v) end)
+local function CreateSlider(parent, text, min, max, default, callback)
+    local val = default
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1, -10, 0, 50)
+    holder.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    holder.Parent = parent
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = holder
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -10, 0, 20)
+    lbl.Position = UDim2.new(0, 10, 0, 5)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text .. ": " .. val
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = holder
+    
+    local barBg = Instance.new("Frame")
+    barBg.Size = UDim2.new(1, -20, 0, 6)
+    barBg.Position = UDim2.new(0, 10, 0, 30)
+    barBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    barBg.Parent = holder
+    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = barBg
+    
+    local barFill = Instance.new("Frame")
+    barFill.Size = UDim2.new((val-min)/(max-min), 0, 1, 0)
+    barFill.BackgroundColor3 = Color3.fromRGB(0, 255, 102)
+    barFill.Parent = barBg
+    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1, 0); fc.Parent = barFill
+    
+    local dragging = false
+    barBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local mouseX = input.Position.X
+            local barX = barBg.AbsolutePosition.X
+            local barW = barBg.AbsoluteSize.X
+            local percent = math.clamp((mouseX - barX) / barW, 0, 1)
+            val = math.floor(min + (max - min) * percent)
+            barFill.Size = UDim2.new(percent, 0, 1, 0)
+            lbl.Text = text .. ": " .. val
+            callback(val)
+        end
+    end)
+end
 
--- Перетаскивание Меню (за заголовок)
+-- 5. Заполнение вкладок
+CreateTab("Combat", 1)
+CreateToggle(Pages["Combat"].Page, "Silent Aim (Пистолет)", CFG.SilentAim, function(v) CFG.SilentAim = v end)
+CreateToggle(Pages["Combat"].Page, "Aimbot (ПКМ/Тап)", CFG.Aimbot, function(v) CFG.Aimbot = v end)
+
+CreateTab("Visuals", 2)
+CreateToggle(Pages["Visuals"].Page, "Player ESP (Роли)", CFG.ESP, function(v) CFG.ESP = v end)
+
+CreateTab("Movement", 3)
+CreateToggle(Pages["Movement"].Page, "Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
+CreateToggle(Pages["Movement"].Page, "Speed", CFG.Speed, function(v) CFG.Speed = v end)
+CreateSlider(Pages["Movement"].Page, "Speed Value", 16, 150, 35, function(v) CFG.SpeedVal = v end)
+CreateToggle(Pages["Movement"].Page, "Fly", CFG.Fly, function(v) CFG.Fly = v; setFly(v) end)
+
+CreateTab("Farm", 4)
+CreateToggle(Pages["Farm"].Page, "Auto Farm (Монеты)", CFG.AutoFarm, function(v) CFG.AutoFarm = v; toggleFarm(v) end)
+
+-- 6. Перетаскивание Меню
 local draggingMenu, dragStartMenu, startPosMenu
 Title.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -369,28 +508,24 @@ Title.InputBegan:Connect(function(input)
         startPosMenu = MenuFrame.Position
     end
 end)
-Title.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingMenu = false
-    end
-end)
 UIS.InputChanged:Connect(function(input)
     if draggingMenu and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStartMenu
         MenuFrame.Position = UDim2.new(startPosMenu.X.Scale, startPosMenu.X.Offset + delta.X, startPosMenu.Y.Scale, startPosMenu.Y.Offset + delta.Y)
     end
 end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingMenu = false end
+end)
 
--- Перетаскивание Иконки
+-- 7. Перетаскивание Иконки
 local draggingIcon, dragStartIcon, startPosIcon
 IconBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         draggingIcon = true
         dragStartIcon = input.Position
         startPosIcon = IconBtn.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end
-        end)
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end end)
     end
 end)
 IconBtn.InputChanged:Connect(function(input)
@@ -402,7 +537,7 @@ IconBtn.InputChanged:Connect(function(input)
     end
 end)
 
--- Открытие/Закрытие по тапу на иконку
+-- 8. Открытие/Закрытие
 IconBtn.MouseButton1Click:Connect(function()
     task.delay(0.1, function()
         if not draggingIcon then
