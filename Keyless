@@ -1,13 +1,11 @@
 -- LiberiumHub
--- Чистый код на основе функций из сурса KITI/Pulse
--- Поддержка: PC + Mobile (Arceus X, Delta, Xeno, Solara)
+-- Чистый код, собственный UI на Instance.new (без внешних библиотек)
 
 if game.PlaceId ~= 142823291 then
     warn("[LiberiumHub] Запусти в Murder Mystery 2")
     return
 end
 
--- ТВОЙ ID ЛОГОТИПА
 local LOGO_ID = 121242999666621
 
 -- ============ CONFIG ============
@@ -61,7 +59,8 @@ local function getChar(plr)
     return nil
 end
 
--- ============ ESP ============
+-- ============ ФУНКЦИИ ============
+-- ESP
 local espCache = {}
 local function applyESP(plr)
     if plr == LP then return end
@@ -106,7 +105,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ============ SILENT AIM ============
+-- Silent Aim
 local mt = getrawmetatable(game)
 local oldIndex = mt.__index
 setreadonly(mt, false)
@@ -135,7 +134,7 @@ mt.__index = newcclosure(function(self, key)
 end)
 setreadonly(mt, true)
 
--- ============ AIMBOT ============
+-- Aimbot
 local aimTarget = nil
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
@@ -157,38 +156,31 @@ UIS.InputBegan:Connect(function(input, gp)
         aimTarget = best
     end
 end)
-
 UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
         aimTarget = nil
     end
 end)
-
 RunService.RenderStepped:Connect(function()
     if aimTarget and aimTarget.Parent then
         Cam.CFrame = CFrame.new(Cam.CFrame.Position, aimTarget.Position)
     end
 end)
 
--- ============ AUTO FARM ============
+-- Auto Farm
 local function getCoinBags()
-    local gui = LP.PlayerGui
-    local main = gui:FindFirstChild("MainGUI")
+    local main = LP.PlayerGui:FindFirstChild("MainGUI")
     if not main then return {} end
-    local lobby = main:FindFirstChild("Lobby")
-    local gameFolder = main:FindFirstChild("Game")
-    local bags = (lobby and lobby:FindFirstChild("CoinBags")) or (gameFolder and gameFolder:FindFirstChild("CoinBags"))
+    local bags = (main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags"))
     if bags then return bags:GetChildren() end
     return {}
 end
-
 RunService.Heartbeat:Connect(function()
     if not CFG.AutoFarm then return end
     local char = LP.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     for _, bag in ipairs(getCoinBags()) do
         if bag:IsA("BasePart") then
             hrp.CFrame = CFrame.new(bag.Position + Vector3.new(0, 3, 0))
@@ -197,7 +189,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ============ MOVEMENT ============
+-- Movement
 local noclipConn
 local function setNoclip(on)
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
@@ -229,17 +221,14 @@ local function setFly(on)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     flyBV = Instance.new("BodyVelocity")
     flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
     flyBV.Velocity = Vector3.zero
     flyBV.Parent = hrp
-
     flyBG = Instance.new("BodyGyro")
     flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
     flyBG.P = 1000
     flyBG.Parent = hrp
-
     flyConn = RunService.RenderStepped:Connect(function()
         local move = Vector3.zero
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -255,55 +244,17 @@ local function setFly(on)
     end)
 end
 
--- ============ UI (Slate) ============
-local SLATE_URL = "https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"
-local Slate = loadstring(game:HttpGet(SLATE_URL), "@Slate")()
-
-pcall(function() Slate.Cleanup() end)
-pcall(function() Slate:PreloadIcons({ "lucide" }) end)
-
-local Window = Slate:CreateWindow({
-    Name = "LiberiumHub",
-    Subtitle = "MM2 Edition",
-    Icon = "shield",
-    Logo = true,
-    Size = UDim2.fromOffset(500, 400),
-    ToggleKey = Enum.KeyCode.RightShift,
-})
-pcall(function() Slate.Theme.Preset("Ash") end)
-pcall(function() Window:SetBackdrop("aurora") end)
-
-local Tab = Window:CreateTab({ Name = "Main", Icon = "layout-grid" })
-
-local espSec = Tab:CreateSection({ Name = "Visuals" })
-espSec:Toggle({ Name = "Player ESP (Роли)", Default = false, Callback = function(v) CFG.ESP = v; if not v then clearESP() end end })
-
-local combatSec = Tab:CreateSection({ Name = "Combat" })
-combatSec:Toggle({ Name = "Silent Aim (Пистолет)", Default = false, Callback = function(v) CFG.SilentAim = v end })
-combatSec:Toggle({ Name = "Aimbot (ПКМ/Тап на Murderer/Sheriff)", Default = false, Callback = function(v) CFG.Aimbot = v end })
-
-local moveSec = Tab:CreateSection({ Name = "Movement" })
-moveSec:Toggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v; setNoclip(v) end })
-moveSec:Toggle({ Name = "Speed", Default = false, Callback = function(v) CFG.Speed = v end })
-moveSec:Slider({ Name = "Speed Value", Min = 16, Max = 150, Default = 40, Callback = function(v) CFG.SpeedVal = v end })
-moveSec:Toggle({ Name = "Fly (WASD / Стик)", Default = false, Callback = function(v) CFG.Fly = v; setFly(v) end })
-
-local farmSec = Tab:CreateSection({ Name = "Farm" })
-farmSec:Toggle({ Name = "Auto Farm (Монеты)", Default = false, Callback = function(v) CFG.AutoFarm = v end })
-
--- ============ КАСТОМНАЯ ИКОНКА ============
+-- ============ UI ============
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "LiberiumHub_Icon"
+ScreenGui.Name = "LiberiumHub_UI"
 ScreenGui.ResetOnSpawn = false
-
 local s, e = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not s or not ScreenGui.Parent then
-    ScreenGui.Parent = LP:WaitForChild("PlayerGui")
-end
+if not s or not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
 
+-- Иконка
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "LiberiumIcon"
-IconBtn.Size = UDim2.new(0, 50, 0, 50) -- Квадратная кнопка 50х50
+IconBtn.Size = UDim2.new(0, 50, 0, 50)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
 IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 IconBtn.BorderSizePixel = 0
@@ -312,7 +263,7 @@ IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
 IconBtn.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10) -- Небольшое скругление углов (квадрат с мягкими краями)
+UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = IconBtn
 
 local UIStroke = Instance.new("UIStroke")
@@ -320,66 +271,144 @@ UIStroke.Color = Color3.fromRGB(0, 255, 102)
 UIStroke.Thickness = 2
 UIStroke.Parent = IconBtn
 
--- Перетаскивание
-local dragging, dragInput, dragStart, startPos
+-- Меню
+local MenuFrame = Instance.new("Frame")
+MenuFrame.Name = "MenuFrame"
+MenuFrame.Size = UDim2.new(0, 250, 0, 300)
+MenuFrame.Position = UDim2.new(0.5, -125, 0.5, -150)
+MenuFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MenuFrame.BorderSizePixel = 0
+MenuFrame.Visible = false -- Скрыто по умолчанию
+MenuFrame.Parent = ScreenGui
+
+local MenuCorner = Instance.new("UICorner")
+MenuCorner.CornerRadius = UDim.new(0, 8)
+MenuCorner.Parent = MenuFrame
+
+local MenuStroke = Instance.new("UIStroke")
+MenuStroke.Color = Color3.fromRGB(0, 255, 102)
+MenuStroke.Thickness = 2
+MenuStroke.Parent = MenuFrame
+
+-- Заголовок
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "LiberiumHub"
+Title.TextColor3 = Color3.fromRGB(0, 255, 102)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 20
+Title.Parent = MenuFrame
+
+-- Контейнер для кнопок
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -20, 1, -50)
+Scroll.Position = UDim2.new(0, 10, 0, 45)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 2
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = MenuFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Padding = UDim.new(0, 5)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Parent = Scroll
+
+-- Функция для создания кнопок-тумблеров
+local function CreateToggle(name, default, callback)
+    local isToggled = default
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 14
+    btn.AutoButtonColor = false
+    btn.Parent = Scroll
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 4)
+    btnCorner.Parent = btn
+    
+    local indicator = Instance.new("Frame")
+    indicator.Size = UDim2.new(0, 10, 0, 10)
+    indicator.Position = UDim2.new(1, -15, 0.5, -5)
+    indicator.BackgroundColor3 = isToggled and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(80, 80, 80)
+    indicator.Parent = btn
+    
+    local indCorner = Instance.new("UICorner")
+    indCorner.CornerRadius = UDim.new(1, 0)
+    indCorner.Parent = indicator
+    
+    btn.MouseButton1Click:Connect(function()
+        isToggled = not isToggled
+        indicator.BackgroundColor3 = isToggled and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(80, 80, 80)
+        if callback then callback(isToggled) end
+    end)
+end
+
+-- Добавляем тумблеры в меню
+CreateToggle("Player ESP", CFG.ESP, function(v) CFG.ESP = v; if not v then clearESP() end end)
+CreateToggle("Silent Aim", CFG.SilentAim, function(v) CFG.SilentAim = v end)
+CreateToggle("Aimbot", CFG.Aimbot, function(v) CFG.Aimbot = v end)
+CreateToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end)
+CreateToggle("Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
+CreateToggle("Speed Hack", CFG.Speed, function(v) CFG.Speed = v end)
+CreateToggle("Fly", CFG.Fly, function(v) CFG.Fly = v; setFly(v) end)
+
+-- Перетаскивание Меню (за заголовок)
+local draggingMenu, dragStartMenu, startPosMenu
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingMenu = true
+        dragStartMenu = input.Position
+        startPosMenu = MenuFrame.Position
+    end
+end)
+Title.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingMenu = false
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if draggingMenu and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartMenu
+        MenuFrame.Position = UDim2.new(startPosMenu.X.Scale, startPosMenu.X.Offset + delta.X, startPosMenu.Y.Scale, startPosMenu.Y.Offset + delta.Y)
+    end
+end)
+
+-- Перетаскивание Иконки
+local draggingIcon, dragStartIcon, startPosIcon
 IconBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = IconBtn.Position
+        draggingIcon = true
+        dragStartIcon = input.Position
+        startPosIcon = IconBtn.Position
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end
         end)
     end
 end)
 IconBtn.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-UIS.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        IconBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        if draggingIcon then
+            local delta = input.Position - dragStartIcon
+            IconBtn.Position = UDim2.new(startPosIcon.X.Scale, startPosIcon.X.Offset + delta.X, startPosIcon.Y.Scale, startPosIcon.Y.Offset + delta.Y)
+        end
     end
 end)
 
--- ФИКС ОТКРЫТИЯ МЕНЮ (Скрываем без уничтожения)
-pcall(function()
-    Window:Close()
-    if Window.root then
-        Window.root.Visible = false
-    end
-end)
-
--- Логика открытия/закрытия
-local function toggleMenu()
-    CFG.MenuOpen = not CFG.MenuOpen
-    if CFG.MenuOpen then
-        pcall(function()
-            if Window.root then Window.root.Visible = true end
-            Window:Open() 
-        end)
-        UIStroke.Color = Color3.fromRGB(255, 60, 60)
-    else
-        pcall(function()
-            Window:Close()
-            if Window.root then Window.root.Visible = false end
-        end)
-        UIStroke.Color = Color3.fromRGB(0, 255, 102)
-    end
-end
-
+-- Открытие/Закрытие по тапу на иконку
 IconBtn.MouseButton1Click:Connect(function()
     task.delay(0.1, function()
-        if not dragging then toggleMenu() end
+        if not draggingIcon then
+            CFG.MenuOpen = not CFG.MenuOpen
+            MenuFrame.Visible = CFG.MenuOpen
+            UIStroke.Color = CFG.MenuOpen and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(0, 255, 102)
+        end
     end)
 end)
-
-Slate:Notify({
-    Title = "LiberiumHub",
-    Description = "Нажми на квадратную иконку.",
-    Icon = "check",
-    Tone = "Success",
-    Duration = 8,
-})
