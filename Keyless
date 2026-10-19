@@ -7,14 +7,12 @@ if game.PlaceId ~= 142823291 then
     return
 end
 
--- ВСТАВЬ СЮДА ID СВОЕГО ЛОГОТИПА (только цифры)
-local LOGO_ID = 121242999666621 
+-- ТВОЙ ID ЛОГОТИПА
+local LOGO_ID = 121242999666621
 
 -- ============ CONFIG ============
 local CFG = {
     ESP = false,
-    ESPBox = false,
-    ESPBeam = false,
     AutoFarm = false,
     SilentAim = false,
     Aimbot = false,
@@ -33,7 +31,7 @@ local RS = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
 local Cam = workspace.CurrentCamera
 
--- ============ ROLES (Из сурса KITI) ============
+-- ============ ROLES ============
 local roles = {}
 local function setRoles()
     local getData = RS:FindFirstChild("GetPlayerData", true)
@@ -180,9 +178,7 @@ local function getCoinBags()
     local lobby = main:FindFirstChild("Lobby")
     local gameFolder = main:FindFirstChild("Game")
     local bags = (lobby and lobby:FindFirstChild("CoinBags")) or (gameFolder and gameFolder:FindFirstChild("CoinBags"))
-    if bags then
-        return bags:GetChildren()
-    end
+    if bags then return bags:GetChildren() end
     return {}
 end
 
@@ -277,14 +273,10 @@ local Window = Slate:CreateWindow({
 pcall(function() Slate.Theme.Preset("Ash") end)
 pcall(function() Window:SetBackdrop("aurora") end)
 
--- Скрываем окно при старте
-pcall(function() Window:Close() end)
-
 local Tab = Window:CreateTab({ Name = "Main", Icon = "layout-grid" })
 
 local espSec = Tab:CreateSection({ Name = "Visuals" })
 espSec:Toggle({ Name = "Player ESP (Роли)", Default = false, Callback = function(v) CFG.ESP = v; if not v then clearESP() end end })
-espSec:Toggle({ Name = "Box ESP (Скоро)", Default = false, Callback = function(v) end })
 
 local combatSec = Tab:CreateSection({ Name = "Combat" })
 combatSec:Toggle({ Name = "Silent Aim (Пистолет)", Default = false, Callback = function(v) CFG.SilentAim = v end })
@@ -311,7 +303,7 @@ end
 
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "LiberiumIcon"
-IconBtn.Size = UDim2.new(0, 50, 0, 50)
+IconBtn.Size = UDim2.new(0, 50, 0, 50) -- Квадратная кнопка 50х50
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
 IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 IconBtn.BorderSizePixel = 0
@@ -320,7 +312,7 @@ IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
 IconBtn.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(1, 0)
+UICorner.CornerRadius = UDim.new(0, 10) -- Небольшое скругление углов (квадрат с мягкими краями)
 UICorner.Parent = IconBtn
 
 local UIStroke = Instance.new("UIStroke")
@@ -352,30 +344,41 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Открытие/закрытие
+-- ФИКС ОТКРЫТИЯ МЕНЮ (Скрываем без уничтожения)
+pcall(function()
+    Window:Close()
+    if Window.root then
+        Window.root.Visible = false
+    end
+end)
+
+-- Логика открытия/закрытия
 local function toggleMenu()
-    if not CFG.MenuOpen then
-        pcall(function() Window:Open() end)
-        CFG.MenuOpen = true
+    CFG.MenuOpen = not CFG.MenuOpen
+    if CFG.MenuOpen then
+        pcall(function()
+            if Window.root then Window.root.Visible = true end
+            Window:Open() 
+        end)
         UIStroke.Color = Color3.fromRGB(255, 60, 60)
     else
-        pcall(function() Window:Close() end)
-        CFG.MenuOpen = false
+        pcall(function()
+            Window:Close()
+            if Window.root then Window.root.Visible = false end
+        end)
         UIStroke.Color = Color3.fromRGB(0, 255, 102)
     end
 end
 
-IconBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        task.delay(0.1, function()
-            if not dragging then toggleMenu() end
-        end)
-    end
+IconBtn.MouseButton1Click:Connect(function()
+    task.delay(0.1, function()
+        if not dragging then toggleMenu() end
+    end)
 end)
 
 Slate:Notify({
     Title = "LiberiumHub",
-    Description = "Нажми на иконку чтобы открыть меню",
+    Description = "Нажми на квадратную иконку.",
     Icon = "check",
     Tone = "Success",
     Duration = 8,
