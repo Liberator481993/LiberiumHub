@@ -1,5 +1,5 @@
--- LiberiumHub Premium UI
--- Чистый код + Красивый GUI
+-- LiberiumHub v2
+-- UI по референсу + Box ESP
 -- PlaceId: 142823291
 
 if game.PlaceId ~= 142823291 then
@@ -12,6 +12,8 @@ local LOGO_ID = 121242999666621
 -- ============ CONFIG ============
 local CFG = {
     ESP = false,
+    ESPBox = true,
+    ESPName = true,
     AutoFarm = false,
     SilentAim = false,
     Aimbot = false,
@@ -57,86 +59,113 @@ local function getChar(plr)
     return nil
 end
 
--- ============ CORE FUNCTIONS ============
+-- ============ DRAWING 2D BOX ESP ============
+local ESPFolder = Instance.new("Folder", game:GetService("CoreGui"))
+ESPFolder.Name = "LiberiumESP"
 
--- 1. ESP (Красивая рамка + Текст)
-local espCache = {}
-local function updateESP()
-    if not CFG.ESP then
-        for _, data in pairs(espCache) do
-            if data.Highlight then data.Highlight.Enabled = false end
-            if data.Billboard then data.Billboard.Enabled = false end
-        end
-        return
-    end
+local espDrawings = {}
 
+local function GetBox(plr)
+    if espDrawings[plr] then return espDrawings[plr] end
+
+    local box = Drawing.new("Square")
+    box.Thickness = 1
+    box.Filled = false
+    box.Transparency = 1
+    box.Color = Color3.fromRGB(255, 255, 255)
+    box.Visible = false
+
+    local name = Drawing.new("Text")
+    name.Size = 14
+    name.Center = true
+    name.Outline = true
+    name.OutlineColor = Color3.new(0, 0, 0)
+    name.Color = Color3.fromRGB(255, 255, 255)
+    name.Visible = false
+
+    local dist = Drawing.new("Text")
+    dist.Size = 12
+    dist.Center = true
+    dist.Outline = true
+    dist.OutlineColor = Color3.new(0, 0, 0)
+    dist.Color = Color3.fromRGB(255, 255, 255)
+    dist.Visible = false
+
+    espDrawings[plr] = { Box = box, Name = name, Dist = dist }
+    return espDrawings[plr]
+end
+
+local function UpdateESP()
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then
-            local char = getChar(plr)
-            if char then
-                local role = getRole(plr)
-                local data = espCache[plr]
+        if plr == LP then continue end
+        local char, hrp, hum = getChar(plr)
+        local data = espDrawings[plr]
+        
+        if char and CFG.ESP then
+            data = data or GetBox(plr)
+            local role = getRole(plr)
+            
+            local pos, onScreen = Cam:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    local headPos = Cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+                    local legPos = Cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                    
+                    local height = math.abs(headPos.Y - legPos.Y)
+                    local width = height / 2
+                    
+                    data.Box.Size = Vector2.new(width, height)
+                    data.Box.Position = Vector2.new(pos.X - width/2, pos.Y - height/2)
+                    data.Box.Visible = true
 
-                if not data or data.Char ~= char then
-                    if data and data.Highlight then data.Highlight:Destroy() end
-                    if data and data.Billboard then data.Billboard:Destroy() end
+                    if role == "Murderer" then
+                        data.Box.Color = Color3.fromRGB(255, 50, 50)
+                        data.Name.Color = Color3.fromRGB(255, 50, 50)
+                    elseif role == "Sheriff" then
+                        data.Box.Color = Color3.fromRGB(50, 150, 255)
+                        data.Name.Color = Color3.fromRGB(50, 150, 255)
+                    else
+                        data.Box.Color = Color3.fromRGB(50, 255, 50)
+                        data.Name.Color = Color3.fromRGB(50, 255, 50)
+                    end
+
+                    data.Name.Text = plr.Name .. " [" .. role .. "]"
+                    data.Name.Position = Vector2.new(pos.X, pos.Y - height/2 - 16)
+                    data.Name.Visible = true
                     
-                    local hl = Instance.new("Highlight")
-                    hl.FillTransparency = 0.6
-                    hl.OutlineTransparency = 0
-                    hl.Parent = char
-                    
-                    local bb = Instance.new("BillboardGui")
-                    bb.Size = UDim2.new(0, 200, 0, 50)
-                    bb.StudsOffset = Vector3.new(0, 2.5, 0)
-                    bb.AlwaysOnTop = true
-                    bb.Parent = char.Head or char.HumanoidRootPart
-                    
-                    local txt = Instance.new("TextLabel")
-                    txt.Size = UDim2.new(1, 0, 1, 0)
-                    txt.BackgroundTransparency = 1
-                    txt.Font = Enum.Font.GothamBold
-                    txt.TextSize = 14
-                    txt.TextStrokeTransparency = 0
-                    txt.Parent = bb
-                    
-                    data = {Char = char, Highlight = hl, Billboard = bb, Text = txt}
-                    espCache[plr] = data
+                    local distance = math.floor((hrp.Position - Cam.CFrame.Position).Magnitude)
+                    data.Dist.Text = tostring(distance) .. "m"
+                    data.Dist.Position = Vector2.new(pos.X, pos.Y + height/2 + 2)
+                    data.Dist.Visible = true
                 end
-                
-                local roleColor = Color3.fromRGB(80, 200, 120)
-                if role == "Murderer" then roleColor = Color3.fromRGB(220, 60, 60) 
-                elseif role == "Sheriff" then roleColor = Color3.fromRGB(60, 140, 255) end
-                
-                data.Highlight.Enabled = true
-                data.Highlight.FillColor = roleColor
-                data.Highlight.OutlineColor = roleColor
-                
-                data.Billboard.Enabled = true
-                data.Text.Text = role
-                data.Text.TextColor3 = roleColor
+            else
+                data.Box.Visible = false
+                data.Name.Visible = false
+                data.Dist.Visible = false
+            end
+        else
+            if data then
+                data.Box.Visible = false
+                data.Name.Visible = false
+                data.Dist.Visible = false
             end
         end
     end
 end
-RunService.RenderStepped:Connect(updateESP)
+RunService.RenderStepped:Connect(UpdateESP)
 
--- 2. Auto Farm (Плавный полет к монетам)
+-- ============ OTHER FUNCTIONS ============
+-- (AutoFarm, SilentAim, Aimbot, Noclip, Speed, Fly - оставляем как было)
 local farmBV, farmBG
 local function toggleFarm(on)
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     if on then
         if not farmBV then
-            farmBV = Instance.new("BodyVelocity")
-            farmBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-            farmBV.Parent = hrp
-            farmBG = Instance.new("BodyGyro")
-            farmBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-            farmBG.P = 1000
-            farmBG.Parent = hrp
+            farmBV = Instance.new("BodyVelocity"); farmBV.MaxForce = Vector3.new(1e5, 1e5, 1e5); farmBV.Parent = hrp
+            farmBG = Instance.new("BodyGyro"); farmBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5); farmBG.P = 1000; farmBG.Parent = hrp
         end
     else
         if farmBV then farmBV:Destroy(); farmBV = nil end
@@ -150,12 +179,9 @@ RunService.Heartbeat:Connect(function()
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    
     if not farmBV then toggleFarm(true) end
-    
     local main = LP.PlayerGui:FindFirstChild("MainGUI")
     local bags = main and ((main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")))
-    
     if bags then
         local closest, dist = nil, 100
         for _, bag in ipairs(bags:GetChildren()) do
@@ -164,17 +190,13 @@ RunService.Heartbeat:Connect(function()
                 if d < dist then dist = d; closest = bag end
             end
         end
-        
         if closest then
-            local targetPos = closest.Position
-            local dir = (targetPos - hrp.Position).Unit
-            farmBV.Velocity = dir * 50
-            farmBG.CFrame = CFrame.new(hrp.Position, targetPos)
+            farmBV.Velocity = (closest.Position - hrp.Position).Unit * 50
+            farmBG.CFrame = CFrame.new(hrp.Position, closest.Position)
         end
     end
 end)
 
--- 3. Silent Aim (В голову)
 local mt = getrawmetatable(game)
 local oldIndex = mt.__index
 setreadonly(mt, false)
@@ -205,7 +227,6 @@ mt.__index = newcclosure(function(self, key)
 end)
 setreadonly(mt, true)
 
--- 4. Aimbot (Плавный)
 local aimTarget = nil
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
@@ -232,7 +253,6 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 5. Movement (Speed / Noclip / Fly)
 local noclipConn
 local function setNoclip(on)
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
@@ -260,10 +280,8 @@ local function setFly(on)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     flyBV = Instance.new("BodyVelocity"); flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5); flyBV.Velocity = Vector3.zero; flyBV.Parent = hrp
     flyBG = Instance.new("BodyGyro"); flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5); flyBG.P = 1000; flyBG.Parent = hrp
-
     flyConn = RunService.RenderStepped:Connect(function()
         local move = Vector3.zero
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -279,7 +297,7 @@ local function setFly(on)
     end)
 end
 
--- ============ PREMIUM UI ============
+-- ============ UI (Reference Style) ============
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LiberiumHub_UI"
 ScreenGui.ResetOnSpawn = false
@@ -290,260 +308,272 @@ if not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Size = UDim2.new(0, 50, 0, 50)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
-IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+IconBtn.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
 IconBtn.BorderSizePixel = 0
 IconBtn.AutoButtonColor = false
 IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
 IconBtn.Parent = ScreenGui
-
 local UICorner = Instance.new("UICorner"); UICorner.CornerRadius = UDim.new(0, 12); UICorner.Parent = IconBtn
-local UIStroke = Instance.new("UIStroke"); UIStroke.Color = Color3.fromRGB(0, 255, 102); UIStroke.Thickness = 2; UIStroke.Parent = IconBtn
+local UIStroke = Instance.new("UIStroke"); UIStroke.Color = Color3.fromRGB(255, 255, 255); UIStroke.Thickness = 1; UIStroke.Transparency = 0.5; UIStroke.Parent = IconBtn
 
--- 2. Главное окно (Glassmorphism стиль)
+-- 2. Меню
 local MenuFrame = Instance.new("Frame")
-MenuFrame.Size = UDim2.new(0, 450, 0, 320)
-MenuFrame.Position = UDim2.new(0.5, -225, 0.5, -160)
-MenuFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-MenuFrame.BackgroundTransparency = 0.1
+MenuFrame.Size = UDim2.new(0, 580, 0, 380)
+MenuFrame.Position = UDim2.new(0.5, -290, 0.5, -190)
+MenuFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
 MenuFrame.BorderSizePixel = 0
 MenuFrame.Visible = false
 MenuFrame.Parent = ScreenGui
+local MenuCorner = Instance.new("UICorner"); MenuCorner.CornerRadius = UDim.new(0, 8); MenuCorner.Parent = MenuFrame
+local MenuStroke = Instance.new("UIStroke"); MenuStroke.Color = Color3.fromRGB(30, 30, 30); MenuStroke.Thickness = 2; MenuStroke.Parent = MenuFrame
 
-local MenuCorner = Instance.new("UICorner"); MenuCorner.CornerRadius = UDim.new(0, 12); MenuCorner.Parent = MenuFrame
-local MenuStroke = Instance.new("UIStroke"); MenuStroke.Color = Color3.fromRGB(0, 255, 102); MenuStroke.Thickness = 1.5; MenuStroke.Transparency = 0.5; MenuStroke.Parent = MenuFrame
-local MenuGradient = Instance.new("UIGradient"); MenuGradient.Color = ColorSequence.new(Color3.fromRGB(20, 20, 20), Color3.fromRGB(10, 10, 10)); MenuGradient.Parent = MenuFrame
-
--- 3. Боковая панель (Вкладки)
+-- 3. Sidebar (Левая панель)
 local SideBar = Instance.new("Frame")
-SideBar.Size = UDim2.new(0, 120, 1, 0)
-SideBar.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
-SideBar.BackgroundTransparency = 0.2
+SideBar.Size = UDim2.new(0, 150, 1, 0)
+SideBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 SideBar.BorderSizePixel = 0
 SideBar.Parent = MenuFrame
-local SideCorner = Instance.new("UICorner"); SideCorner.CornerRadius = UDim.new(0, 12); SideCorner.Parent = SideBar
+local SideCorner = Instance.new("UICorner"); SideCorner.CornerRadius = UDim.new(0, 8); SideCorner.Parent = SideBar
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.Position = UDim2.new(0, 0, 0, 10)
-Title.BackgroundTransparency = 1
-Title.Text = "Liberium"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 18
-Title.Parent = SideBar
+-- Логотип в меню (Буква S)
+local SLogo = Instance.new("TextLabel")
+SLogo.Size = UDim2.new(1, 0, 0, 60)
+SLogo.BackgroundTransparency = 1
+SLogo.Text = "L" -- Первая буква Liberium
+SLogo.TextColor3 = Color3.fromRGB(255, 255, 255)
+SLogo.Font = Enum.Font.GothamBlack
+SLogo.TextSize = 40
+SLogo.Parent = SideBar
 
--- Контейнер вкладок
-local TabHolder = Instance.new("Frame")
-TabHolder.Size = UDim2.new(1, -20, 1, -60)
-TabHolder.Position = UDim2.new(0, 10, 0, 50)
+-- Поиск (Иконка)
+local SearchBtn = Instance.new("TextButton")
+SearchBtn.Size = UDim2.new(0, 130, 0, 25)
+SearchBtn.Position = UDim2.new(0, 10, 1, -35)
+SearchBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+SearchBtn.Text = "🔍 Search"
+SearchBtn.TextColor3 = Color3.fromRGB(100, 100, 100)
+SearchBtn.Font = Enum.Font.Gotham
+SearchBtn.TextSize = 12
+SearchBtn.Parent = SideBar
+local SeC = Instance.new("UICorner"); SeC.CornerRadius = UDim.new(0, 4); SeC.Parent = SearchBtn
+
+-- Меню вкладок (Скроллинг)
+local TabHolder = Instance.new("ScrollingFrame")
+TabHolder.Size = UDim2.new(1, -20, 1, -140)
+TabHolder.Position = UDim2.new(0, 10, 0, 60)
 TabHolder.BackgroundTransparency = 1
+TabHolder.BorderSizePixel = 0
+TabHolder.ScrollBarThickness = 0
 TabHolder.Parent = SideBar
-Instance.new("UIListLayout", TabHolder).Padding = UDim.new(0, 5)
+Instance.new("UIListLayout", TabHolder).Padding = UDim.new(0, 2)
+
+-- 4. Правая панель (Контент)
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, -150, 1, 0)
+ContentFrame.Position = UDim2.new(0, 150, 0, 0)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MenuFrame
+
+-- Заголовок Правой панели
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 40)
+Header.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Header.BorderSizePixel = 0
+Header.Parent = ContentFrame
+local HCorner = Instance.new("UICorner"); HCorner.CornerRadius = UDim.new(0, 8); HCorner.Parent = Header
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -20, 1, 0)
+TitleText.Position = UDim2.new(0, 15, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "misc"
+TitleText.TextColor3 = Color3.fromRGB(200, 200, 200)
+TitleText.Font = Enum.Font.GothamSemibold
+TitleText.TextSize = 14
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = Header
+
+-- Кнопка закрытия
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 16
+CloseBtn.Parent = Header
+CloseBtn.MouseButton1Click:Connect(function()
+    CFG.MenuOpen = false
+    MenuFrame.Visible = false
+    UIStroke.Color = Color3.fromRGB(255, 255, 255)
+end)
+
+-- Контейнер для страниц
+local PageHolder = Instance.new("Frame")
+PageHolder.Size = UDim2.new(1, -30, 1, -50)
+PageHolder.Position = UDim2.new(0, 15, 0, 45)
+PageHolder.BackgroundTransparency = 1
+PageHolder.Parent = ContentFrame
 
 local Pages = {}
 local ActiveTab = nil
 
--- Функция создания вкладки
-local function CreateTab(name, layoutOrder)
+local function CreateTab(name, layoutOrder, titleText)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.Size = UDim2.new(1, 0, 0, 28)
     btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    btn.BackgroundTransparency = 0.5
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    btn.BackgroundTransparency = 1
+    btn.Text = "  📁 " .. name
+    btn.TextColor3 = Color3.fromRGB(120, 120, 120)
     btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 14
+    btn.TextSize = 13
+    btn.TextXAlignment = Enum.TextXAlignment.Left
     btn.LayoutOrder = layoutOrder
     btn.AutoButtonColor = false
     btn.Parent = TabHolder
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 4); c.Parent = btn
     
     local page = Instance.new("ScrollingFrame")
-    page.Size = UDim2.new(1, -130, 1, -20)
-    page.Position = UDim2.new(0, 125, 0, 10)
+    page.Size = UDim2.new(1, 0, 1, 0)
     page.BackgroundTransparency = 1
     page.BorderSizePixel = 0
     page.ScrollBarThickness = 2
-    page.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 102)
+    page.ScrollBarImageColor3 = Color3.fromRGB(50, 50, 50)
     page.Visible = false
     page.CanvasSize = UDim2.new(0, 0, 0, 0)
     page.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    page.Parent = MenuFrame
-    Instance.new("UIListLayout", page).Padding = UDim.new(0, 8)
+    page.Parent = PageHolder
     
-    Pages[name] = { Button = btn, Page = page }
+    local UIGrid = Instance.new("UIGridLayout", page)
+    UIGrid.CellSize = UDim2.new(0.5, -5, 0, 30)
+    UIGrid.CellPadding = UDim2.new(0, 10, 0, 10)
+    
+    Pages[name] = { Button = btn, Page = page, Title = titleText }
     
     btn.MouseButton1Click:Connect(function()
         for _, p in pairs(Pages) do
             p.Page.Visible = false
-            TweenService:Create(p.Button, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(150, 150, 150), BackgroundTransparency = 0.5}):Play()
+            TweenService:Create(p.Button, TweenInfo.new(0.1), {TextColor3 = Color3.fromRGB(120, 120, 120), BackgroundTransparency = 1}):Play()
         end
         page.Visible = true
-        btn.TextColor3 = Color3.fromRGB(0, 255, 102)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
         btn.BackgroundTransparency = 0
+        TitleText.Text = titleText
         ActiveTab = name
     end)
     
     if not ActiveTab then
         ActiveTab = name
         page.Visible = true
-        btn.TextColor3 = Color3.fromRGB(0, 255, 102)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
         btn.BackgroundTransparency = 0
+        TitleText.Text = titleText
     end
 end
 
--- 4. Элементы (Кнопки и Слайдеры)
-local function CreateToggle(parent, text, default, callback)
+-- Квадратный чекбокс (как на фото)
+local function CreateCheckbox(parent, text, default, callback)
     local isOn = default
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -10, 0, 35)
-    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    btn.Text = "  " .. text
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.BackgroundTransparency = 1
+    btn.Text = "     " .. text
+    btn.TextColor3 = isOn and Color3.fromRGB(200, 200, 200) or Color3.fromRGB(100, 100, 100)
     btn.Font = Enum.Font.Gotham
     btn.TextSize = 13
     btn.TextXAlignment = Enum.TextXAlignment.Left
     btn.AutoButtonColor = false
     btn.Parent = parent
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
     
-    local indBg = Instance.new("Frame")
-    indBg.Size = UDim2.new(0, 30, 0, 14)
-    indBg.Position = UDim2.new(1, -40, 0.5, -7)
-    indBg.BackgroundColor3 = isOn and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(50, 50, 50)
-    indBg.Parent = btn
-    local indC = Instance.new("UICorner"); indC.CornerRadius = UDim.new(1, 0); indC.Parent = indBg
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 14, 0, 14)
+    box.Position = UDim2.new(0, 5, 0.5, -7)
+    box.BackgroundColor3 = isOn and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(30, 30, 30)
+    box.Parent = btn
+    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(0, 3); bc.Parent = box
     
-    local circle = Instance.new("Frame")
-    circle.Size = UDim2.new(0, 10, 0, 10)
-    circle.Position = isOn and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)
-    circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    circle.Parent = indBg
-    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(1, 0); cc.Parent = circle
+    local tick = Instance.new("TextLabel")
+    tick.Size = UDim2.new(1, 0, 1, 0)
+    tick.BackgroundTransparency = 1
+    tick.Text = "✓"
+    tick.TextColor3 = Color3.fromRGB(10, 10, 10)
+    tick.Font = Enum.Font.GothamBlack
+    tick.TextSize = 12
+    tick.Visible = isOn
+    tick.Parent = box
     
     btn.MouseButton1Click:Connect(function()
         isOn = not isOn
-        TweenService:Create(indBg, TweenInfo.new(0.2), {BackgroundColor3 = isOn and Color3.fromRGB(0, 255, 102) or Color3.fromRGB(50, 50, 50)}):Play()
-        TweenService:Create(circle, TweenInfo.new(0.2), {Position = isOn and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)}):Play()
+        tick.Visible = isOn
+        TweenService:Create(box, TweenInfo.new(0.1), {BackgroundColor3 = isOn and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(30, 30, 30)}):Play()
+        btn.TextColor3 = isOn and Color3.fromRGB(200, 200, 200) or Color3.fromRGB(100, 100, 100)
         callback(isOn)
     end)
 end
 
-local function CreateSlider(parent, text, min, max, default, callback)
-    local val = default
-    local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(1, -10, 0, 50)
-    holder.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    holder.Parent = parent
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = holder
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -10, 0, 20)
-    lbl.Position = UDim2.new(0, 10, 0, 5)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = text .. ": " .. val
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 12
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = holder
-    
-    local barBg = Instance.new("Frame")
-    barBg.Size = UDim2.new(1, -20, 0, 6)
-    barBg.Position = UDim2.new(0, 10, 0, 30)
-    barBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    barBg.Parent = holder
-    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = barBg
-    
-    local barFill = Instance.new("Frame")
-    barFill.Size = UDim2.new((val-min)/(max-min), 0, 1, 0)
-    barFill.BackgroundColor3 = Color3.fromRGB(0, 255, 102)
-    barFill.Parent = barBg
-    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1, 0); fc.Parent = barFill
-    
-    local dragging = false
-    barBg.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true end
-    end)
-    UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+-- Функция создания вкладок
+CreateTab("tools", 1, "tools")
+CreateTab("visuals", 2, "visuals")
+CreateTab("movement", 3, "movement")
+CreateTab("farm", 4, "farm")
+
+-- Заполнение вкладки Tools
+local t = Pages["tools"].Page
+local layout = t:FindFirstChildOfClass("UIGridLayout")
+layout.CellSize = UDim2.new(1, 0, 0, 30) -- На всю ширину для чекбоксов
+CreateCheckbox(t, "silent aim", CFG.SilentAim, function(v) CFG.SilentAim = v end)
+CreateCheckbox(t, "aimbot", CFG.Aimbot, function(v) CFG.Aimbot = v end)
+
+-- Заполнение Visuals
+local v = Pages["visuals"].Page
+local layout2 = v:FindFirstChildOfClass("UIGridLayout")
+layout2.CellSize = UDim2.new(1, 0, 0, 30)
+CreateCheckbox(v, "box esp", CFG.ESPBox, function(val) CFG.ESPBox = val end)
+CreateCheckbox(v, "name esp", CFG.ESPName, function(val) CFG.ESPName = val end)
+CreateCheckbox(v, "main esp", CFG.ESP, function(val) CFG.ESP = val end)
+
+-- Заполнение Movement
+local m = Pages["movement"].Page
+local layout3 = m:FindFirstChildOfClass("UIGridLayout")
+layout3.CellSize = UDim2.new(1, 0, 0, 30)
+CreateCheckbox(m, "noclip", CFG.Noclip, function(val) CFG.Noclip = val; setNoclip(val) end)
+CreateCheckbox(m, "speed", CFG.Speed, function(val) CFG.Speed = val end)
+CreateCheckbox(m, "fly", CFG.Fly, function(val) CFG.Fly = val; setFly(val) end)
+
+-- Заполнение Farm
+local f = Pages["farm"].Page
+local layout4 = f:FindFirstChildOfClass("UIGridLayout")
+layout4.CellSize = UDim2.new(1, 0, 0, 30)
+CreateCheckbox(f, "auto farm", CFG.AutoFarm, function(val) CFG.AutoFarm = val; toggleFarm(val) end)
+
+-- 5. Перетаскивание Окна
+local draggingMenu, dragStartMenu, startPosMenu
+local function makeDraggable(frame, holder)
+    holder.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            draggingMenu = true
+            dragStartMenu = input.Position
+            startPosMenu = frame.Position
+        end
     end)
     UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local mouseX = input.Position.X
-            local barX = barBg.AbsolutePosition.X
-            local barW = barBg.AbsoluteSize.X
-            local percent = math.clamp((mouseX - barX) / barW, 0, 1)
-            val = math.floor(min + (max - min) * percent)
-            barFill.Size = UDim2.new(percent, 0, 1, 0)
-            lbl.Text = text .. ": " .. val
-            callback(val)
+        if draggingMenu and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStartMenu
+            frame.Position = UDim2.new(startPosMenu.X.Scale, startPosMenu.X.Offset + delta.X, startPosMenu.Y.Scale, startPosMenu.Y.Offset + delta.Y)
         end
     end)
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingMenu = false end
+    end)
 end
+makeDraggable(MenuFrame, Header)
 
--- 5. Заполнение вкладок
-CreateTab("Combat", 1)
-CreateToggle(Pages["Combat"].Page, "Silent Aim (Пистолет)", CFG.SilentAim, function(v) CFG.SilentAim = v end)
-CreateToggle(Pages["Combat"].Page, "Aimbot (ПКМ/Тап)", CFG.Aimbot, function(v) CFG.Aimbot = v end)
-
-CreateTab("Visuals", 2)
-CreateToggle(Pages["Visuals"].Page, "Player ESP (Роли)", CFG.ESP, function(v) CFG.ESP = v end)
-
-CreateTab("Movement", 3)
-CreateToggle(Pages["Movement"].Page, "Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
-CreateToggle(Pages["Movement"].Page, "Speed", CFG.Speed, function(v) CFG.Speed = v end)
-CreateSlider(Pages["Movement"].Page, "Speed Value", 16, 150, 35, function(v) CFG.SpeedVal = v end)
-CreateToggle(Pages["Movement"].Page, "Fly", CFG.Fly, function(v) CFG.Fly = v; setFly(v) end)
-
-CreateTab("Farm", 4)
-CreateToggle(Pages["Farm"].Page, "Auto Farm (Монеты)", CFG.AutoFarm, function(v) CFG.AutoFarm = v; toggleFarm(v) end)
-
--- 6. Перетаскивание Меню
-local draggingMenu, dragStartMenu, startPosMenu
-Title.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingMenu = true
-        dragStartMenu = input.Position
-        startPosMenu = MenuFrame.Position
-    end
-end)
-UIS.InputChanged:Connect(function(input)
-    if draggingMenu and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStartMenu
-        MenuFrame.Position = UDim2.new(startPosMenu.X.Scale, startPosMenu.X.Offset + delta.X, startPosMenu.Y.Scale, startPosMenu.Y.Offset + delta.Y)
-    end
-end)
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingMenu = false end
-end)
-
--- 7. Перетаскивание Иконки
-local draggingIcon, dragStartIcon, startPosIcon
-IconBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingIcon = true
-        dragStartIcon = input.Position
-        startPosIcon = IconBtn.Position
-        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end end)
-    end
-end)
-IconBtn.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        if draggingIcon then
-            local delta = input.Position - dragStartIcon
-            IconBtn.Position = UDim2.new(startPosIcon.X.Scale, startPosIcon.X.Offset + delta.X, startPosIcon.Y.Scale, startPosIcon.Y.Offset + delta.Y)
-        end
-    end
-end)
-
--- 8. Открытие/Закрытие
+-- 6. Открытие меню по клику
 IconBtn.MouseButton1Click:Connect(function()
     task.delay(0.1, function()
-        if not draggingIcon then
-            CFG.MenuOpen = not CFG.MenuOpen
-            MenuFrame.Visible = CFG.MenuOpen
-            UIStroke.Color = CFG.MenuOpen and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(0, 255, 102)
-        end
+        CFG.MenuOpen = not CFG.MenuOpen
+        MenuFrame.Visible = CFG.MenuOpen
+        UIStroke.Color = CFG.MenuOpen and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(255, 255, 255)
     end)
 end)
