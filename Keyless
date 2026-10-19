@@ -1,47 +1,56 @@
 -- LiberiumHub
+-- Чистый код на основе функций из сурса KITI/Pulse
 -- Поддержка: PC + Mobile (Arceus X, Delta, Xeno, Solara)
 
 if game.PlaceId ~= 142823291 then
-    warn("[LiberiumHub] запусти в Murder Mystery 2")
+    warn("[LiberiumHub] Запусти в Murder Mystery 2")
     return
 end
 
+-- ВСТАВЬ СЮДА ID СВОЕГО ЛОГОТИПА (только цифры)
+local LOGO_ID = 121242999666621 
+
 -- ============ CONFIG ============
 local CFG = {
-    ESP       = false,
-    ESPColor  = { Innocent = Color3.fromRGB(80, 200, 120), Murderer = Color3.fromRGB(220, 60, 60), Sheriff = Color3.fromRGB(60, 140, 255) },
-    AutoFarm  = false,
+    ESP = false,
+    ESPBox = false,
+    ESPBeam = false,
+    AutoFarm = false,
     SilentAim = false,
-    Aimbot    = false,
-    Noclip    = false,
-    Speed     = false,
-    SpeedVal  = 60,
-    Fly       = false,
-    MenuOpen  = false,
+    Aimbot = false,
+    Noclip = false,
+    Speed = false,
+    SpeedVal = 40,
+    Fly = false,
+    MenuOpen = false,
 }
 
--- ВСТАВЬ СЮДА ID СВОЕГО ЛОГОТИПА (только цифры)
-local LOGO_ID = 1234567890 -- <-- ЗАМЕНИ НА СВОЙ ID
-
 -- ============ SERVICES ============
-local Players    = game:GetService("Players")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS        = game:GetService("UserInputService")
-local LP         = Players.LocalPlayer
-local Cam        = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("ReplicatedStorage")
+local LP = Players.LocalPlayer
+local Cam = workspace.CurrentCamera
 
--- ============ HELPERS ============
-local function getRole(plr)
-    local ok, role = pcall(function() return plr:GetAttribute("Role") end)
-    if ok and role then return role end
-    local char = plr.Character
-    if not char then return nil end
-    for _, t in ipairs(char:GetChildren()) do
-        if t:IsA("Tool") then
-            if t.Name:find("Knife") then return "Murderer" end
-            if t.Name:find("Gun") then return "Sheriff" end
+-- ============ ROLES (Из сурса KITI) ============
+local roles = {}
+local function setRoles()
+    local getData = RS:FindFirstChild("GetPlayerData", true)
+    if getData and getData:IsA("RemoteFunction") then
+        local success, data = pcall(function() return getData:InvokeServer() end)
+        if success and type(data) == "table" then
+            roles = data
         end
     end
+end
+task.spawn(function()
+    while task.wait(5) do setRoles() end
+end)
+
+local function getRole(plr)
+    local roleData = roles[plr.Name]
+    if roleData then return roleData.Role or roleData[1] end
     return "Innocent"
 end
 
@@ -60,19 +69,25 @@ local function applyESP(plr)
     if plr == LP then return end
     local char = getChar(plr)
     if not char then return end
+    local role = getRole(plr)
+    
     local hl = espCache[plr]
     if not hl or hl.Parent ~= char then
         if hl then hl:Destroy() end
         hl = Instance.new("Highlight")
-        hl.Name = "LiberiumHub_ESP"
         hl.FillTransparency = 0.5
         hl.OutlineTransparency = 0
-        hl.OutlineColor = Color3.new(0, 0, 0)
         hl.Parent = char
         espCache[plr] = hl
     end
-    local role = getRole(plr) or "Innocent"
-    hl.FillColor = CFG.ESPColor[role] or CFG.ESPColor.Innocent
+    
+    if role == "Murderer" then
+        hl.FillColor = Color3.fromRGB(220, 60, 60)
+    elseif role == "Sheriff" then
+        hl.FillColor = Color3.fromRGB(60, 140, 255)
+    else
+        hl.FillColor = Color3.fromRGB(80, 200, 120)
+    end
     hl.Enabled = CFG.ESP
 end
 
@@ -158,6 +173,19 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ============ AUTO FARM ============
+local function getCoinBags()
+    local gui = LP.PlayerGui
+    local main = gui:FindFirstChild("MainGUI")
+    if not main then return {} end
+    local lobby = main:FindFirstChild("Lobby")
+    local gameFolder = main:FindFirstChild("Game")
+    local bags = (lobby and lobby:FindFirstChild("CoinBags")) or (gameFolder and gameFolder:FindFirstChild("CoinBags"))
+    if bags then
+        return bags:GetChildren()
+    end
+    return {}
+end
+
 RunService.Heartbeat:Connect(function()
     if not CFG.AutoFarm then return end
     local char = LP.Character
@@ -165,19 +193,15 @@ RunService.Heartbeat:Connect(function()
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") and obj.Enabled then
-            local part = obj.Parent
-            if part and part:IsA("BasePart") then
-                if (part.Position - hrp.Position).Magnitude < 30 then
-                    pcall(function() fireproximityprompt(obj) end)
-                end
-            end
+    for _, bag in ipairs(getCoinBags()) do
+        if bag:IsA("BasePart") then
+            hrp.CFrame = CFrame.new(bag.Position + Vector3.new(0, 3, 0))
+            task.wait(0.1)
         end
     end
 end)
 
--- ============ NOCLIP / SPEED / FLY ============
+-- ============ MOVEMENT ============
 local noclipConn
 local function setNoclip(on)
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
@@ -221,22 +245,21 @@ local function setFly(on)
     flyBG.Parent = hrp
 
     flyConn = RunService.RenderStepped:Connect(function()
-        local cam = workspace.CurrentCamera
         local move = Vector3.zero
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then hum.PlatformStand = true end
-        if UIS:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.W) then move += Cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then move -= Cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then move -= Cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then move += Cam.CFrame.RightVector end
         if UIS:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
         if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0, 1, 0) end
         flyBV.Velocity = move * 60
-        flyBG.CFrame = cam.CFrame
+        flyBG.CFrame = Cam.CFrame
     end)
 end
 
--- ============ UI (Slate + Кастомная иконка) ============
+-- ============ UI (Slate) ============
 local SLATE_URL = "https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"
 local Slate = loadstring(game:HttpGet(SLATE_URL), "@Slate")()
 
@@ -245,8 +268,8 @@ pcall(function() Slate:PreloadIcons({ "lucide" }) end)
 
 local Window = Slate:CreateWindow({
     Name = "LiberiumHub",
-    Subtitle = "script loader",
-    Icon = "shield", 
+    Subtitle = "MM2 Edition",
+    Icon = "shield",
     Logo = true,
     Size = UDim2.fromOffset(500, 400),
     ToggleKey = Enum.KeyCode.RightShift,
@@ -254,83 +277,45 @@ local Window = Slate:CreateWindow({
 pcall(function() Slate.Theme.Preset("Ash") end)
 pcall(function() Window:SetBackdrop("aurora") end)
 
--- Скрываем окно при старте (разными способами для разных версий Slate)
+-- Скрываем окно при старте
 pcall(function() Window:Close() end)
-pcall(function() Window:Toggle(false) end)
 
 local Tab = Window:CreateTab({ Name = "Main", Icon = "layout-grid" })
 
 local espSec = Tab:CreateSection({ Name = "Visuals" })
-espSec:Toggle({
-    Name = "Player ESP (роли)",
-    Default = false,
-    Callback = function(v)
-        CFG.ESP = v
-        if not v then clearESP() end
-    end,
-})
+espSec:Toggle({ Name = "Player ESP (Роли)", Default = false, Callback = function(v) CFG.ESP = v; if not v then clearESP() end end })
+espSec:Toggle({ Name = "Box ESP (Скоро)", Default = false, Callback = function(v) end })
 
 local combatSec = Tab:CreateSection({ Name = "Combat" })
-combatSec:Toggle({
-    Name = "Silent Aim (пистолет)",
-    Default = false,
-    Callback = function(v) CFG.SilentAim = v end,
-})
-combatSec:Toggle({
-    Name = "Aimbot (ПКМ/Тап, только Murderer/Sheriff)",
-    Default = false,
-    Callback = function(v) CFG.Aimbot = v end,
-})
+combatSec:Toggle({ Name = "Silent Aim (Пистолет)", Default = false, Callback = function(v) CFG.SilentAim = v end })
+combatSec:Toggle({ Name = "Aimbot (ПКМ/Тап на Murderer/Sheriff)", Default = false, Callback = function(v) CFG.Aimbot = v end })
 
 local moveSec = Tab:CreateSection({ Name = "Movement" })
-moveSec:Toggle({
-    Name = "Noclip",
-    Default = false,
-    Callback = function(v) CFG.Noclip = v; setNoclip(v) end,
-})
-moveSec:Toggle({
-    Name = "Speed",
-    Default = false,
-    Callback = function(v) CFG.Speed = v end,
-})
-moveSec:Slider({
-    Name = "Speed Value",
-    Min = 16, Max = 150, Default = 60,
-    Callback = function(v) CFG.SpeedVal = v end,
-})
-moveSec:Toggle({
-    Name = "Fly (WASD/Стик)",
-    Default = false,
-    Callback = function(v) CFG.Fly = v; setFly(v) end,
-})
+moveSec:Toggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v; setNoclip(v) end })
+moveSec:Toggle({ Name = "Speed", Default = false, Callback = function(v) CFG.Speed = v end })
+moveSec:Slider({ Name = "Speed Value", Min = 16, Max = 150, Default = 40, Callback = function(v) CFG.SpeedVal = v end })
+moveSec:Toggle({ Name = "Fly (WASD / Стик)", Default = false, Callback = function(v) CFG.Fly = v; setFly(v) end })
 
 local farmSec = Tab:CreateSection({ Name = "Farm" })
-farmSec:Toggle({
-    Name = "Auto Farm (prompt'ы)",
-    Default = false,
-    Callback = function(v) CFG.AutoFarm = v end,
-})
+farmSec:Toggle({ Name = "Auto Farm (Монеты)", Default = false, Callback = function(v) CFG.AutoFarm = v end })
 
--- ============ МАЛЕНЬКАЯ ИКОНКА-КНОПКА ============
+-- ============ КАСТОМНАЯ ИКОНКА ============
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LiberiumHub_Icon"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Защита от падения при отсутствии CoreGui (Arceus X / Delta)
-local success, err = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not success or not ScreenGui.Parent then
+local s, e = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
+if not s or not ScreenGui.Parent then
     ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 end
 
-local IconBtn = Instance.new("ImageButton") -- Меняем TextButton на ImageButton
+local IconBtn = Instance.new("ImageButton")
 IconBtn.Name = "LiberiumIcon"
 IconBtn.Size = UDim2.new(0, 50, 0, 50)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
 IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 IconBtn.BorderSizePixel = 0
 IconBtn.AutoButtonColor = false
--- Если ID валидный, будет картинка. Если нет — Roblox сам покажет крестик/вопрос.
 IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
 IconBtn.Parent = ScreenGui
 
@@ -343,28 +328,23 @@ UIStroke.Color = Color3.fromRGB(0, 255, 102)
 UIStroke.Thickness = 2
 UIStroke.Parent = IconBtn
 
--- Перетаскивание иконки (работает и на ПК, и на мобилках)
+-- Перетаскивание
 local dragging, dragInput, dragStart, startPos
 IconBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = IconBtn.Position
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
-
 IconBtn.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         dragInput = input
     end
 end)
-
 UIS.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
         local delta = input.Position - dragStart
@@ -372,451 +352,30 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Логика открытия/закрытия меню (фикс для мобилок)
+-- Открытие/закрытие
 local function toggleMenu()
     if not CFG.MenuOpen then
-        local ok = pcall(function() Window:Open() end)
-        if not ok then
-            pcall(function() Window:Toggle(true) end)
-        end
+        pcall(function() Window:Open() end)
         CFG.MenuOpen = true
         UIStroke.Color = Color3.fromRGB(255, 60, 60)
     else
-        local ok = pcall(function() Window:Close() end)
-        if not ok then
-            pcall(function() Window:Toggle(false) end)
-        end
+        pcall(function() Window:Close() end)
         CFG.MenuOpen = false
         UIStroke.Color = Color3.fromRGB(0, 255, 102)
     end
 end
 
--- Срабатывает на тап/клик (InputBegan надежнее для мобилок, чем MouseButton1Click)
 IconBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        -- Небольшая задержка, чтобы отличить клик от перетаскивания
         task.delay(0.1, function()
-            if not dragging then
-                toggleMenu()
-            end
+            if not dragging then toggleMenu() end
         end)
     end
 end)
 
 Slate:Notify({
     Title = "LiberiumHub",
-    Description = "Нажми на иконку 'L' чтобы открыть меню",
-    Icon = "check",
-    Tone = "Success",
-    Duration = 8,
-}) -- LiberiumHub
--- Поддержка: PC + Mobile (Arceus X, Delta, Xeno, Solara)
-
-if game.PlaceId ~= 142823291 then
-    warn("[LiberiumHub] запусти в Murder Mystery 2")
-    return
-end
-
--- ============ CONFIG ============
-local CFG = {
-    ESP       = false,
-    ESPColor  = { Innocent = Color3.fromRGB(80, 200, 120), Murderer = Color3.fromRGB(220, 60, 60), Sheriff = Color3.fromRGB(60, 140, 255) },
-    AutoFarm  = false,
-    SilentAim = false,
-    Aimbot    = false,
-    Noclip    = false,
-    Speed     = false,
-    SpeedVal  = 60,
-    Fly       = false,
-    MenuOpen  = false,
-}
-
--- ВСТАВЬ СЮДА ID СВОЕГО ЛОГОТИПА (только цифры)
-local LOGO_ID = 1234567890 -- <-- ЗАМЕНИ НА СВОЙ ID
-
--- ============ SERVICES ============
-local Players    = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UIS        = game:GetService("UserInputService")
-local LP         = Players.LocalPlayer
-local Cam        = workspace.CurrentCamera
-
--- ============ HELPERS ============
-local function getRole(plr)
-    local ok, role = pcall(function() return plr:GetAttribute("Role") end)
-    if ok and role then return role end
-    local char = plr.Character
-    if not char then return nil end
-    for _, t in ipairs(char:GetChildren()) do
-        if t:IsA("Tool") then
-            if t.Name:find("Knife") then return "Murderer" end
-            if t.Name:find("Gun") then return "Sheriff" end
-        end
-    end
-    return "Innocent"
-end
-
-local function getChar(plr)
-    local c = plr.Character
-    if not c then return nil end
-    local hrp = c:FindFirstChild("HumanoidRootPart")
-    local hum = c:FindFirstChildOfClass("Humanoid")
-    if hrp and hum and hum.Health > 0 then return c, hrp, hum end
-    return nil
-end
-
--- ============ ESP ============
-local espCache = {}
-local function applyESP(plr)
-    if plr == LP then return end
-    local char = getChar(plr)
-    if not char then return end
-    local hl = espCache[plr]
-    if not hl or hl.Parent ~= char then
-        if hl then hl:Destroy() end
-        hl = Instance.new("Highlight")
-        hl.Name = "LiberiumHub_ESP"
-        hl.FillTransparency = 0.5
-        hl.OutlineTransparency = 0
-        hl.OutlineColor = Color3.new(0, 0, 0)
-        hl.Parent = char
-        espCache[plr] = hl
-    end
-    local role = getRole(plr) or "Innocent"
-    hl.FillColor = CFG.ESPColor[role] or CFG.ESPColor.Innocent
-    hl.Enabled = CFG.ESP
-end
-
-local function clearESP()
-    for plr, hl in pairs(espCache) do
-        pcall(function() hl:Destroy() end)
-        espCache[plr] = nil
-    end
-end
-
-RunService.RenderStepped:Connect(function()
-    if not CFG.ESP then
-        for _, hl in pairs(espCache) do hl.Enabled = false end
-        return
-    end
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then applyESP(plr) end
-    end
-end)
-
--- ============ SILENT AIM ============
-local mt = getrawmetatable(game)
-local oldIndex = mt.__index
-setreadonly(mt, false)
-mt.__index = newcclosure(function(self, key)
-    if CFG.SilentAim and (key == "Hit" or key == "Target") then
-        local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
-        if tool and tool.Name:find("Gun") then
-            local closest, dist = nil, math.huge
-            local origin = Cam.CFrame.Position
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LP then
-                    local _, hrp, hum = getChar(plr)
-                    if hrp and hum.Health > 0 then
-                        local d = (hrp.Position - origin).Magnitude
-                        if d < dist then dist = d; closest = hrp end
-                    end
-                end
-            end
-            if closest then
-                if key == "Hit" then return CFrame.new(closest.Position) end
-                if key == "Target" then return closest end
-            end
-        end
-    end
-    return oldIndex(self, key)
-end)
-setreadonly(mt, true)
-
--- ============ AIMBOT ============
-local aimTarget = nil
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if CFG.Aimbot and (input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch) then
-        local best, bd = nil, math.huge
-        local origin = Cam.CFrame.Position
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                local role = getRole(plr)
-                if role == "Murderer" or role == "Sheriff" then
-                    local _, hrp, hum = getChar(plr)
-                    if hrp and hum.Health > 0 then
-                        local d = (hrp.Position - origin).Magnitude
-                        if d < bd then bd = d; best = hrp end
-                    end
-                end
-            end
-        end
-        aimTarget = best
-    end
-end)
-
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
-        aimTarget = nil
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
-    if aimTarget and aimTarget.Parent then
-        Cam.CFrame = CFrame.new(Cam.CFrame.Position, aimTarget.Position)
-    end
-end)
-
--- ============ AUTO FARM ============
-RunService.Heartbeat:Connect(function()
-    if not CFG.AutoFarm then return end
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") and obj.Enabled then
-            local part = obj.Parent
-            if part and part:IsA("BasePart") then
-                if (part.Position - hrp.Position).Magnitude < 30 then
-                    pcall(function() fireproximityprompt(obj) end)
-                end
-            end
-        end
-    end
-end)
-
--- ============ NOCLIP / SPEED / FLY ============
-local noclipConn
-local function setNoclip(on)
-    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
-    if not on then return end
-    noclipConn = RunService.Stepped:Connect(function()
-        local char = LP.Character
-        if char then
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then p.CanCollide = false end
-            end
-        end
-    end)
-end
-
-RunService.Heartbeat:Connect(function()
-    if CFG.Speed then
-        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = CFG.SpeedVal end
-    end
-end)
-
-local flyConn, flyBV, flyBG
-local function setFly(on)
-    if flyConn then flyConn:Disconnect(); flyConn = nil end
-    if flyBV then flyBV:Destroy(); flyBV = nil end
-    if flyBG then flyBG:Destroy(); flyBG = nil end
-    if not on then return end
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    flyBV.Velocity = Vector3.zero
-    flyBV.Parent = hrp
-
-    flyBG = Instance.new("BodyGyro")
-    flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-    flyBG.P = 1000
-    flyBG.Parent = hrp
-
-    flyConn = RunService.RenderStepped:Connect(function()
-        local cam = workspace.CurrentCamera
-        local move = Vector3.zero
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = true end
-        if UIS:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0, 1, 0) end
-        flyBV.Velocity = move * 60
-        flyBG.CFrame = cam.CFrame
-    end)
-end
-
--- ============ UI (Slate + Кастомная иконка) ============
-local SLATE_URL = "https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"
-local Slate = loadstring(game:HttpGet(SLATE_URL), "@Slate")()
-
-pcall(function() Slate.Cleanup() end)
-pcall(function() Slate:PreloadIcons({ "lucide" }) end)
-
-local Window = Slate:CreateWindow({
-    Name = "LiberiumHub",
-    Subtitle = "script loader",
-    Icon = "shield", 
-    Logo = true,
-    Size = UDim2.fromOffset(500, 400),
-    ToggleKey = Enum.KeyCode.RightShift,
-})
-pcall(function() Slate.Theme.Preset("Ash") end)
-pcall(function() Window:SetBackdrop("aurora") end)
-
--- Скрываем окно при старте (разными способами для разных версий Slate)
-pcall(function() Window:Close() end)
-pcall(function() Window:Toggle(false) end)
-
-local Tab = Window:CreateTab({ Name = "Main", Icon = "layout-grid" })
-
-local espSec = Tab:CreateSection({ Name = "Visuals" })
-espSec:Toggle({
-    Name = "Player ESP (роли)",
-    Default = false,
-    Callback = function(v)
-        CFG.ESP = v
-        if not v then clearESP() end
-    end,
-})
-
-local combatSec = Tab:CreateSection({ Name = "Combat" })
-combatSec:Toggle({
-    Name = "Silent Aim (пистолет)",
-    Default = false,
-    Callback = function(v) CFG.SilentAim = v end,
-})
-combatSec:Toggle({
-    Name = "Aimbot (ПКМ/Тап, только Murderer/Sheriff)",
-    Default = false,
-    Callback = function(v) CFG.Aimbot = v end,
-})
-
-local moveSec = Tab:CreateSection({ Name = "Movement" })
-moveSec:Toggle({
-    Name = "Noclip",
-    Default = false,
-    Callback = function(v) CFG.Noclip = v; setNoclip(v) end,
-})
-moveSec:Toggle({
-    Name = "Speed",
-    Default = false,
-    Callback = function(v) CFG.Speed = v end,
-})
-moveSec:Slider({
-    Name = "Speed Value",
-    Min = 16, Max = 150, Default = 60,
-    Callback = function(v) CFG.SpeedVal = v end,
-})
-moveSec:Toggle({
-    Name = "Fly (WASD/Стик)",
-    Default = false,
-    Callback = function(v) CFG.Fly = v; setFly(v) end,
-})
-
-local farmSec = Tab:CreateSection({ Name = "Farm" })
-farmSec:Toggle({
-    Name = "Auto Farm (prompt'ы)",
-    Default = false,
-    Callback = function(v) CFG.AutoFarm = v end,
-})
-
--- ============ МАЛЕНЬКАЯ ИКОНКА-КНОПКА ============
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "LiberiumHub_Icon"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
--- Защита от падения при отсутствии CoreGui (Arceus X / Delta)
-local success, err = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not success or not ScreenGui.Parent then
-    ScreenGui.Parent = LP:WaitForChild("PlayerGui")
-end
-
-local IconBtn = Instance.new("ImageButton") -- Меняем TextButton на ImageButton
-IconBtn.Name = "LiberiumIcon"
-IconBtn.Size = UDim2.new(0, 50, 0, 50)
-IconBtn.Position = UDim2.new(0, 20, 0, 100)
-IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-IconBtn.BorderSizePixel = 0
-IconBtn.AutoButtonColor = false
--- Если ID валидный, будет картинка. Если нет — Roblox сам покажет крестик/вопрос.
-IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
-IconBtn.Parent = ScreenGui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(1, 0)
-UICorner.Parent = IconBtn
-
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(0, 255, 102)
-UIStroke.Thickness = 2
-UIStroke.Parent = IconBtn
-
--- Перетаскивание иконки (работает и на ПК, и на мобилках)
-local dragging, dragInput, dragStart, startPos
-IconBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = IconBtn.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-IconBtn.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        IconBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
--- Логика открытия/закрытия меню (фикс для мобилок)
-local function toggleMenu()
-    if not CFG.MenuOpen then
-        local ok = pcall(function() Window:Open() end)
-        if not ok then
-            pcall(function() Window:Toggle(true) end)
-        end
-        CFG.MenuOpen = true
-        UIStroke.Color = Color3.fromRGB(255, 60, 60)
-    else
-        local ok = pcall(function() Window:Close() end)
-        if not ok then
-            pcall(function() Window:Toggle(false) end)
-        end
-        CFG.MenuOpen = false
-        UIStroke.Color = Color3.fromRGB(0, 255, 102)
-    end
-end
-
--- Срабатывает на тап/клик (InputBegan надежнее для мобилок, чем MouseButton1Click)
-IconBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        -- Небольшая задержка, чтобы отличить клик от перетаскивания
-        task.delay(0.1, function()
-            if not dragging then
-                toggleMenu()
-            end
-        end)
-    end
-end)
-
-Slate:Notify({
-    Title = "LiberiumHub",
-    Description = "Нажми на иконку 'L' чтобы открыть меню",
+    Description = "Нажми на иконку чтобы открыть меню",
     Icon = "check",
     Tone = "Success",
     Duration = 8,
