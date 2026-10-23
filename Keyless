@@ -1,5 +1,5 @@
--- LiberiumHub TRUE Pulse-Style (Mobile Optimized)
--- PlaceId: 142823291
+-- LiberiumHub x KITI Features (Mobile Premium Edition)
+-- Дизайн в стиле Pulse Hub + Функции KITI
 
 if game.PlaceId ~= 142823291 then
     warn("[LiberiumHub] Запусти в Murder Mystery 2")
@@ -17,10 +17,10 @@ local Cam = workspace.CurrentCamera
 -- ============ CONFIG ============
 local CFG = {
     ESP = false, AutoFarm = false, SilentAim = false, Aimbot = false,
-    Noclip = false, Speed = false, SpeedVal = 35, AutoShoot = false
+    Noclip = false, Speed = false, SpeedVal = 35, AutoShoot = false, KillAll = false
 }
 
--- ============ ЛОГИКА ============
+-- ============ ЛОГИКА ИЗ KITI ============
 local roles = {}
 local function setRoles()
     local getData = RS:FindFirstChild("GetPlayerData", true)
@@ -46,6 +46,7 @@ local function getChar(plr)
     return nil
 end
 
+-- ESP
 local espCache = {}
 RunService.RenderStepped:Connect(function()
     if not CFG.ESP then
@@ -75,6 +76,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+-- Silent Aim
 local mt = getrawmetatable(game)
 local oldIndex = mt.__index
 setreadonly(mt, false)
@@ -104,30 +106,25 @@ mt.__index = newcclosure(function(self, key)
 end)
 setreadonly(mt, true)
 
-local aimTarget = nil
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if CFG.Aimbot and (input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch) then
-        local best, bd = nil, math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP and (getRole(plr) == "Murderer" or getRole(plr) == "Sheriff") then
-                local char, hrp = getChar(plr)
-                if hrp then
-                    local d = (hrp.Position - Cam.CFrame.Position).Magnitude
-                    if d < bd then bd = d; best = char.Head or hrp end
+-- Auto Shoot
+task.spawn(function()
+    while task.wait(0.1) do
+        if CFG.AutoShoot then
+            local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
+            if tool and tool.Name == "Gun" then
+                local mouse = LP:GetMouse()
+                if mouse.Target and mouse.Target.Parent then
+                    local targetHum = mouse.Target.Parent:FindFirstChildOfClass("Humanoid")
+                    if targetHum and targetHum.Health > 0 and targetHum.Parent ~= LP.Character then
+                        tool:Activate()
+                    end
                 end
             end
         end
-        aimTarget = best
     end
 end)
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then aimTarget = nil end
-end)
-RunService.RenderStepped:Connect(function()
-    if aimTarget and aimTarget.Parent then Cam.CFrame = Cam.CFrame:Lerp(CFrame.new(Cam.CFrame.Position, aimTarget.Position), 0.25) end
-end)
 
+-- AutoFarm
 local farmBV, farmBG
 local function toggleFarm(on)
     local char = LP.Character
@@ -168,6 +165,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- Movement
 local noclipConn
 local function setNoclip(on)
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
@@ -185,13 +183,14 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ============ UI ============
+-- ============ PREMIUM UI (PULSE STYLE) ============
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "LiberiumUI"
+ScreenGui.Name = "LiberiumUI_Premium"
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
 if not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
 
+-- Иконка
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Size = UDim2.new(0, 45, 0, 45)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
@@ -203,26 +202,9 @@ IconBtn.Parent = ScreenGui
 local IconCorner = Instance.new("UICorner"); IconCorner.CornerRadius = UDim.new(1, 0); IconCorner.Parent = IconBtn
 local IconStroke = Instance.new("UIStroke"); IconStroke.Color = Color3.fromRGB(50, 50, 55); IconStroke.Thickness = 2; IconStroke.Parent = IconBtn
 
--- Перетаскивание
-local draggingIcon, dragStartIcon, startPosIcon
-IconBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingIcon = true; dragStartIcon = input.Position; startPosIcon = IconBtn.Position
-        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end end)
-    end
-end)
-IconBtn.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        if draggingIcon then
-            local delta = input.Position - dragStartIcon
-            IconBtn.Position = UDim2.new(startPosIcon.X.Scale, startPosIcon.X.Offset + delta.X, startPosIcon.Y.Scale, startPosIcon.Y.Offset + delta.Y)
-        end
-    end
-end)
-
--- Главное окно
+-- Главное окно (Мобильная адаптация)
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0.95, 0, 0.85, 0) -- 95% ширины, 85% высоты
+Main.Size = UDim2.new(0.95, 0, 0.85, 0)
 Main.Position = UDim2.new(0.025, 0, 0.075, 0)
 Main.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
 Main.BorderSizePixel = 0
@@ -243,7 +225,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -50, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "Pulse Hub"
+Title.Text = "Liberium Hub"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 16
@@ -277,7 +259,7 @@ CloseBtn.MouseButton1Click:Connect(function()
     IconStroke.Color = Color3.fromRGB(50, 50, 55)
 end)
 
--- Сайдбар (Левое меню)
+-- Сайдбар (Меню слева)
 local Sidebar = Instance.new("Frame")
 Sidebar.Size = UDim2.new(0, 130, 1, -45)
 Sidebar.Position = UDim2.new(0, 0, 0, 45)
@@ -286,7 +268,7 @@ Sidebar.BorderSizePixel = 0
 Sidebar.Parent = Main
 local SideCorner = Instance.new("UICorner"); SideCorner.CornerRadius = UDim.new(0, 10); SideCorner.Parent = Sidebar
 
--- Вкладки навигации
+-- Навигация
 local Pages = {}
 local ActivePage = nil
 
@@ -337,7 +319,7 @@ CreateNavBtn("Visuals", "Visuals", "👁", 2)
 CreateNavBtn("Movement", "Movement", "🏃", 3)
 CreateNavBtn("Farm", "Farm", "🌾", 4)
 
--- Компоненты
+-- Элементы UI
 local function CreateSection(parent, title, order)
     local holder = Instance.new("Frame")
     holder.Size = UDim2.new(1, 0, 0, 0)
@@ -415,31 +397,11 @@ local function CreateToggle(parent, text, default, callback)
     end)
 end
 
--- Заполнение
+-- Заполнение вкладок
 local layoutCombat = Instance.new("UIListLayout", Pages["Combat"].Page); layoutCombat.Padding = UDim.new(0, 10)
 local combatSec = CreateSection(Pages["Combat"].Page, "Murderer / Sheriff", 1)
 CreateToggle(combatSec, "Silent Aim", CFG.SilentAim, function(v) CFG.SilentAim = v end)
-CreateToggle(combatSec, "Aimbot", CFG.Aimbot, function(v) CFG.Aimbot = v end)
-CreateToggle(combatSec, "Auto Shoot", CFG.AutoShoot, function(v) 
-    CFG.AutoShoot = v 
-    if v then
-        task.spawn(function()
-            while CFG.AutoShoot do
-                local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
-                if tool and tool.Name == "Gun" then
-                    local mouse = LP:GetMouse()
-                    if mouse.Target and mouse.Target.Parent then
-                        local targetHum = mouse.Target.Parent:FindFirstChildOfClass("Humanoid")
-                        if targetHum and targetHum.Health > 0 and targetHum.Parent ~= LP.Character then
-                            tool:Activate()
-                        end
-                    end
-                end
-                task.wait(0.1)
-            end
-        end)
-    end
-end)
+CreateToggle(combatSec, "Auto Shoot", CFG.AutoShoot, function(v) CFG.AutoShoot = v end)
 
 local layoutVis = Instance.new("UIListLayout", Pages["Visuals"].Page); layoutVis.Padding = UDim.new(0, 10)
 local visSec = CreateSection(Pages["Visuals"].Page, "ESP Settings", 1)
@@ -453,13 +415,10 @@ CreateToggle(moveSec, "Speed", CFG.Speed, function(v) CFG.Speed = v end)
 local layoutFarm = Instance.new("UIListLayout", Pages["Farm"].Page); layoutFarm.Padding = UDim.new(0, 10)
 local farmSec = CreateSection(Pages["Farm"].Page, "Auto Farm", 1)
 CreateToggle(farmSec, "Auto Farm Coins", CFG.AutoFarm, function(v) CFG.AutoFarm = v; toggleFarm(v) end)
+CreateToggle(farmSec, "Auto Shoot", CFG.AutoShoot, function(v) CFG.AutoShoot = v end)
 
--- Логика открытия
+-- Открытие меню
 IconBtn.MouseButton1Click:Connect(function()
-    task.delay(0.1, function()
-        if not draggingIcon then
-            Main.Visible = not Main.Visible
-            IconStroke.Color = Main.Visible and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(50, 50, 55)
-        end
-    end)
+    Main.Visible = not Main.Visible
+    IconStroke.Color = Main.Visible and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(50, 50, 55)
 end)
