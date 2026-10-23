@@ -1,5 +1,5 @@
--- LiberiumHub | Auto-Farm Edition
--- Полностью рабочий скрипт для сбора монет и конфет в MM2.
+-- LiberiumHub | Auto-Farm v3 (Stable)
+-- Исправлены баги с поиском конфет, телепортом и зависаниями.
 
 if game.PlaceId ~= 142823291 then
     warn("[LiberiumHub] Запусти в Murder Mystery 2")
@@ -11,7 +11,6 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local LP = Players.LocalPlayer
-local Cam = workspace.CurrentCamera
 
 local CFG = {
     FarmCoins = false,
@@ -19,129 +18,124 @@ local CFG = {
     ItemESP = false,
     Noclip = false,
     Speed = false,
-    SpeedVal = 40,
+    SpeedVal = 50,
 }
 
-local farmBV, farmBG
-
--- Функция для создания физики полета
-local function createPhysics(char)
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    if not farmBV then
-        farmBV = Instance.new("BodyVelocity")
-        farmBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-        farmBV.Velocity = Vector3.zero
-        farmBV.Parent = hrp
-        farmBG = Instance.new("BodyGyro")
-        farmBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-        farmBG.P = 1000
-        farmBG.Parent = hrp
+-- Функция безопасного получения позиции (работает и для Model, и для BasePart)
+local function getPos(obj)
+    if not obj then return nil end
+    if obj:IsA("BasePart") then
+        return obj.Position
+    elseif obj:IsA("Model") then
+        local success, cf = pcall(function() return obj:GetPivot() end)
+        if success and cf then return cf.Position end
+        local success2, cf2 = pcall(function() return obj:GetBoundingBox() end)
+        if success2 and cf2 then return cf2.Position end
     end
+    return nil
 end
 
--- Очистка физики
-local function destroyPhysics()
-    if farmBV then farmBV:Destroy(); farmBV = nil end
-    if farmBG then farmBG:Destroy(); farmBG = nil end
+-- Поиск конфет
+local function getCandies()
+    local candies = {}
+    pcall(function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local name = string.lower(obj.Name)
+                if (string.find(name, "candy") or string.find(name, "sweet")) and not string.find(name, "coin") then
+                    table.insert(candies, obj)
+                end
+            end
+        end
+    end)
+    return candies
 end
 
--- ============ ЛОГИКА ФАРМА ============
-RunService.Heartbeat:Connect(function()
-    if not (CFG.FarmCoins or CFG.FarmCandies) then
-        if farmBV then destroyPhysics() end
+-- Поиск монет
+local function getCoins()
+    local coins = {}
+    pcall(function()
+        local main = LP.PlayerGui:FindFirstChild("MainGUI")
+        if main then
+            local lobby = main:FindFirstChild("Lobby")
+            local game = main:FindFirstChild("Game")
+            local bags = (lobby and lobby:FindFirstChild("CoinBags")) or (game and game:FindFirstChild("CoinBags"))
+            if bags then
+                for _, bag in ipairs(bags:GetChildren()) do
+                    if bag:IsA("BasePart") then table.insert(coins, bag) end
+                end
+            end
+        end
+    end)
+    return coins
+end
+
+-- ============ ESP ============
+local espCache = {}
+RunService.RenderStepped:Connect(function()
+    if not CFG.ItemESP then
+        for _, hl in pairs(espCache) do pcall(function() hl:Destroy() end) end
+        table.clear(espCache)
         return
     end
-
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
     
-    if not farmBV then createPhysics(char) end
-
-    local targetPart = nil
-    local minDist = math.huge
-
-    -- Ищем монеты
-    if CFG.FarmCoins then
-        local main = LP.PlayerGui:FindFirstChild("MainGUI")
-        local bags = main and ((main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")))
-        if bags then
-            for _, bag in ipairs(bags:GetChildren()) do
-                if bag:IsA("BasePart") then
-                    local d = (bag.Position - hrp.Position).Magnitude
-                    if d < minDist then minDist = d; targetPart = bag end
-                end
-            end
+    for _, obj in ipairs(getCandies()) do
+        if not espCache[obj] then
+            local hl = Instance.new("Highlight")
+            hl.FillColor = Color3.fromRGB(255, 255, 0)
+            hl.FillTransparency = 0.5
+            hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+            hl.Parent = obj
+            espCache[obj] = hl
         end
     end
 
-    -- Ищем конфеты в Workspace (ищем по имени)
-    if CFG.FarmCandies then
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and (string.find(string.lower(obj.Name), "candy") or string.find(string.lower(obj.Name), "sweet")) then
-                local d = (obj.Position - hrp.Position).Magnitude
-                if d < minDist then minDist = d; targetPart = obj end
-            end
+    for _, obj in ipairs(getCoins()) do
+        if not espCache[obj] then
+            local hl = Instance.new("Highlight")
+            hl.FillColor = Color3.fromRGB(0, 255, 0)
+            hl.FillTransparency = 0.5
+            hl.OutlineColor = Color3.fromRGB(0, 255, 0)
+            hl.Parent = obj
+            espCache[obj] = hl
         end
-    end
-
-    -- Летим к цели
-    if targetPart then
-        farmBV.Velocity = (targetPart.Position - hrp.Position).Unit * 45
-        farmBG.CFrame = CFrame.new(hrp.Position, targetPart.Position)
-        
-        -- Если близко, активируем ProximityPrompt (если он есть)
-        if minDist < 10 then
-            for _, prompt in ipairs(targetPart:GetDescendants()) do
-                if prompt:IsA("ProximityPrompt") then
-                    pcall(function() fireproximityprompt(prompt) end)
-                end
-            end
-        end
-    else
-        farmBV.Velocity = Vector3.zero
     end
 end)
 
--- ============ ESP ДЛЯ ПРЕДМЕТОВ ============
-local itemHighlights = {}
-RunService.RenderStepped:Connect(function()
-    if not CFG.ItemESP then
-        for _, hl in pairs(itemHighlights) do hl:Destroy() end
-        table.clear(itemHighlights)
-        return
-    end
-    
-    -- Подсветка конфет (желтым)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and (string.find(string.lower(obj.Name), "candy") or string.find(string.lower(obj.Name), "sweet")) then
-            if not itemHighlights[obj] then
-                local hl = Instance.new("Highlight")
-                hl.FillColor = Color3.fromRGB(255, 255, 0) -- Желтый
-                hl.FillTransparency = 0.5
-                hl.OutlineColor = Color3.fromRGB(255, 255, 0)
-                hl.Parent = obj
-                itemHighlights[obj] = hl
-            end
-        end
-    end
+-- ============ AUTO FARM ============
+task.spawn(function()
+    while task.wait(0.15) do
+        if CFG.FarmCandies or CFG.FarmCoins then
+            local char = LP.Character
+            if not char then continue end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then continue end
 
-    -- Подсветка мешков с монетами (зеленым)
-    local main = LP.PlayerGui:FindFirstChild("MainGUI")
-    local bags = main and ((main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")))
-    if bags then
-        for _, obj in ipairs(bags:GetChildren()) do
-            if obj:IsA("BasePart") then
-                if not itemHighlights[obj] then
-                    local hl = Instance.new("Highlight")
-                    hl.FillColor = Color3.fromRGB(0, 255, 0) -- Зеленый
-                    hl.FillTransparency = 0.5
-                    hl.OutlineColor = Color3.fromRGB(0, 255, 0)
-                    hl.Parent = obj
-                    itemHighlights[obj] = hl
+            local targetPos = nil
+            local minDist = math.huge
+
+            if CFG.FarmCandies then
+                for _, candy in ipairs(getCandies()) do
+                    local pos = getPos(candy)
+                    if pos then
+                        local d = (pos - hrp.Position).Magnitude
+                        if d < minDist then minDist = d; targetPos = pos end
+                    end
                 end
+            end
+
+            if CFG.FarmCoins and not targetPos then
+                for _, coin in ipairs(getCoins()) do
+                    local pos = coin.Position
+                    local d = (pos - hrp.Position).Magnitude
+                    if d < minDist then minDist = d; targetPos = pos end
+                end
+            end
+
+            if targetPos then
+                -- Телепорт чуть выше предмета, чтобы не застрять в текстурах
+                hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+                task.wait(0.2) 
             end
         end
     end
@@ -154,7 +148,11 @@ local function setNoclip(on)
     if not on then return end
     noclipConn = RunService.Stepped:Connect(function()
         local char = LP.Character
-        if char then for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
+        if char then 
+            for _, p in ipairs(char:GetDescendants()) do 
+                if p:IsA("BasePart") then p.CanCollide = false end 
+            end 
+        end
     end)
 end
 
@@ -172,7 +170,6 @@ ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
 if not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
 
--- Иконка
 local IconBtn = Instance.new("ImageButton")
 IconBtn.Size = UDim2.new(0, 45, 0, 45)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
@@ -184,7 +181,6 @@ IconBtn.Parent = ScreenGui
 local IconCorner = Instance.new("UICorner"); IconCorner.CornerRadius = UDim.new(1, 0); IconCorner.Parent = IconBtn
 local IconStroke = Instance.new("UIStroke"); IconStroke.Color = Color3.fromRGB(50, 50, 55); IconStroke.Thickness = 2; IconStroke.Parent = IconBtn
 
--- Перетаскивание иконки
 local draggingIcon, dragStartIcon, startPosIcon
 IconBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -201,7 +197,6 @@ IconBtn.InputChanged:Connect(function(input)
     end
 end)
 
--- Главное окно (90% ширины, 80% высоты)
 local Main = Instance.new("Frame")
 Main.Size = UDim2.new(0.9, 0, 0.8, 0)
 Main.Position = UDim2.new(0.05, 0, 0.1, 0)
@@ -212,7 +207,6 @@ Main.Parent = ScreenGui
 local MainCorner = Instance.new("UICorner"); MainCorner.CornerRadius = UDim.new(0, 10); MainCorner.Parent = Main
 local MainStroke = Instance.new("UIStroke"); MainStroke.Color = Color3.fromRGB(40, 40, 45); MainStroke.Thickness = 1; MainStroke.Parent = Main
 
--- Шапка
 local TopBar = Instance.new("Frame")
 TopBar.Size = UDim2.new(1, 0, 0, 45)
 TopBar.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
@@ -247,7 +241,6 @@ CloseBtn.MouseButton1Click:Connect(function()
     IconStroke.Color = Color3.fromRGB(50, 50, 55)
 end)
 
--- Скролл контента
 local Scroll = Instance.new("ScrollingFrame")
 Scroll.Size = UDim2.new(1, -20, 1, -60)
 Scroll.Position = UDim2.new(0, 10, 0, 50)
@@ -260,7 +253,6 @@ Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 Scroll.Parent = Main
 local ScrollLayout = Instance.new("UIListLayout"); ScrollLayout.Padding = UDim.new(0, 8); ScrollLayout.Parent = Scroll
 
--- Создание карточек
 local function CreateToggle(text, default, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 45)
@@ -300,68 +292,12 @@ local function CreateToggle(text, default, callback)
     end)
 end
 
-local function CreateSlider(text, min, max, default, callback)
-    local val = default
-    local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(1, 0, 0, 50)
-    holder.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
-    holder.Parent = Scroll
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = holder
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -20, 0, 20)
-    lbl.Position = UDim2.new(0, 10, 0, 5)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = text .. ": " .. val
-    lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = holder
-    
-    local barBg = Instance.new("Frame")
-    barBg.Size = UDim2.new(1, -20, 0, 6)
-    barBg.Position = UDim2.new(0, 10, 0, 30)
-    barBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    barBg.Parent = holder
-    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = barBg
-    
-    local barFill = Instance.new("Frame")
-    barFill.Size = UDim2.new((val-min)/(max-min), 0, 1, 0)
-    barFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    barFill.Parent = barBg
-    local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(1, 0); fc.Parent = barFill
-    
-    local dragging = false
-    barBg.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true end
-    end)
-    UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-    end)
-    UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local mouseX = input.Position.X
-            local barX = barBg.AbsolutePosition.X
-            local barW = barBg.AbsoluteSize.X
-            local percent = math.clamp((mouseX - barX) / barW, 0, 1)
-            val = math.floor(min + (max - min) * percent)
-            barFill.Size = UDim2.new(percent, 0, 1, 0)
-            lbl.Text = text .. ": " .. val
-            callback(val)
-        end
-    end)
-end
-
--- Наполнение UI
 CreateToggle("Auto-Farm Coins", CFG.FarmCoins, function(v) CFG.FarmCoins = v end)
 CreateToggle("Auto-Farm Candies", CFG.FarmCandies, function(v) CFG.FarmCandies = v end)
-CreateToggle("Item ESP (Монеты/Конфеты)", CFG.ItemESP, function(v) CFG.ItemESP = v end)
+CreateToggle("Item ESP", CFG.ItemESP, function(v) CFG.ItemESP = v end)
 CreateToggle("Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
 CreateToggle("Speed Hack", CFG.Speed, function(v) CFG.Speed = v end)
-CreateSlider("Speed Value", 16, 150, 40, function(v) CFG.SpeedVal = v end)
 
--- Открытие/Закрытие по иконке
 IconBtn.MouseButton1Click:Connect(function()
     task.delay(0.1, function()
         if not draggingIcon then
