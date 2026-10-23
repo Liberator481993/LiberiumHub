@@ -1,29 +1,41 @@
--- LiberiumHub x KITI Features (Mobile Premium Edition)
--- Дизайн в стиле Pulse Hub + Функции KITI
+--[[
+    LIBERIUM HUB PREMIUM v1.3
+    Красивый UI + Рабочие функции (Pulse Style)
+]]
 
-if game.PlaceId ~= 142823291 then
-    warn("[LiberiumHub] Запусти в Murder Mystery 2")
-end
-
-local LOGO_ID = 121242999666621
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
-local RS = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local LP = Players.LocalPlayer
-local Cam = workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
--- ============ CONFIG ============
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+if not player then return end
+
+-- Удаляем старую версию, если есть
+pcall(function()
+    local root = (gethui and gethui()) or game:GetService("CoreGui")
+    local oldGui = root:FindFirstChild("LiberiumPremium")
+    if oldGui then oldGui:Destroy() end
+end)
+
+-- ============ НАСТРОЙКИ ФУНКЦИЙ ============
 local CFG = {
-    ESP = false, AutoFarm = false, SilentAim = false, Aimbot = false,
-    Noclip = false, Speed = false, SpeedVal = 35, AutoShoot = false, KillAll = false
+    ESP = false,
+    AutoFarm = false,
+    SilentAim = false,
+    AutoShoot = false,
+    Noclip = false,
+    Speed = false,
+    SpeedVal = 35
 }
 
--- ============ ЛОГИКА ИЗ KITI ============
+-- ============ ЛОГИКА ФУНКЦИЙ (Pulse Style) ============
 local roles = {}
 local function setRoles()
-    local getData = RS:FindFirstChild("GetPlayerData", true)
+    local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
     if getData and getData:IsA("RemoteFunction") then
         local success, data = pcall(function() return getData:InvokeServer() end)
         if success and type(data) == "table" then roles = data end
@@ -54,7 +66,7 @@ RunService.RenderStepped:Connect(function()
         return
     end
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then
+        if plr ~= player then
             local char = getChar(plr)
             if char then
                 local role = getRole(plr)
@@ -82,16 +94,16 @@ local oldIndex = mt.__index
 setreadonly(mt, false)
 mt.__index = newcclosure(function(self, key)
     if CFG.SilentAim and (key == "Hit" or key == "Target") then
-        local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
+        local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
         if tool and tool.Name:find("Gun") then
             local closest, dist = nil, math.huge
             for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LP then
+                if plr ~= player then
                     local char = plr.Character
                     local head = char and char:FindFirstChild("Head")
                     local hum = char and char:FindFirstChildOfClass("Humanoid")
                     if head and hum and hum.Health > 0 then
-                        local d = (head.Position - Cam.CFrame.Position).Magnitude
+                        local d = (head.Position - camera.CFrame.Position).Magnitude
                         if d < dist then dist = d; closest = head end
                     end
                 end
@@ -110,12 +122,12 @@ setreadonly(mt, true)
 task.spawn(function()
     while task.wait(0.1) do
         if CFG.AutoShoot then
-            local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
+            local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
             if tool and tool.Name == "Gun" then
-                local mouse = LP:GetMouse()
+                local mouse = player:GetMouse()
                 if mouse.Target and mouse.Target.Parent then
                     local targetHum = mouse.Target.Parent:FindFirstChildOfClass("Humanoid")
-                    if targetHum and targetHum.Health > 0 and targetHum.Parent ~= LP.Character then
+                    if targetHum and targetHum.Health > 0 and targetHum.Parent ~= player.Character then
                         tool:Activate()
                     end
                 end
@@ -127,7 +139,7 @@ end)
 -- AutoFarm
 local farmBV, farmBG
 local function toggleFarm(on)
-    local char = LP.Character
+    local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     if on then
@@ -143,12 +155,12 @@ end
 
 RunService.Heartbeat:Connect(function()
     if not CFG.AutoFarm then return end
-    local char = LP.Character
+    local char = player.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     if not farmBV then toggleFarm(true) end
-    local main = LP.PlayerGui:FindFirstChild("MainGUI")
+    local main = player.PlayerGui:FindFirstChild("MainGUI")
     local bags = main and ((main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")))
     if bags then
         local closest, dist = nil, 100
@@ -165,260 +177,200 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Movement
+-- Noclip & Speed
 local noclipConn
 local function setNoclip(on)
     if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
     if not on then return end
     noclipConn = RunService.Stepped:Connect(function()
-        local char = LP.Character
+        local char = player.Character
         if char then for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
     end)
 end
 
 RunService.Heartbeat:Connect(function()
     if CFG.Speed then
-        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
         if hum then hum.WalkSpeed = CFG.SpeedVal end
     end
 end)
 
--- ============ PREMIUM UI (PULSE STYLE) ============
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "LiberiumUI_Premium"
-ScreenGui.ResetOnSpawn = false
-pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
+-- ============ UI (ТВОЙ ДИЗАЙН + АДАПТАЦИЯ ПОД МОБИЛКИ) ============
+local gui = Instance.new("ScreenGui")
+gui.Name = "LiberiumPremium"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Иконка
-local IconBtn = Instance.new("ImageButton")
-IconBtn.Size = UDim2.new(0, 45, 0, 45)
-IconBtn.Position = UDim2.new(0, 20, 0, 100)
-IconBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 17)
-IconBtn.BorderSizePixel = 0
-IconBtn.AutoButtonColor = false
-IconBtn.Image = "rbxassetid://" .. tostring(LOGO_ID)
-IconBtn.Parent = ScreenGui
-local IconCorner = Instance.new("UICorner"); IconCorner.CornerRadius = UDim.new(1, 0); IconCorner.Parent = IconBtn
-local IconStroke = Instance.new("UIStroke"); IconStroke.Color = Color3.fromRGB(50, 50, 55); IconStroke.Thickness = 2; IconStroke.Parent = IconBtn
-
--- Главное окно (Мобильная адаптация)
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0.95, 0, 0.85, 0)
-Main.Position = UDim2.new(0.025, 0, 0.075, 0)
-Main.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
-Main.BorderSizePixel = 0
-Main.Visible = false
-Main.Parent = ScreenGui
-local MainCorner = Instance.new("UICorner"); MainCorner.CornerRadius = UDim.new(0, 10); MainCorner.Parent = Main
-local MainStroke = Instance.new("UIStroke"); MainStroke.Color = Color3.fromRGB(40, 40, 45); MainStroke.Thickness = 1; MainStroke.Parent = Main
-
--- Верхняя панель
-local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 45)
-TopBar.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
-TopBar.BorderSizePixel = 0
-TopBar.Parent = Main
-local TopCorner = Instance.new("UICorner"); TopCorner.CornerRadius = UDim.new(0, 10); TopCorner.Parent = TopBar
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 15, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "Liberium Hub"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TopBar
-
-local SubTitle = Instance.new("TextLabel")
-SubTitle.Size = UDim2.new(1, -50, 1, 0)
-SubTitle.Position = UDim2.new(0, 15, 0, 15)
-SubTitle.BackgroundTransparency = 1
-SubTitle.Text = "Murder Mystery 2"
-SubTitle.TextColor3 = Color3.fromRGB(150, 150, 150)
-SubTitle.Font = Enum.Font.Gotham
-SubTitle.TextSize = 11
-SubTitle.TextXAlignment = Enum.TextXAlignment.Left
-SubTitle.Parent = TopBar
-
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 35, 0, 35)
-CloseBtn.Position = UDim2.new(1, -40, 0, 5)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 14
-CloseBtn.AutoButtonColor = false
-CloseBtn.Parent = TopBar
-local CloseCorner = Instance.new("UICorner"); CloseCorner.CornerRadius = UDim.new(0, 6); CloseCorner.Parent = CloseBtn
-CloseBtn.MouseButton1Click:Connect(function()
-    Main.Visible = false
-    IconStroke.Color = Color3.fromRGB(50, 50, 55)
+local parent
+local ok = pcall(function()
+    parent = (gethui and gethui()) or game:GetService("CoreGui")
 end)
+if not ok or not parent then parent = player:WaitForChild("PlayerGui") end
+gui.Parent = parent
 
--- Сайдбар (Меню слева)
-local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 130, 1, -45)
-Sidebar.Position = UDim2.new(0, 0, 0, 45)
-Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 17)
-Sidebar.BorderSizePixel = 0
-Sidebar.Parent = Main
-local SideCorner = Instance.new("UICorner"); SideCorner.CornerRadius = UDim.new(0, 10); SideCorner.Parent = Sidebar
+local C = {
+    bg = Color3.fromRGB(12, 15, 17), panel = Color3.fromRGB(18, 22, 24),
+    card = Color3.fromRGB(24, 29, 30), card2 = Color3.fromRGB(29, 35, 35),
+    green = Color3.fromRGB(102, 255, 158), greenDark = Color3.fromRGB(33, 120, 77),
+    orange = Color3.fromRGB(255, 157, 75), white = Color3.fromRGB(240, 247, 242),
+    muted = Color3.fromRGB(139, 153, 146), stroke = Color3.fromRGB(49, 64, 56),
+}
 
--- Навигация
-local Pages = {}
-local ActivePage = nil
+local function make(class, props, parentObj)
+    local obj = Instance.new(class)
+    for k, v in pairs(props or {}) do obj[k] = v end
+    obj.Parent = parentObj
+    return obj
+end
 
-local function CreateNavBtn(name, title, icon, order)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -10, 0, 35)
-    btn.Position = UDim2.new(0, 5, 0, 10 + (order * 40))
-    btn.BackgroundColor3 = Color3.fromRGB(15, 15, 17)
-    btn.Text = "  " .. icon .. "  " .. title
-    btn.TextColor3 = Color3.fromRGB(120, 120, 120)
-    btn.Font = Enum.Font.Gotham
-    btn.TextSize = 13
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.AutoButtonColor = false
-    btn.Parent = Sidebar
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
-    
-    local page = Instance.new("Frame")
-    page.Size = UDim2.new(1, -140, 1, -55)
-    page.Position = UDim2.new(0, 135, 0, 50)
-    page.BackgroundTransparency = 1
-    page.Visible = false
-    page.Parent = Main
-    
-    Pages[name] = { Btn = btn, Page = page }
-    
+local function round(obj, radius) make("UICorner", {CornerRadius = UDim.new(0, radius or 10)}, obj) end
+local function outline(obj, color, transparency) make("UIStroke", {Color = color or C.stroke, Transparency = transparency or 0.25, Thickness = 1}, obj) end
+local function label(parentObj, text, size, color, font)
+    return make("TextLabel", {BackgroundTransparency = 1, Text = text, TextColor3 = color or C.white, TextSize = size or 14, Font = font or Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, Size = UDim2.new(1, 0, 0, (size or 14) + 8)}, parentObj)
+end
+local function tween(obj, duration, properties) TweenService:Create(obj, TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties):Play() end
+
+-- Main window (АДАПТИРОВАН ПОД ТЕЛЕФОН: размер 90% ширины и 80% высоты)
+local main = make("Frame", {
+    Name = "Main", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.new(0.9, 0, 0.8, 0), BackgroundColor3 = C.bg, BorderSizePixel = 0, ClipsDescendants = true,
+}, gui)
+round(main, 12)
+outline(main, C.greenDark, 0.12)
+
+local strip = make("Frame", {Size = UDim2.new(1, 0, 0, 3), BackgroundColor3 = C.green, BorderSizePixel = 0}, main)
+make("UIGradient", {Color = ColorSequence.new({ColorSequenceKeypoint.new(0, C.green), ColorSequenceKeypoint.new(0.55, C.orange), ColorSequenceKeypoint.new(1, C.green)})}, strip)
+
+-- Sidebar (уменьшен под мобилки)
+local sidebar = make("Frame", {Position = UDim2.new(0, 0, 0, 3), Size = UDim2.new(0, 140, 1, -3), BackgroundColor3 = C.panel, BorderSizePixel = 0}, main)
+make("Frame", {Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = C.stroke, BackgroundTransparency = 0.35, BorderSizePixel = 0}, sidebar)
+
+local brand = make("Frame", {Position = UDim2.new(0, 15, 0, 16), Size = UDim2.new(1, -30, 0, 50), BackgroundTransparency = 1}, sidebar)
+local logo = make("Frame", {Size = UDim2.new(0, 36, 0, 36), Position = UDim2.new(0, 0, 0, 4), BackgroundColor3 = C.greenDark, BorderSizePixel = 0}, brand)
+round(logo, 10)
+outline(logo, C.green, 0.25)
+label(logo, "L", 22, C.green, Enum.Font.GothamBlack).TextXAlignment = Enum.TextXAlignment.Center
+
+local brandText = make("Frame", {Position = UDim2.new(0, 46, 0, 5), Size = UDim2.new(1, -46, 0, 36), BackgroundTransparency = 1}, brand)
+label(brandText, "LIBERIUM", 14, C.white, Enum.Font.GothamBlack)
+local sub = label(brandText, "PREMIUM v1.3", 9, C.green, Enum.Font.GothamBold)
+sub.Position = UDim2.new(0, 0, 0, 20)
+
+local sideCaption = label(sidebar, "WORKSPACE", 9, C.muted, Enum.Font.GothamBold)
+sideCaption.Position = UDim2.new(0, 15, 0, 80)
+
+local nav = make("Frame", {Position = UDim2.new(0, 10, 0, 100), Size = UDim2.new(1, -20, 0, 250), BackgroundTransparency = 1}, sidebar)
+make("UIListLayout", {Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder}, nav)
+
+-- Контент
+local content = make("Frame", {Position = UDim2.new(0, 140, 0, 3), Size = UDim2.new(1, -140, 1, -3), BackgroundTransparency = 1}, main)
+local topbar = make("Frame", {Position = UDim2.new(0, 15, 0, 10), Size = UDim2.new(1, -30, 0, 35), BackgroundTransparency = 1}, content)
+local pageTitle = label(topbar, "Dashboard", 18, C.white, Enum.Font.GothamBold)
+pageTitle.Size = UDim2.new(0.6, 0, 0, 30)
+
+local close = make("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 2), Size = UDim2.new(0, 31, 0, 30), BackgroundColor3 = C.card, Text = "×", TextColor3 = C.muted, TextSize = 22, Font = Enum.Font.Gotham, AutoButtonColor = false, BorderSizePixel = 0}, topbar)
+round(close, 9)
+close.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+local pages = make("Frame", {Position = UDim2.new(0, 15, 0, 55), Size = UDim2.new(1, -30, 1, -70), BackgroundTransparency = 1}, content)
+
+local pageNames = {"Combat", "Visuals", "Movement", "Farm"}
+local pageIcons = {"⚔", "👁", "🏃", "🌾"}
+local buttons = {}
+local currentPage = "Combat"
+local renderPage
+
+local function createNav(name, iconText, order)
+    local btn = make("TextButton", {Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = C.panel, BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = order, BorderSizePixel = 0}, nav)
+    round(btn, 8)
+    local accent = make("Frame", {Position = UDim2.new(0, 0, 0.5, -10), Size = UDim2.new(0, 3, 0, 20), BackgroundColor3 = C.green, BackgroundTransparency = 1, BorderSizePixel = 0}, btn)
+    round(accent, 3)
+    local ico = label(btn, iconText, 16, C.muted, Enum.Font.GothamBold)
+    ico.Position = UDim2.new(0, 10, 0, 4); ico.Size = UDim2.new(0, 25, 0, 28); ico.TextXAlignment = Enum.TextXAlignment.Center
+    local txt = label(btn, name, 12, C.muted, Enum.Font.GothamMedium)
+    txt.Position = UDim2.new(0, 38, 0, 4); txt.Size = UDim2.new(1, -42, 0, 28)
+
+    buttons[name] = {button = btn, accent = accent, icon = ico, text = txt}
+
     btn.MouseButton1Click:Connect(function()
-        for _, p in pairs(Pages) do
-            p.Page.Visible = false
-            TweenService:Create(p.Btn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(120, 120, 120), BackgroundColor3 = Color3.fromRGB(15, 15, 17)}):Play()
+        currentPage = name
+        for n, item in pairs(buttons) do
+            local active = n == name
+            tween(item.button, 0.18, {BackgroundTransparency = active and 0 or 1, BackgroundColor3 = active and C.greenDark or C.panel})
+            tween(item.accent, 0.18, {BackgroundTransparency = active and 0 or 1})
+            item.icon.TextColor3 = active and C.green or C.muted
+            item.text.TextColor3 = active and C.white or C.muted
         end
-        page.Visible = true
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.BackgroundColor3 = Color3.fromRGB(25, 25, 28)
-        ActivePage = name
+        pageTitle.Text = name
+        renderPage(name)
     end)
-    
-    if not ActivePage then
-        ActivePage = name
-        page.Visible = true
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.BackgroundColor3 = Color3.fromRGB(25, 25, 28)
+end
+
+for i, name in ipairs(pageNames) do createNav(name, pageIcons[i], i) end
+
+local function clearPage() for _, child in ipairs(pages:GetChildren()) do child:Destroy() end end
+local function makeCard(parentObj, titleText, description, y, h)
+    local card = make("Frame", {Position = UDim2.new(0, 0, 0, y), Size = UDim2.new(1, 0, 0, h or 65), BackgroundColor3 = C.card, BorderSizePixel = 0}, parentObj)
+    round(card, 10); outline(card, C.stroke, 0.42)
+    local title = label(card, titleText, 13, C.white, Enum.Font.GothamBold)
+    title.Position = UDim2.new(0, 12, 0, 8); title.Size = UDim2.new(1, -24, 0, 20)
+    local desc = label(card, description, 10, C.muted)
+    desc.Position = UDim2.new(0, 12, 0, 28); desc.Size = UDim2.new(1, -24, 0, 20); desc.TextWrapped = true
+    return card
+end
+
+local function createToggle(card, initial, callback)
+    local state = initial or false
+    local toggle = make("TextButton", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.new(0, 36, 0, 20), BackgroundColor3 = state and C.greenDark or C.card2, Text = "", AutoButtonColor = false, BorderSizePixel = 0}, card)
+    round(toggle, 10)
+    local knob = make("Frame", {Position = state and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 4, 0.5, -7), Size = UDim2.new(0, 12, 0, 12), BackgroundColor3 = state and C.green or C.muted, BorderSizePixel = 0}, toggle)
+    round(knob, 6)
+
+    toggle.MouseButton1Click:Connect(function()
+        state = not state
+        tween(toggle, 0.18, {BackgroundColor3 = state and C.greenDark or C.card2})
+        tween(knob, 0.18, {Position = state and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 4, 0.5, -7), BackgroundColor3 = state and C.green or C.muted})
+        if callback then callback(state) end
+    end)
+end
+
+renderPage = function(name)
+    clearPage()
+    local y = 0
+    if name == "Combat" then
+        local c1 = makeCard(pages, "Silent Aim", "Бьет в голову через стены", y, 60); createToggle(c1, CFG.SilentAim, function(v) CFG.SilentAim = v end); y = y + 68
+        local c2 = makeCard(pages, "Auto Shoot", "Стреляет при наведении", y, 60); createToggle(c2, CFG.AutoShoot, function(v) CFG.AutoShoot = v end); y = y + 68
+        
+    elseif name == "Visuals" then
+        local c1 = makeCard(pages, "Player ESP", "Подсветка ролей (Убийца/Шериф)", y, 60); createToggle(c1, CFG.ESP, function(v) CFG.ESP = v end); y = y + 68
+        
+    elseif name == "Movement" then
+        local c1 = makeCard(pages, "Noclip", "Проход сквозь стены", y, 60); createToggle(c1, CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end); y = y + 68
+        local c2 = makeCard(pages, "Speed Hack", "Ускорение персонажа", y, 60); createToggle(c2, CFG.Speed, function(v) CFG.Speed = v end); y = y + 68
+        
+    elseif name == "Farm" then
+        local c1 = makeCard(pages, "Auto Farm", "Сбор монет", y, 60); createToggle(c1, CFG.AutoFarm, function(v) CFG.AutoFarm = v; toggleFarm(v) end); y = y + 68
     end
 end
 
-CreateNavBtn("Combat", "Combat", "⚔", 1)
-CreateNavBtn("Visuals", "Visuals", "👁", 2)
-CreateNavBtn("Movement", "Movement", "🏃", 3)
-CreateNavBtn("Farm", "Farm", "🌾", 4)
+buttons["Combat"].button:Activate()
 
--- Элементы UI
-local function CreateSection(parent, title, order)
-    local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(1, 0, 0, 0)
-    holder.AutomaticSize = Enum.AutomaticSize.Y
-    holder.BackgroundColor3 = Color3.fromRGB(20, 20, 22)
-    holder.BorderSizePixel = 0
-    holder.LayoutOrder = order or 0
-    holder.Parent = parent
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = holder
-    local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(35, 35, 40); s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; s.Parent = holder
-    
-    local top = Instance.new("Frame")
-    top.Size = UDim2.new(1, 0, 0, 35)
-    top.BackgroundTransparency = 1
-    top.Parent = holder
-    
-    local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1, -20, 0, 20)
-    t.Position = UDim2.new(0, 10, 0, 10)
-    t.BackgroundTransparency = 1
-    t.Text = title
-    t.TextColor3 = Color3.fromRGB(200, 200, 200)
-    t.Font = Enum.Font.GothamBold
-    t.TextSize = 14
-    t.TextXAlignment = Enum.TextXAlignment.Left
-    t.Parent = top
-    
-    local content = Instance.new("Frame")
-    content.Size = UDim2.new(1, 0, 0, 0)
-    content.AutomaticSize = Enum.AutomaticSize.Y
-    content.Position = UDim2.new(0, 0, 0, 40)
-    content.BackgroundTransparency = 1
-    content.Parent = holder
-    local layout = Instance.new("UIListLayout"); layout.Padding = UDim.new(0, 5); layout.Parent = content
-    local padding = Instance.new("UIPadding"); padding.PaddingLeft = UDim.new(0, 10); padding.PaddingRight = UDim.new(0, 10); padding.PaddingBottom = UDim.new(0, 10); padding.Parent = content
-    
-    return content
-end
-
-local function CreateToggle(parent, text, default, callback)
-    local isOn = default
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 32)
-    btn.BackgroundTransparency = 1
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    btn.Font = Enum.Font.Gotham
-    btn.TextSize = 13
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.AutoButtonColor = false
-    btn.Parent = parent
-    
-    local indBg = Instance.new("Frame")
-    indBg.Size = UDim2.new(0, 36, 0, 18)
-    indBg.Position = UDim2.new(1, -36, 0.5, -9)
-    indBg.BackgroundColor3 = isOn and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(40, 40, 45)
-    indBg.Parent = btn
-    local indC = Instance.new("UICorner"); indC.CornerRadius = UDim.new(1, 0); indC.Parent = indBg
-    
-    local circle = Instance.new("Frame")
-    circle.Size = UDim2.new(0, 12, 0, 12)
-    circle.Position = isOn and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)
-    circle.BackgroundColor3 = isOn and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(150, 150, 150)
-    circle.Parent = indBg
-    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(1, 0); cc.Parent = circle
-    
-    btn.MouseButton1Click:Connect(function()
-        isOn = not isOn
-        TweenService:Create(indBg, TweenInfo.new(0.15), {BackgroundColor3 = isOn and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(40, 40, 45)}):Play()
-        TweenService:Create(circle, TweenInfo.new(0.15), {
-            Position = isOn and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6),
-            BackgroundColor3 = isOn and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(150, 150, 150)
-        }):Play()
-        callback(isOn)
-    end)
-end
-
--- Заполнение вкладок
-local layoutCombat = Instance.new("UIListLayout", Pages["Combat"].Page); layoutCombat.Padding = UDim.new(0, 10)
-local combatSec = CreateSection(Pages["Combat"].Page, "Murderer / Sheriff", 1)
-CreateToggle(combatSec, "Silent Aim", CFG.SilentAim, function(v) CFG.SilentAim = v end)
-CreateToggle(combatSec, "Auto Shoot", CFG.AutoShoot, function(v) CFG.AutoShoot = v end)
-
-local layoutVis = Instance.new("UIListLayout", Pages["Visuals"].Page); layoutVis.Padding = UDim.new(0, 10)
-local visSec = CreateSection(Pages["Visuals"].Page, "ESP Settings", 1)
-CreateToggle(visSec, "Player ESP", CFG.ESP, function(v) CFG.ESP = v end)
-
-local layoutMove = Instance.new("UIListLayout", Pages["Movement"].Page); layoutMove.Padding = UDim.new(0, 10)
-local moveSec = CreateSection(Pages["Movement"].Page, "Player Movement", 1)
-CreateToggle(moveSec, "Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
-CreateToggle(moveSec, "Speed", CFG.Speed, function(v) CFG.Speed = v end)
-
-local layoutFarm = Instance.new("UIListLayout", Pages["Farm"].Page); layoutFarm.Padding = UDim.new(0, 10)
-local farmSec = CreateSection(Pages["Farm"].Page, "Auto Farm", 1)
-CreateToggle(farmSec, "Auto Farm Coins", CFG.AutoFarm, function(v) CFG.AutoFarm = v; toggleFarm(v) end)
-CreateToggle(farmSec, "Auto Shoot", CFG.AutoShoot, function(v) CFG.AutoShoot = v end)
-
--- Открытие меню
-IconBtn.MouseButton1Click:Connect(function()
-    Main.Visible = not Main.Visible
-    IconStroke.Color = Main.Visible and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(50, 50, 55)
+-- Перетаскивание за шапку
+local dragging, dragStart, startPos
+topbar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = input.Position; startPos = main.Position
+    end
 end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+end)
+
+print("[LIBERIUM HUB] Premium UI + Cheats loaded.")
