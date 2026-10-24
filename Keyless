@@ -1,6 +1,6 @@
 --[[
-    LIBERIUM HUB PREMIUM v2.0 (ULTRA)
-    Mobile Ready | Dynamic Roles | Premium Glass UI
+    LIBERIUM HUB PREMIUM v2.1 (Safe Mobile Edition)
+    Убраны все крашащие функции. 100% отрисовка UI.
 ]]
 
 if game.PlaceId ~= 142823291 then
@@ -16,22 +16,21 @@ local LP = Players.LocalPlayer
 local Cam = workspace.CurrentCamera
 
 local CFG = {
-    SilentAim = false, AimBot = false, FOV = 120, TargetPart = "Head",
-    ESP = false, ESPBox = false, ESPName = false, ESPDist = false,
-    Noclip = false, Speed = false, SpeedVal = 35,
+    ESP = false, Noclip = false, Speed = false, SpeedVal = 35,
 }
 
--- ============ РОЛИ (АВТООБНОВЛЕНИЕ) ============
+-- ============ РОЛИ (БЕЗОПАСНЫЙ ЗАПРОС) ============
 local roles = {}
 local function setRoles()
-    local getData = RS:FindFirstChild("GetPlayerData", true)
-    if getData and getData:IsA("RemoteFunction") then
-        local success, data = pcall(function() return getData:InvokeServer() end)
-        if success and type(data) == "table" then roles = data end
-    end
+    pcall(function()
+        local getData = RS:FindFirstChild("GetPlayerData", true)
+        if getData and getData:IsA("RemoteFunction") then
+            local success, data = pcall(function() return getData:InvokeServer() end)
+            if success and type(data) == "table" then roles = data end
+        end
+    end)
 end
 task.spawn(function() while task.wait(2) do setRoles() end end)
-LP.CharacterAdded:Connect(function() task.wait(3); setRoles() end)
 
 local function getRole(plr)
     local roleData = roles[plr.Name]
@@ -39,146 +38,43 @@ local function getRole(plr)
     return "Innocent"
 end
 
--- ============ ESP (Drawing) ============
-local espDrawings = {}
-local function GetDrawings(plr)
-    if espDrawings[plr] then return espDrawings[plr] end
-    local box = Drawing.new("Square")
-    box.Thickness = 1; box.Filled = false; box.Transparency = 1; box.Visible = false
-    local name = Drawing.new("Text")
-    name.Size = 14; name.Center = true; name.Outline = true; name.OutlineColor = Color3.new(0,0,0); name.Visible = false
-    local dist = Drawing.new("Text")
-    dist.Size = 12; dist.Center = true; dist.Outline = true; dist.OutlineColor = Color3.new(0,0,0); dist.Visible = false
-    espDrawings[plr] = {Box = box, Name = name, Dist = dist}
-    return espDrawings[plr]
-end
-
+-- ============ ESP (HIGHLIGHT, САМЫЙ СТАБИЛЬНЫЙ) ============
+local espCache = {}
 RunService.RenderStepped:Connect(function()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr == LP then continue end
-        local data = espDrawings[plr]
-        
-        if CFG.ESP and plr.Character then
-            data = data or GetDrawings(plr)
-            local char = plr.Character
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local head = char:FindFirstChild("Head")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            
-            if hrp and head and hum and hum.Health > 0 then
-                local pos, onScreen = Cam:WorldToViewportPoint(hrp.Position)
-                if onScreen then
-                    local headPos = Cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                    local legPos = Cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-                    local height = math.abs(headPos.Y - legPos.Y)
-                    local width = height / 2
-                    
-                    local role = getRole(plr)
-                    local roleColor = Color3.fromRGB(50, 255, 50) -- Мирный
-                    if role == "Murderer" then roleColor = Color3.fromRGB(255, 50, 50) -- Убийца
-                    elseif role == "Sheriff" then roleColor = Color3.fromRGB(50, 150, 255) end -- Шериф
-                    
-                    if CFG.ESPBox then
-                        data.Box.Size = Vector2.new(width, height)
-                        data.Box.Position = Vector2.new(pos.X - width/2, pos.Y - height/2)
-                        data.Box.Color = roleColor
-                        data.Box.Visible = true
-                    else data.Box.Visible = false end
-                    
-                    if CFG.ESPName then
-                        data.Name.Text = plr.Name .. " [" .. role .. "]"
-                        data.Name.Position = Vector2.new(pos.X, pos.Y - height/2 - 16)
-                        data.Name.Color = roleColor
-                        data.Name.Visible = true
-                    else data.Name.Visible = false end
-                    
-                    if CFG.ESPDist then
-                        local distance = math.floor((hrp.Position - Cam.CFrame.Position).Magnitude)
-                        data.Dist.Text = tostring(distance) .. "m"
-                        data.Dist.Position = Vector2.new(pos.X, pos.Y + height/2 + 2)
-                        data.Dist.Color = roleColor
-                        data.Dist.Visible = true
-                    else data.Dist.Visible = false end
-                else
-                    data.Box.Visible = false; data.Name.Visible = false; data.Dist.Visible = false
-                end
-            else
-                if data then data.Box.Visible = false; data.Name.Visible = false; data.Dist.Visible = false end
-            end
-        else
-            if data then data.Box.Visible = false; data.Name.Visible = false; data.Dist.Visible = false end
-        end
+    if not CFG.ESP then
+        for _, hl in pairs(espCache) do pcall(function() hl:Destroy() end) end
+        table.clear(espCache)
+        return
     end
-end)
-
--- ============ COMBAT (Aimbot/Silent) ============
-local FOVCircle = Instance.new("ScreenGui")
-FOVCircle.Name = "LiberiumFOV"; FOVCircle.ResetOnSpawn = false
-pcall(function() FOVCircle.Parent = game:GetService("CoreGui") end)
-if not FOVCircle.Parent then FOVCircle.Parent = LP:WaitForChild("PlayerGui") end
-
-local circle = Instance.new("Frame")
-circle.Size = UDim2.new(0, CFG.FOV * 2, 0, CFG.FOV * 2)
-circle.AnchorPoint = Vector2.new(0.5, 0.5); circle.Position = UDim2.new(0.5, 0, 0.5, 0)
-circle.BackgroundTransparency = 1; circle.Visible = false; circle.Parent = FOVCircle
-local stroke = Instance.new("UIStroke"); stroke.Color = Color3.fromRGB(150, 50, 255); stroke.Thickness = 1.5; stroke.Parent = circle
-local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = circle
-
-local function updateFOV()
-    circle.Visible = CFG.AimBot
-    circle.Size = UDim2.new(0, CFG.FOV * 2, 0, CFG.FOV * 2)
-end
-
-local function getClosestInFOV()
-    local closest = nil
-    local shortestDist = CFG.FOV
+    
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LP and plr.Character then
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            local targetPart = plr.Character:FindFirstChild(CFG.TargetPart)
-            if hum and hum.Health > 0 and targetPart then
-                local screenPos, onScreen = Cam:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local center = Vector2.new(Cam.ViewportSize.X / 2, Cam.ViewportSize.Y / 2)
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                    if dist < shortestDist then shortestDist = dist; closest = targetPart end
+            local char = plr.Character
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local hl = espCache[plr]
+                if not hl or hl.Parent ~= char then
+                    if hl then hl:Destroy() end
+                    hl = Instance.new("Highlight")
+                    hl.FillTransparency = 0.6
+                    hl.OutlineTransparency = 0
+                    hl.Parent = char
+                    espCache[plr] = hl
+                end
+                
+                local role = getRole(plr)
+                if role == "Murderer" then 
+                    hl.FillColor = Color3.fromRGB(255, 50, 50)
+                    hl.OutlineColor = Color3.fromRGB(255, 50, 50)
+                elseif role == "Sheriff" then 
+                    hl.FillColor = Color3.fromRGB(50, 150, 255)
+                    hl.OutlineColor = Color3.fromRGB(50, 150, 255)
+                else 
+                    hl.FillColor = Color3.fromRGB(50, 255, 50)
+                    hl.OutlineColor = Color3.fromRGB(50, 255, 50)
                 end
             end
         end
-    end
-    return closest
-end
-
-local mt = getrawmetatable(game)
-local oldIndex = mt.__index
-setreadonly(mt, false)
-mt.__index = newcclosure(function(self, key)
-    if CFG.SilentAim and (key == "Hit" or key == "Target") then
-        local target = getClosestInFOV()
-        if target then
-            if key == "Hit" then return CFrame.new(target.Position) end
-            if key == "Target" then return target end
-        end
-    end
-    return oldIndex(self, key)
-end)
-setreadonly(mt, true)
-
-local aimTarget = nil
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if CFG.AimBot and (input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch) then
-        aimTarget = getClosestInFOV()
-    end
-end)
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
-        aimTarget = nil
-    end
-end)
-RunService.RenderStepped:Connect(function()
-    if aimTarget and aimTarget.Parent then
-        Cam.CFrame = Cam.CFrame:Lerp(CFrame.new(Cam.CFrame.Position, aimTarget.Position), 0.25)
     end
 end)
 
@@ -200,7 +96,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ============ UI (PREMIUM GLASS) ============
+-- ============ UI (PREMIUM, СТАБИЛЬНЫЙ) ============
 local UI = {}
 local C = {
     bg = Color3.fromRGB(12, 12, 15), panel = Color3.fromRGB(20, 20, 25),
@@ -230,10 +126,8 @@ function UI:Build()
     })
     create("UICorner", {CornerRadius = UDim.new(0, 14)}, Main)
     create("UIStroke", {Color = C.panel, Thickness = 1.5}, Main)
-    
-    local blur = create("BlurEffect", {Size = 12, Parent = game:GetService("Lighting")})
-    blur.Enabled = false
 
+    -- Масштабирование
     local scale = create("UIScale", {Parent = Main})
     local function updateScale()
         local v = Cam.ViewportSize
@@ -242,9 +136,9 @@ function UI:Build()
     updateScale()
     Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
+    -- Сайдбар
     local Sidebar = create("Frame", {Size = UDim2.new(0, 170, 1, 0), BackgroundColor3 = C.panel, BorderSizePixel = 0, Parent = Main})
     create("UICorner", {CornerRadius = UDim.new(0, 14)}, Sidebar)
-    create("Frame", {Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = Color3.fromRGB(30,30,35), BorderSizePixel = 0, Parent = Sidebar})
     
     create("TextLabel", {
         Size = UDim2.new(1, 0, 0, 60), BackgroundTransparency = 1, Text = "LIBERIUM",
@@ -321,21 +215,16 @@ function UI:Build()
         end)
     end
 
-    CreateTab("Combat", "⚔ Combat")
     CreateTab("Visuals", "👁 Visuals")
     CreateTab("Movement", "🏃 Movement")
 
-    CreateToggle(Pages["Combat"].Page, "Silent Aim (В голову)", CFG.SilentAim, function(v) CFG.SilentAim = v end)
-    CreateToggle(Pages["Combat"].Page, "AimBot (Плавное наведение)", CFG.AimBot, function(v) CFG.AimBot = v; updateFOV() end)
-
-    CreateToggle(Pages["Visuals"].Page, "Player ESP", CFG.ESP, function(v) CFG.ESP = v end)
-    CreateToggle(Pages["Visuals"].Page, "Boxes", CFG.ESPBox, function(v) CFG.ESPBox = v end)
-    CreateToggle(Pages["Visuals"].Page, "Names & Roles", CFG.ESPName, function(v) CFG.ESPName = v end)
-    CreateToggle(Pages["Visuals"].Page, "Distance", CFG.ESPDist, function(v) CFG.ESPDist = v end)
+    -- Только базовые функции
+    CreateToggle(Pages["Visuals"].Page, "Player ESP (Роли)", CFG.ESP, function(v) CFG.ESP = v end)
 
     CreateToggle(Pages["Movement"].Page, "Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
     CreateToggle(Pages["Movement"].Page, "Speed Hack", CFG.Speed, function(v) CFG.Speed = v end)
 
+    -- Перетаскивание
     local dragging, dragStart, startPos
     Main.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -356,9 +245,8 @@ function UI:Build()
 
     IconBtn.MouseButton1Click:Connect(function()
         Main.Visible = not Main.Visible
-        blur.Enabled = Main.Visible
     end)
 end
 
 UI:Build()
-print("[LiberiumHub] Premium v2.0 Loaded Successfully!")
+print("[LiberiumHub] Premium v2.1 (Safe) Loaded!")
