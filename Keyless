@@ -1,5 +1,5 @@
--- LiberiumHub | Auto-Farm Candies (Final)
--- Проверено: Arceus X, Delta, Solara.
+-- LiberiumHub | Real Auto-Farm (Candies & Coins) v4.0
+-- Рабочая версия для мобилок (Arceus X, Delta)
 
 if game.PlaceId ~= 142823291 then
     warn("[LiberiumHub] Запусти в Murder Mystery 2")
@@ -21,54 +21,59 @@ local CFG = {
     SpeedVal = 50,
 }
 
--- ============ БЕЗОПАСНЫЙ ПОИСК (БЕЗ ЛАГОВ) ============
-local function getTargetItems()
-    local items = {}
-    
-    -- 1. Ищем конфеты на карте (в Workspace)
-    pcall(function()
-        -- В MM2 конфеты часто лежат в папке Game или прямо в Workspace
-        local folder = workspace:FindFirstChild("Game") or workspace
-        for _, obj in ipairs(folder:GetChildren()) do
-            if obj:IsA("Model") or obj:IsA("Tool") then
-                local name = string.lower(obj.Name)
-                if string.find(name, "candy") or string.find(name, "sweet") then
-                    table.insert(items, obj)
-                end
-            end
-        end
-    end)
+local farmBV, farmBG
 
-    -- 2. Ищем монеты в GUI
-    pcall(function()
-        local main = LP.PlayerGui:FindFirstChild("MainGUI")
-        if main then
-            local lobby = main:FindFirstChild("Lobby")
-            local game = main:FindFirstChild("Game")
-            local bags = (lobby and lobby:FindFirstChild("CoinBags")) or (game and game:FindFirstChild("CoinBags"))
-            if bags then
-                for _, coin in ipairs(bags:GetChildren()) do
-                    if coin:IsA("BasePart") then table.insert(items, coin) end
+-- ============ БЕЗОПАСНЫЙ ПОИСК ЦЕЛЕЙ ============
+local function getTargets()
+    local targets = {}
+    
+    -- Ищем монеты в GUI
+    if CFG.AutoCoin then
+        pcall(function()
+            local main = LP.PlayerGui:FindFirstChild("MainGUI")
+            if main then
+                local bags = main:FindFirstChild("CoinBags") or (main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags"))
+                if bags then
+                    for _, bag in ipairs(bags:GetChildren()) do
+                        if bag:IsA("BasePart") or bag:IsA("Model") then
+                            table.insert(targets, bag)
+                        end
+                    end
                 end
             end
-        end
-    end)
+        end)
+    end
+
+    -- Ищем конфеты (Только в Workspace, чтобы не лагало)
+    if CFG.AutoCandy then
+        pcall(function()
+            -- В MM2 конфеты часто лежат в папке Game или прямо в Workspace
+            local map = workspace:FindFirstChild("Game") or workspace
+            for _, obj in ipairs(map:GetDescendants()) do
+                if obj:IsA("BasePart") or obj:IsA("Model") then
+                    local name = string.lower(obj.Name)
+                    if string.find(name, "candy") or string.find(name, "sweet") then
+                        table.insert(targets, obj)
+                    end
+                end
+            end
+        end)
+    end
     
-    return items
+    return targets
 end
 
--- Получение координат
+-- Получение позиции
 local function getPos(obj)
-    if not obj then return nil end
     if obj:IsA("BasePart") then return obj.Position end
     if obj:IsA("Model") then
-        local ok, pos = pcall(function() return obj:GetPivot().Position end)
-        return ok and pos or nil
+        local ok, pivot = pcall(function() return obj:GetPivot().Position end)
+        return ok and pivot or nil
     end
     return nil
 end
 
--- ============ ESP ДЛЯ ПРЕДМЕТОВ ============
+-- ============ ESP ============
 local espCache = {}
 RunService.RenderStepped:Connect(function()
     if not CFG.ItemESP then
@@ -77,10 +82,33 @@ RunService.RenderStepped:Connect(function()
         return
     end
     
-    for _, obj in ipairs(getTargetItems()) do
+    -- Собираем всё для ESP (независимо от того, включен ли фарм)
+    local allItems = {}
+    -- Монеты
+    pcall(function()
+        local main = LP.PlayerGui:FindFirstChild("MainGUI")
+        if main then
+            local bags = main:FindFirstChild("CoinBags") or (main:FindFirstChild("Lobby") and main.Lobby:FindFirstChild("CoinBags")) or (main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags"))
+            if bags then for _, bag in ipairs(bags:GetChildren()) do table.insert(allItems, bag) end end
+        end
+    end)
+    -- Конфеты
+    pcall(function()
+        local map = workspace:FindFirstChild("Game") or workspace
+        for _, obj in ipairs(map:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local name = string.lower(obj.Name)
+                if string.find(name, "candy") or string.find(name, "sweet") then
+                    table.insert(allItems, obj)
+                end
+            end
+        end
+    end)
+
+    for _, obj in ipairs(allItems) do
         if not espCache[obj] then
             local hl = Instance.new("Highlight")
-            hl.FillColor = Color3.fromRGB(255, 255, 0) -- Желтый
+            hl.FillColor = Color3.fromRGB(255, 255, 0)
             hl.FillTransparency = 0.5
             hl.OutlineColor = Color3.fromRGB(255, 255, 0)
             hl.Parent = obj
@@ -89,42 +117,56 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ============ AUTO FARM (ПЛАВНЫЙ ПОЛЕТ) ============
-local isMoving = false
+-- ============ AUTO FARM (ФИЗИЧЕСКИЙ ПОЛЕТ) ============
 task.spawn(function()
-    while task.wait(0.3) do
-        if (CFG.AutoCandy or CFG.AutoCoin) and not isMoving then
+    while task.wait(0.5) do -- Проверка раз в 0.5 сек (без лагов)
+        if CFG.AutoCandy or CFG.AutoCoin then
             local char = LP.Character
             if not char then continue end
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then continue end
 
-            local targetPos = nil
-            local items = getTargetItems()
+            -- Создаем физику полета, если ее нет
+            if not farmBV then
+                farmBV = Instance.new("BodyVelocity")
+                farmBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                farmBV.Velocity = Vector3.zero
+                farmBV.Parent = hrp
+                farmBG = Instance.new("BodyGyro")
+                farmBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+                farmBG.P = 1000
+                farmBG.Parent = hrp
+            end
 
-            -- Приоритет: Конфеты -> Монеты
-            for _, item in ipairs(items) do
-                local isCandy = string.find(string.lower(item.Name), "candy") or string.find(string.lower(item.Name), "sweet")
-                local isCoin = item:IsA("BasePart")
+            local targets = getTargets()
+            if #targets > 0 then
+                local target = targets[1]
+                local pos = getPos(target)
                 
-                if (CFG.AutoCandy and isCandy) or (CFG.AutoCoin and isCoin and not isCandy) then
-                    local pos = getPos(item)
-                    if pos then
-                        targetPos = pos
-                        break
+                if pos then
+                    -- Летим к цели
+                    farmBV.Velocity = (pos - hrp.Position).Unit * 45
+                    farmBG.CFrame = CFrame.new(hrp.Position, pos)
+                    
+                    -- Если близко, активируем промпт
+                    local dist = (pos - hrp.Position).Magnitude
+                    if dist < 10 then
+                        for _, prompt in ipairs(target:GetDescendants()) do
+                            if prompt:IsA("ProximityPrompt") then
+                                pcall(function() fireproximityprompt(prompt) end)
+                            end
+                        end
+                        task.wait(0.2)
                     end
                 end
+            else
+                -- Если целей нет, останавливаемся
+                if farmBV then farmBV.Velocity = Vector3.zero end
             end
-
-            if targetPos then
-                isMoving = true
-                -- Летим к предмету
-                local tween = TweenService:Create(hrp, TweenInfo.new(0.4, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))})
-                tween:Play()
-                tween.Completed:Wait()
-                task.wait(0.1)
-                isMoving = false
-            end
+        else
+            -- Если фарм выключен, удаляем физику
+            if farmBV then farmBV:Destroy(); farmBV = nil end
+            if farmBG then farmBG:Destroy(); farmBG = nil end
         end
     end
 end)
@@ -147,7 +189,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ============ UI (СТИЛЬ PREMIUM) ============
+-- ============ UI ============
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LiberiumHub_Farm"
 ScreenGui.ResetOnSpawn = false
@@ -202,7 +244,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -50, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "Liberium | Farm"
+Title.Text = "Liberium | Auto Farm"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 16
