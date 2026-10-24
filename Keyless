@@ -1,128 +1,26 @@
---[[
-    LIBERIUM HUB PREMIUM v1.2
-    All-in-One LocalScript (Mobile Ready)
-    Для тестовой среды Roblox Studio / Arceus X
-]]
-
-if not game:IsLoaded() then game.Loaded:Wait() end
+-- LiberiumHub | Mobile Crash Fix
+-- Полностью безопасная версия для Arceus X.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
 local LP = Players.LocalPlayer
 
--- ==========================================
--- 1. CORE (Ядро и Настройки)
--- ==========================================
-local Core = {
-    State = {
-        -- Combat
-        SilentAim = false, FOV = 150, TargetPart = "Head", TeamCheck = true,
-        -- Visuals
-        ESP = false, ESPBox = false, ESPName = false, ESPDistance = false,
-        -- Player
-        Fly = false, Noclip = false, Speed = false, SpeedVal = 35,
-        -- Farm
-        AutoFarm = false, FarmMode = "Basic",
-        -- AI Lab
-        AITraining = false, AIEpochs = 0, AIStatus = "Idle"
-    },
-    Connections = {},
+print("[Liberium] Script started. Loading UI...")
+
+local CFG = {
+    SilentAim = false,
+    ESP = false,
+    Noclip = false,
+    Speed = false,
+    SpeedVal = 50,
 }
 
-function Core:AddConnection(name, conn)
-    if self.Connections[name] then self.Connections[name]:Disconnect() end
-    self.Connections[name] = conn
-end
-
-function Core:Save()
-    if not writefile then return end
-    local data = HttpService:JSONEncode(Core.State)
-    pcall(function() writefile("LiberiumConfig.json", data) end)
-end
-
-function Core:Load()
-    if not isfile or not readfile then return end
-    if isfile("LiberiumConfig.json") then
-        local success, data = pcall(function() return HttpService:JSONDecode(readfile("LiberiumConfig.json")) end)
-        if success and data then
-            for k, v in pairs(data) do
-                if Core.State[k] ~= nil then Core.State[k] = v end
-            end
-        end
-    end
-end
-Core:Load()
-
--- ==========================================
--- 2. COMBAT (Silent Aim & FOV)
--- ==========================================
-local Combat = {}
-local FOVCircle = nil
-
-function Combat:GetTarget()
-    local closest = nil
-    local shortestDist = Core.State.FOV
-    local myChar = LP.Character
-    if not myChar then return nil end
-    
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP and plr.Character then
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            local targetPart = plr.Character:FindFirstChild(Core.State.TargetPart)
-            if hum and hum.Health > 0 and targetPart then
-                local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local center = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                    if dist < shortestDist then shortestDist = dist; closest = targetPart end
-                end
-            end
-        end
-    end
-    return closest
-end
-
-function Combat:UpdateFOV()
-    if FOVCircle then FOVCircle:Destroy() end
-    if not Core.State.SilentAim then return end
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "Liberium_FOV"; gui.IgnoreGuiInset = true; gui.ResetOnSpawn = false
-    gui.Parent = LP:WaitForChild("PlayerGui")
-    local circle = Instance.new("Frame")
-    circle.Size = UDim2.new(0, Core.State.FOV * 2, 0, Core.State.FOV * 2)
-    circle.AnchorPoint = Vector2.new(0.5, 0.5); circle.Position = UDim2.new(0.5, 0, 0.5, 0)
-    circle.BackgroundTransparency = 1; circle.Parent = gui
-    local stroke = Instance.new("UIStroke"); stroke.Color = Color3.fromRGB(150, 50, 255); stroke.Thickness = 1.5; stroke.Parent = circle
-    local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = circle
-    FOVCircle = gui
-end
-
-local mt = getrawmetatable(game)
-local oldIndex = mt.__index
-setreadonly(mt, false)
-mt.__index = newcclosure(function(self, key)
-    if Core.State.SilentAim and (key == "Hit" or key == "Target") then
-        local target = Combat:GetTarget()
-        if target then
-            if key == "Hit" then return CFrame.new(target.Position) end
-            if key == "Target" then return target end
-        end
-    end
-    return oldIndex(self, key)
-end)
-setreadonly(mt, true)
-
--- ==========================================
--- 3. VISUALS (ESP)
--- ==========================================
-local Visuals = {}
+-- ============ БЕЗОПАСНЫЙ ESP ============
 local espCache = {}
-
-function Visuals:Update()
-    if not Core.State.ESP then
+RunService.RenderStepped:Connect(function()
+    if not CFG.ESP then
         for _, hl in pairs(espCache) do pcall(function() hl:Destroy() end) end
         table.clear(espCache)
         return
@@ -136,278 +34,197 @@ function Visuals:Update()
                 if not hl or hl.Parent ~= char then
                     if hl then hl:Destroy() end
                     hl = Instance.new("Highlight")
-                    hl.FillTransparency = 0.6; hl.OutlineTransparency = 0; hl.Parent = char
+                    hl.FillTransparency = 0.6
+                    hl.OutlineTransparency = 0
+                    hl.FillColor = Color3.fromRGB(150, 50, 255)
+                    hl.OutlineColor = Color3.fromRGB(150, 50, 255)
+                    hl.Parent = char
                     espCache[plr] = hl
                 end
-                hl.FillColor = Color3.fromRGB(150, 50, 255)
-                hl.OutlineColor = Color3.fromRGB(150, 50, 255)
             end
         end
     end
-end
-RunService.RenderStepped:Connect(function() Visuals:Update() end)
+end)
 
--- ==========================================
--- 4. PLAYER (Movement)
--- ==========================================
-local PlayerMods = {}
-function PlayerMods:UpdateNoclip()
-    if Core.Connections["Noclip"] then Core.Connections["Noclip"]:Disconnect(); Core.Connections["Noclip"] = nil end
-    if Core.State.Noclip then
-        Core.Connections["Noclip"] = RunService.Stepped:Connect(function()
-            if LP.Character then
-                for _, p in ipairs(LP.Character:GetDescendants()) do
-                    if p:IsA("BasePart") then p.CanCollide = false end
+-- ============ БЕЗОПАСНЫЙ SILENT AIM (Без метатейблов) ============
+-- Вместо хука мыши, мы просто двигаем камеру (это не крашит Arceus X)
+local aimTarget = nil
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if CFG.SilentAim and (input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch) then
+        local best, bd = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LP and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    local d = (hrp.Position - workspace.CurrentCamera.CFrame.Position).Magnitude
+                    if d < bd then bd = d; best = hrp end
                 end
             end
-        end)
+        end
+        aimTarget = best
     end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
+        aimTarget = nil
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if aimTarget and aimTarget.Parent then
+        workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame:Lerp(CFrame.new(workspace.CurrentCamera.CFrame.Position, aimTarget.Position), 0.2)
+    end
+end)
+
+-- ============ ДВИЖЕНИЕ ============
+local noclipConn
+local function setNoclip(on)
+    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+    if not on then return end
+    noclipConn = RunService.Stepped:Connect(function()
+        local char = LP.Character
+        if char then for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
+    end)
 end
 
 RunService.Heartbeat:Connect(function()
-    if Core.State.Speed and LP.Character then
-        local hum = LP.Character:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = Core.State.SpeedVal end
+    if CFG.Speed then
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = CFG.SpeedVal end
     end
 end)
 
--- ==========================================
--- 5. FARM (Тестовый сбор)
--- ==========================================
-local Farm = {}
-function Farm:Start()
-    if Core.Connections["Farm"] then return end
-    Core.Connections["Farm"] = task.spawn(function()
-        while Core.State.AutoFarm do
-            task.wait(0.5)
-            if LP.Character then
-                local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        if obj.Name == "TestCoin" and obj:IsA("BasePart") then
-                            hrp.CFrame = CFrame.new(obj.Position + Vector3.new(0, 2, 0))
-                            task.wait(0.2)
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
+-- ============ UI (Принудительно в PlayerGui) ============
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "LiberiumHub"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LP:WaitForChild("PlayerGui") -- Жестко пишем в PlayerGui, чтобы Arceus X не крашил
+
+local IconBtn = Instance.new("TextButton")
+IconBtn.Size = UDim2.new(0, 45, 0, 45)
+IconBtn.Position = UDim2.new(0, 20, 0, 100)
+IconBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
+IconBtn.Text = "L"
+IconBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+IconBtn.Font = Enum.Font.GothamBlack
+IconBtn.TextSize = 20
+IconBtn.BorderSizePixel = 0
+IconBtn.AutoButtonColor = false
+IconBtn.Parent = ScreenGui
+local IconCorner = Instance.new("UICorner"); IconCorner.CornerRadius = UDim.new(1, 0); IconCorner.Parent = IconBtn
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0.9, 0, 0.8, 0)
+Main.Position = UDim2.new(0.05, 0, 0.1, 0)
+Main.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+Main.BorderSizePixel = 0
+Main.Visible = false
+Main.Parent = ScreenGui
+local MainCorner = Instance.new("UICorner"); MainCorner.CornerRadius = UDim.new(0, 12); MainCorner.Parent = Main
+local MainStroke = Instance.new("UIStroke"); MainStroke.Color = Color3.fromRGB(22, 22, 28); MainStroke.Thickness = 1; MainStroke.Parent = Main
+
+-- Адаптация под экран телефона
+local scale = Instance.new("UIScale", Main)
+local function updateScale()
+    local v = workspace.CurrentCamera.ViewportSize
+    scale.Scale = math.min(1, v.X / 650, v.Y / 500)
 end
+updateScale()
+workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
-function Farm:Stop()
-    if Core.Connections["Farm"] then
-        task.cancel(Core.Connections["Farm"])
-        Core.Connections["Farm"] = nil
-    end
-end
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -50, 0, 50)
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "LIBERIUM | COMBAT"
+Title.TextColor3 = Color3.fromRGB(240, 240, 240)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Main
 
--- ==========================================
--- 6. UI (WindUI Style)
--- ==========================================
-local UI = {}
-local C = {
-    bg = Color3.fromRGB(15, 15, 18),
-    panel = Color3.fromRGB(22, 22, 28),
-    accent = Color3.fromRGB(150, 50, 255),
-    text = Color3.fromRGB(240, 240, 240),
-    muted = Color3.fromRGB(150, 150, 160),
-}
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -40, 0, 10)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(240, 240, 240)
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Parent = Main
+local CloseCorner = Instance.new("UICorner"); CloseCorner.CornerRadius = UDim.new(0, 8); CloseCorner.Parent = CloseBtn
+CloseBtn.MouseButton1Click:Connect(function() Main.Visible = false end)
 
-local function create(class, props, parent)
-    local obj = Instance.new(class)
-    for k, v in pairs(props) do obj[k] = v end
-    obj.Parent = parent
-    return obj
-end
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -40, 1, -70)
+Content.Position = UDim2.new(0, 20, 0, 60)
+Content.BackgroundTransparency = 1
+Content.Parent = Main
+local Layout = Instance.new("UIListLayout"); Layout.Padding = UDim.new(0, 8); Layout.Parent = Content
 
-function UI:Build()
-    local ScreenGui = create("ScreenGui", {Name = "LiberiumHub", ResetOnSpawn = false, Parent = LP:WaitForChild("PlayerGui")})
-    local IconBtn = create("TextButton", {
-        Size = UDim2.new(0, 45, 0, 45), Position = UDim2.new(0, 20, 0, 100),
-        BackgroundColor3 = C.accent, Text = "L", TextColor3 = C.text,
-        Font = Enum.Font.GothamBlack, TextSize = 20, BorderSizePixel = 0, AutoButtonColor = false, Parent = ScreenGui
-    })
-    create("UICorner", {CornerRadius = UDim.new(1, 0)}, IconBtn)
-
-    local Main = create("Frame", {
-        Size = UDim2.new(0, 600, 0, 450), Position = UDim2.new(0.5, -300, 0.5, -225),
-        BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Parent = ScreenGui
-    })
-    create("UICorner", {CornerRadius = UDim.new(0, 12)}, Main)
-    create("UIStroke", {Color = C.panel, Thickness = 1}, Main)
-
-    local scale = create("UIScale", {Parent = Main})
-    local function updateScale()
-        local v = workspace.CurrentCamera.ViewportSize
-        scale.Scale = math.min(1, v.X / 650, v.Y / 500)
-    end
-    updateScale()
-    workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
-
-    -- Сайдбар
-    local Sidebar = create("Frame", {Size = UDim2.new(0, 160, 1, 0), BackgroundColor3 = C.panel, BorderSizePixel = 0, Parent = Main})
-    create("UICorner", {CornerRadius = UDim.new(0, 12)}, Sidebar)
-    create("Frame", {Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, Parent = Sidebar})
-    create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, Text = "LIBERIUM",
-        TextColor3 = C.accent, Font = Enum.Font.GothamBlack, TextSize = 18, Parent = Sidebar
-    })
-
-    local TabHolder = create("Frame", {Size = UDim2.new(1, -20, 1, -60), Position = UDim2.new(0, 10, 0, 60), BackgroundTransparency = 1, Parent = Sidebar})
-    create("UIListLayout", {Padding = UDim.new(0, 5)}, TabHolder)
-
-    local Content = create("Frame", {Size = UDim2.new(1, -170, 1, -20), Position = UDim2.new(0, 165, 0, 10), BackgroundTransparency = 1, Parent = Main})
-    local Pages = {}
-    local currentPage = nil
-
-    local function CreateTab(name, title)
-        local btn = create("TextButton", {
-            Size = UDim2.new(1, 0, 0, 35), BackgroundColor3 = C.panel, BackgroundTransparency = 1,
-            Text = "  " .. title, TextColor3 = C.muted, Font = Enum.Font.Gotham, TextSize = 14,
-            TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, Parent = TabHolder
-        })
-        create("UICorner", {CornerRadius = UDim.new(0, 8)}, btn)
-
-        local page = create("ScrollingFrame", {
-            Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
-            ScrollBarThickness = 0, CanvasSize = UDim2.new(0, 0, 0, 0),
-            AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, Parent = Content
-        })
-        create("UIListLayout", {Padding = UDim.new(0, 8)}, page)
-        Pages[name] = {Btn = btn, Page = page}
-
-        btn.MouseButton1Click:Connect(function()
-            for _, p in pairs(Pages) do
-                p.Page.Visible = false
-                TweenService:Create(p.Btn, TweenInfo.new(0.2), {TextColor3 = C.muted, BackgroundTransparency = 1}):Play()
-            end
-            page.Visible = true
-            btn.TextColor3 = C.text
-            btn.BackgroundTransparency = 0.8
-            currentPage = name
-        end)
-
-        if not currentPage then
-            currentPage = name
-            page.Visible = true
-            btn.TextColor3 = C.text
-            btn.BackgroundTransparency = 0.8
-        end
-    end
-
-    local function CreateToggle(parent, text, default, callback)
-        local btn = create("TextButton", {
-            Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = C.panel,
-            Text = "  " .. text, TextColor3 = C.text, Font = Enum.Font.Gotham,
-            TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left,
-            AutoButtonColor = false, BorderSizePixel = 0, Parent = parent
-        })
-        create("UICorner", {CornerRadius = UDim.new(0, 8)}, btn)
-        local isOn = default
-        local ind = create("Frame", {
-            Size = UDim2.new(0, 40, 0, 20), Position = UDim2.new(1, -50, 0.5, -10),
-            BackgroundColor3 = isOn and C.accent or C.bg, Parent = btn
-        })
-        create("UICorner", {CornerRadius = UDim.new(1, 0)}, ind)
-        local circle = create("Frame", {
-            Size = UDim2.new(0, 16, 0, 16), Position = isOn and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8),
-            BackgroundColor3 = Color3.new(1,1,1), Parent = ind
-        })
-        create("UICorner", {CornerRadius = UDim.new(1, 0)}, circle)
-
-        btn.MouseButton1Click:Connect(function()
-            isOn = not isOn
-            TweenService:Create(ind, TweenInfo.new(0.2), {BackgroundColor3 = isOn and C.accent or C.bg}):Play()
-            TweenService:Create(circle, TweenInfo.new(0.2), {Position = isOn and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
-            callback(isOn)
-        end)
-    end
-
-    -- Вкладки
-    CreateTab("Combat", "Combat")
-    CreateTab("Visuals", "Visuals")
-    CreateTab("Player", "Player")
-    CreateTab("Farm", "Farm")
-    CreateTab("AILab", "AI Lab")
-    CreateTab("Settings", "Settings")
-
-    -- Заполнение Combat
-    CreateToggle(Pages["Combat"].Page, "Silent Aim", Core.State.SilentAim, function(v)
-        Core.State.SilentAim = v
-        Combat:UpdateFOV()
-    end)
-
-    -- Заполнение Visuals
-    CreateToggle(Pages["Visuals"].Page, "Player ESP", Core.State.ESP, function(v) Core.State.ESP = v end)
-
-    -- Заполнение Player
-    CreateToggle(Pages["Player"].Page, "Noclip", Core.State.Noclip, function(v) Core.State.Noclip = v; PlayerMods:UpdateNoclip() end)
-    CreateToggle(Pages["Player"].Page, "Speed", Core.State.Speed, function(v) Core.State.Speed = v end)
-
-    -- Заполнение Farm
-    CreateToggle(Pages["Farm"].Page, "Auto Farm (Test)", Core.State.AutoFarm, function(v)
-        Core.State.AutoFarm = v
-        if v then Farm:Start() else Farm:Stop() end
-    end)
-
-    -- AI Lab (Имитация)
-    local aiStatus = create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = C.panel,
-        Text = "AI Status: Idle", TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 14, Parent = Pages["AILab"].Page
-    })
-    create("UICorner", {CornerRadius = UDim.new(0, 8)}, aiStatus)
+local function CreateToggle(text, default, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 45)
+    btn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+    btn.Text = "  " .. text
+    btn.TextColor3 = Color3.fromRGB(240, 240, 240)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 14
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.AutoButtonColor = false
+    btn.BorderSizePixel = 0
+    btn.Parent = Content
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = btn
     
-    CreateToggle(Pages["AILab"].Page, "Start AI Training", false, function(v)
-        if v then
-            aiStatus.Text = "AI Status: Training (Simulated)..."
-            task.spawn(function()
-                for i = 1, 10 do
-                    if not v then break end
-                    task.wait(1)
-                    aiStatus.Text = "AI Status: Epoch " .. i .. "/10 (Loss: " .. string.format("%.3f", math.random(100, 500)/1000) .. ")"
-                end
-                aiStatus.Text = "AI Status: Training Complete (Simulated)"
-            end)
-        else
-            aiStatus.Text = "AI Status: Idle"
-        end
+    local isOn = default
+    local ind = Instance.new("Frame")
+    ind.Size = UDim2.new(0, 40, 0, 20)
+    ind.Position = UDim2.new(1, -50, 0.5, -10)
+    ind.BackgroundColor3 = isOn and Color3.fromRGB(150, 50, 255) or Color3.fromRGB(15, 15, 18)
+    ind.Parent = btn
+    local indC = Instance.new("UICorner"); indC.CornerRadius = UDim.new(1, 0); indC.Parent = ind
+    
+    local circle = Instance.new("Frame")
+    circle.Size = UDim2.new(0, 16, 0, 16)
+    circle.Position = isOn and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+    circle.BackgroundColor3 = Color3.new(1,1,1)
+    circle.Parent = ind
+    local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(1, 0); cc.Parent = circle
+    
+    btn.MouseButton1Click:Connect(function()
+        isOn = not isOn
+        TweenService:Create(ind, TweenInfo.new(0.2), {BackgroundColor3 = isOn and Color3.fromRGB(150, 50, 255) or Color3.fromRGB(15, 15, 18)}):Play()
+        TweenService:Create(circle, TweenInfo.new(0.2), {Position = isOn and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+        callback(isOn)
     end)
-
-    -- Settings
-    local SaveBtn = create("TextButton", {
-        Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = C.accent, Text = "Save Config",
-        TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, BorderSizePixel = 0, Parent = Pages["Settings"].Page
-    })
-    create("UICorner", {CornerRadius = UDim.new(0, 8)}, SaveBtn)
-    SaveBtn.MouseButton1Click:Connect(function() Core:Save() end)
-
-    -- Драг окна
-    local dragging, dragStart, startPos
-    Main.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            if input.Position.Y - Main.AbsolutePosition.Y < 50 then
-                dragging = true; dragStart = input.Position; startPos = Main.Position
-            end
-        end
-    end)
-    UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-    end)
-
-    IconBtn.MouseButton1Click:Connect(function() Main.Visible = not Main.Visible end)
 end
 
--- Запуск
-UI:Build()
+CreateToggle("Silent Aim (Camera)", CFG.SilentAim, function(v) CFG.SilentAim = v end)
+CreateToggle("Player ESP", CFG.ESP, function(v) CFG.ESP = v end)
+CreateToggle("Noclip", CFG.Noclip, function(v) CFG.Noclip = v; setNoclip(v) end)
+CreateToggle("Speed Hack", CFG.Speed, function(v) CFG.Speed = v end)
 
-game:BindToClose(function()
-    Core:Cleanup()
+-- Перетаскивание окна
+local dragging, dragStart, startPos
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = input.Position; startPos = Main.Position
+    end
 end)
+UIS.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+end)
+
+IconBtn.MouseButton1Click:Connect(function()
+    Main.Visible = not Main.Visible
+end)
+
+print("[Liberium] UI Loaded successfully!")
