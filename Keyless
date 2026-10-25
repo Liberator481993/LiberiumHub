@@ -1,161 +1,71 @@
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
+-- 1. Загружаем библиотеку Slate
+local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+-- 2. Создаем окно с идеальным размером под телефон
+local Window = Slate:CreateWindow({
+    Name = "Liberium Hub",
+    Subtitle = "MM2 Edition",
+    Icon = "shield",
+    Logo = true,
+    Size = UDim2.fromOffset(550, 380), -- Оптимальный компактный размер
+    ToggleKey = Enum.KeyCode.RightShift,
+})
 
--- Создаем экран для вывода текста
-local gui = Instance.new("ScreenGui")
-gui.Name = "InfoDetective"
-gui.ResetOnSpawn = false
-gui.DisplayOrder = 9999
-gui.Parent = playerGui
-
-local frame = Instance.new("ScrollingFrame")
-frame.Size = UDim2.new(0.9, 0, 0.8, 0)
-frame.Position = UDim2.new(0.05, 0, 0.1, 0)
-frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-frame.BorderSizePixel = 2
-frame.BorderColor3 = Color3.fromRGB(150, 50, 255)
-frame.ScrollBarThickness = 5
-frame.Parent = gui
-
-local textLabel = Instance.new("TextLabel")
-textLabel.Size = UDim2.new(1, 0, 1, 0)
-textLabel.BackgroundTransparency = 1
-textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-textLabel.TextXAlignment = Enum.TextXAlignment.Left
-textLabel.TextYAlignment = Enum.TextYAlignment.Top
-textLabel.Font = Enum.Font.Code
-textLabel.TextSize = 14
-textLabel.TextWrapped = true
-textLabel.Text = "Загрузка данных...\n\n"
-textLabel.Parent = frame
-
--- Кнопка копирования
-local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.9, 0, 0.06, 0)
-copyBtn.Position = UDim2.new(0.05, 0, 0.92, 0)
-copyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = 18
-copyBtn.Text = "КОПИРОВАТЬ ВСЕ"
-copyBtn.Parent = gui
-
-local logTable = {}
-local function log(msg)
-    table.insert(logTable, msg)
-    textLabel.Text = table.concat(logTable, "\n")
-end
-
--- 1. Проверка инжектора
-log("=== ПРОВЕРКА ИНЖЕКТОРА ===")
-log("getrawmetatable: " .. tostring(getrawmetatable ~= nil))
-log("hookfunction: " .. tostring(hookfunction ~= nil))
-log("setreadonly: " .. tostring(setreadonly ~= nil))
-log("issynapsefunction: " .. tostring(issynapsefunction ~= nil or is_synapse_function ~= nil))
-log("----------------------------\n")
-
--- 2. Проверка РОЛЕЙ
-log("=== ДАННЫЕ РОЛЕЙ ===")
-local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-if getData and getData:IsA("RemoteFunction") then
-    local success, data = pcall(function() return getData:InvokeServer() end)
-    if success and type(data) == "table" then
-        log("GetPlayerData РАБОТАЕТ.")
-        local count = 0
-        for name, roleData in pairs(data) do
-            if count < 5 then
-                log("Игрок: " .. tostring(name))
-                if type(roleData) == "table" then
-                    for k, v in pairs(roleData) do
-                        log("  Ключ: " .. tostring(k) .. " = " .. tostring(v))
-                    end
-                else
-                    log("  Значение: " .. tostring(roleData))
-                end
-            end
-            count = count + 1
-        end
-    else
-        log("GetPlayerData вернул ошибку или пустоту.")
-    end
-else
-    log("GetPlayerData НЕ НАЙДЕН в ReplicatedStorage!")
-end
-log("----------------------------\n")
-
--- 3. Проверка МОНЕТ (MainGUI)
-log("=== ПОИСК МОНЕТ (MainGUI) ===")
-local main = playerGui:FindFirstChild("MainGUI")
-if main then
-    local gameFolder = main:FindFirstChild("Game")
-    if gameFolder then
-        for _, obj in ipairs(gameFolder:GetDescendants()) do
-            local name = string.lower(obj.Name)
-            if name:find("coin") or name:find("bag") or name:find("cash") or name:find("money") then
-                log("Найдено: " .. obj:GetFullName())
-            end
-        end
-    else
-        log("Папка MainGUI.Game не найдена.")
-    end
-else
-    log("MainGUI не найден.")
-end
-log("----------------------------\n")
-
--- 4. Проверка КОНФЕТ (Workspace)
-log("=== ПОИСК КОНФЕТ (Workspace) ===")
-local foundCandies = 0
-for _, obj in ipairs(Workspace:GetDescendants()) do
-    local name = string.lower(obj.Name)
-    if name:find("candy") or name:find("sweet") then
-        if foundCandies < 10 then
-            log("Найдено: " .. obj:GetFullName() .. " [" .. obj.ClassName .. "]")
-        end
-        foundCandies = foundCandies + 1
+-- 3. Добавляем авто-масштабирование (если экран маленький, окно уменьшится)
+local uiscale = Instance.new("UIScale")
+uiscale.Parent = Window.root
+local function updateScale()
+    local cam = workspace.CurrentCamera
+    if cam then
+        -- Уменьшаем, если экран меньше 600x420
+        uiscale.Scale = math.min(1, cam.ViewportSize.X / 600, cam.ViewportSize.Y / 420)
     end
 end
-if foundCandies == 0 then
-    log("Конфеты не найдены (возможно, сейчас не раунд или они называются иначе).")
-else
-    log("Всего найдено конфет: " .. foundCandies)
-end
-log("----------------------------\n")
-log("КОНЕЦ СБОРА ДАННЫХ.")
+updateScale()
+workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
--- Функция копирования
-local function doCopy()
-    local finalText = table.concat(logTable, "\n")
-    local success = pcall(function()
-        if setclipboard then
-            setclipboard(finalText)
-        elseif toclipboard then
-            toclipboard(finalText)
-        elseif syn and syn.write_clipboard then
-            syn.write_clipboard(finalText)
-        else
-            error("No clipboard function found")
-        end
-    end)
-    
-    if success then
-        copyBtn.Text = "СКОПИРОВАНО!"
-        copyBtn.BackgroundColor3 = Color3.fromRGB(50, 255, 100)
-        task.delay(2, function()
-            copyBtn.Text = "КОПИРОВАТЬ ВСЕ"
-            copyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-        end)
-    else
-        copyBtn.Text = "ОШИБКА КОПИРОВАНИЯ"
-        copyBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-    end
-end
+-- 4. Создаем вкладки
+local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
+local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
+local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
 
-copyBtn.MouseButton1Click:Connect(doCopy)
+-- 5. Заполняем Combat
+local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
+secCombat:Toggle({
+    Name = "Silent Aim",
+    Default = false,
+    Callback = function(v) print("Silent Aim:", v) end
+})
+secCombat:Toggle({
+    Name = "Aimbot (Hold)",
+    Default = false,
+    Callback = function(v) print("Aimbot:", v) end
+})
 
--- Автоматически копируем через 2 секунды после сбора
-task.delay(2, doCopy)
+-- 6. Заполняем Visuals
+local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
+secVisuals:Toggle({
+    Name = "Player ESP",
+    Default = false,
+    Callback = function(v) print("ESP:", v) end
+})
+secVisuals:Slider({
+    Name = "ESP Fill %",
+    Min = 0, Max = 100, Default = 50,
+    Callback = function(v) print("Fill:", v) end
+})
+
+-- 7. Заполняем Movement
+local secMovement = TabMovement:CreateSection({ Name = "Player Physics" })
+secMovement:Toggle({
+    Name = "Noclip",
+    Default = false,
+    Callback = function(v) print("Noclip:", v) end
+})
+secMovement:Slider({
+    Name = "WalkSpeed",
+    Min = 16, Max = 150, Default = 16,
+    Callback = function(v) print("Speed:", v) end
+})
+
+print("Slate UI загружен с адаптивным размером!")
