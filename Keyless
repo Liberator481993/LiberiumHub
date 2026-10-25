@@ -1,16 +1,15 @@
--- LiberiumHub | UI TEST
--- Проверка отрисовки интерфейса на Arceus X
-
+-- LiberiumHub | UI Fix (Draggable + ZIndex)
 local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
--- Создаем ScreenGui напрямую в PlayerGui
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LiberiumTest"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999 -- Поверх всего интерфейса игры
 ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 
--- Создаем фиолетовую кнопку
+-- ============ КНОПКА ============
 local IconBtn = Instance.new("TextButton")
 IconBtn.Size = UDim2.new(0, 50, 0, 50)
 IconBtn.Position = UDim2.new(0, 20, 0, 100)
@@ -20,19 +19,40 @@ IconBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconBtn.Font = Enum.Font.GothamBlack
 IconBtn.TextSize = 24
 IconBtn.BorderSizePixel = 0
+IconBtn.ZIndex = 10 -- Поверх других кнопок
 IconBtn.Parent = ScreenGui
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(1, 0)
 corner.Parent = IconBtn
 
--- Окно
+-- Логика перетаскивания кнопки
+local draggingIcon, dragStartIcon, startPosIcon
+IconBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingIcon = true
+        dragStartIcon = input.Position
+        startPosIcon = IconBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end
+        end)
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if draggingIcon and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartIcon
+        IconBtn.Position = UDim2.new(startPosIcon.X.Scale, startPosIcon.X.Offset + delta.X, startPosIcon.Y.Scale, startPosIcon.Y.Offset + delta.Y)
+    end
+end)
+
+-- ============ ОКНО ============
 local Main = Instance.new("Frame")
 Main.Size = UDim2.new(0, 300, 0, 200)
 Main.Position = UDim2.new(0.5, -150, 0.5, -100)
 Main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 Main.BorderSizePixel = 0
 Main.Visible = false
+Main.ZIndex = 5 -- Поверх игры
 Main.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
@@ -46,12 +66,35 @@ Title.Text = "Liberium Hub"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
+Title.ZIndex = 6
 Title.Parent = Main
 
--- Логика открытия
-IconBtn.MouseButton1Click:Connect(function()
-    Main.Visible = not Main.Visible
-    print("[Liberium] Menu toggled! Visible:", Main.Visible)
+-- Перетаскивание ОКНА (за верхнюю часть)
+local draggingMain, dragStartMain, startPosMain
+Main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        -- Проверяем, что зажали именно шапку (верхние 50 пикселей)
+        local relativeY = input.Position.Y - Main.AbsolutePosition.Y
+        if relativeY <= 50 then
+            draggingMain = true
+            dragStartMain = input.Position
+            startPosMain = Main.Position
+        end
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if draggingMain and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartMain
+        Main.Position = UDim2.new(startPosMain.X.Scale, startPosMain.X.Offset + delta.X, startPosMain.Y.Scale, startPosMain.Y.Offset + delta.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingMain = false
+    end
 end)
 
-print("[Liberium] Script loaded! Look at the top left of your screen.")
+-- Открытие
+IconBtn.MouseButton1Click:Connect(function()
+    Main.Visible = not Main.Visible
+end)
