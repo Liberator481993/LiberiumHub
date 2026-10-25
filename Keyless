@@ -62,35 +62,40 @@ local function getRoleColor(plr)
 end
 
 -- ==========================================
--- ESP (ФИКС ДВОЙНЫХ ХАЙЛАЙТОВ)
+-- ESP (СТРОГИЙ КОНТРОЛЬ, БЕЗ ДУБЛИКАТОВ)
 -- ==========================================
-local highlights = {}
 RunService.RenderStepped:Connect(function()
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LP then
-            if CFG.ESP and p.Character then
-                local hl = highlights[p]
-                -- Если хайлайта нет или он перестал быть родителем персонажа
-                if not hl or hl.Parent ~= p.Character then
-                    -- Уничтожаем старый, если он был
-                    if hl then hl:Destroy() end
-                    -- Уничтожаем ВСЕ хайлайты с именем LibESP на персонаже (чтобы убрать наложения)
-                    for _, child in ipairs(p.Character:GetChildren()) do
-                        if child:IsA("Highlight") and child.Name == "LibESP" then child:Destroy() end
+        if p ~= LP and p.Character then
+            local char = p.Character
+            local ourHighlight = nil
+            local toDestroy = {}
+            
+            -- Находим наши хайлайты и чужие
+            for _, child in ipairs(char:GetChildren()) do
+                if child:IsA("Highlight") then
+                    if child.Name == "LibESP" and not ourHighlight then
+                        ourHighlight = child
+                    else
+                        table.insert(toDestroy, child)
                     end
-                    
-                    hl = Instance.new("Highlight")
-                    hl.Name = "LibESP"
-                    hl.OutlineTransparency = 0
-                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.Parent = p.Character
-                    highlights[p] = hl
+                end
+            end
+            
+            -- Удаляем дубликаты и старые хайлайты
+            for _, hl in ipairs(toDestroy) do hl:Destroy() end
+            
+            if CFG.ESP then
+                if not ourHighlight then
+                    ourHighlight = Instance.new("Highlight")
+                    ourHighlight.Name = "LibESP"
+                    ourHighlight.OutlineTransparency = 0
+                    ourHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    ourHighlight.Parent = char
                 end
                 local c = getRoleColor(p)
-                hl.FillColor = c
-                hl.OutlineColor = c
-            else
-                if highlights[p] then highlights[p]:Destroy(); highlights[p] = nil end
+                ourHighlight.FillColor = c
+                ourHighlight.OutlineColor = c
             end
         end
     end
@@ -190,19 +195,38 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (БЕЗ ПАДЕНИЙ И БЫСТРЫЙ ПОИСК)
+-- AUTO FARM (КЭШ, АНТИ-ПАДЕНИЕ, МГНОВЕННЫЙ ПОИСК)
 -- ==========================================
 local currentTarget = nil
 local bv = nil
 local bg = nil
+local coinContainer = nil
+local blacklist = {}
+local lastTarget = nil
+local targetStartTime = 0
+
+local function findCoinContainer()
+    if coinContainer and coinContainer.Parent then return coinContainer end
+    coinContainer = nil
+    local gameW = Workspace:FindFirstChild("Game")
+    if gameW then
+        local cc = gameW:FindFirstChild("CoinContainer")
+        if cc then coinContainer = cc; return cc end
+    end
+    local cc = Workspace:FindFirstChild("CoinContainer")
+    if cc then coinContainer = cc; return cc end
+    return nil
+end
 
 local function findNearestItem()
     local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
-    local closest, minDist = nil, 9999
+    local container = findCoinContainer()
+    if not container then return nil end
     
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
+    local closest, minDist = nil, 9999
+    for _, obj in ipairs(container:GetDescendants()) do
+        if obj.Name == "Coin_Server" and obj:IsA("BasePart") and not blacklist[obj] then
             local d = (obj.Position - hrp.Position).Magnitude
             if d < minDist then minDist = d; closest = obj end
         end
@@ -210,22 +234,13 @@ local function findNearestItem()
     return closest
 end
 
--- Ускоренный поиск (каждые 0.1 сек)
-task.spawn(function()
-    while task.wait(0.1) do
-        if CFG.AutoFarm then 
-            currentTarget = findNearestItem() 
-        else 
-            currentTarget = nil 
-        end
-    end
-end)
-
 local function resetFarm()
     local char = LP.Character
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then hum.PlatformStand = false end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.Anchored = false end
     end
     if bv then bv:Destroy(); bv = nil end
     if bg then bg:Destroy(); bg = nil end
@@ -233,6 +248,8 @@ end
 
 LP.CharacterAdded:Connect(function()
     currentTarget = nil
+    coinContainer = nil
+    table.clear(blacklist)
     resetFarm()
 end)
 
@@ -243,13 +260,14 @@ RunService.Heartbeat:Connect(function()
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return end
 
-    if CFG.AutoFarm and currentTarget and currentTarget.Parent then
+    if CFG.AutoFarm then
         hum.PlatformStand = true
 
         if not bv or bv.Parent ~= hrp then
             bv = Instance.new("BodyVelocity")
             bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
             bv.P = 1250
+            bv.Velocity = Vector3.zero
             bv.Parent = hrp
             bg = Instance.new("BodyGyro")
             bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
@@ -257,34 +275,60 @@ RunService.Heartbeat:Connect(function()
             bg.Parent = hrp
         end
 
-        -- ВАЖНО: Летим на 4 стада ВЫШЕ конфеты, чтобы не влетать в текстуры
-        local targetPos = currentTarget.Position + Vector3.new(0, 4, 0)
-        local distance = (hrp.Position - targetPos).Magnitude
-
-        if distance < 2.5 then
-            -- Долетели (находимся над конфетой)
-            resetFarm()
-            
-            -- Сбрасываем на землю (чтобы не висеть в воздухе)
-            hrp.CFrame = CFrame.new(currentTarget.Position + Vector3.new(0, 1.5, 0))
-            
-            -- Активируем сбор
-            for _, prompt in ipairs(currentTarget:GetDescendants()) do
-                if prompt:IsA("ProximityPrompt") then
-                    pcall(function() fireproximityprompt(prompt) end)
-                end
+        -- Мгновенный поиск, если цели нет
+        if not currentTarget or not currentTarget.Parent then
+            currentTarget = findNearestItem()
+            if currentTarget ~= lastTarget then
+                lastTarget = currentTarget
+                targetStartTime = tick()
             end
+        end
+
+        -- Защита от застревания на одной цели
+        if currentTarget and tick() - targetStartTime > 5 then
+            blacklist[currentTarget] = true
             currentTarget = nil
-            task.wait(0.1)
+        end
+
+        if currentTarget then
+            hrp.Anchored = false
+            local delta = currentTarget.Position - hrp.Position
+            local distance = delta.Magnitude
+
+            if distance < 4 then
+                -- Собираем
+                for _, prompt in ipairs(currentTarget:GetDescendants()) do
+                    if prompt:IsA("ProximityPrompt") then pcall(function() fireproximityprompt(prompt) end) end
+                    if prompt:IsA("ClickDetector") then pcall(function() fireclickdetector(prompt) end) end
+                end
+                pcall(function()
+                    firetouchinterest(hrp, currentTarget, 0)
+                    firetouchinterest(hrp, currentTarget, 1)
+                end)
+                blacklist[currentTarget] = true
+                currentTarget = nil
+                bv.Velocity = Vector3.zero
+            else
+                local speed = math.min(CFG.FarmSpeed * 3, 80)
+                bv.Velocity = delta.Unit * speed
+                bg.CFrame = CFrame.new(hrp.Position, currentTarget.Position)
+            end
         else
-            -- Летим
-            local speed = CFG.FarmSpeed * 3 
-            local dir = (targetPos - hrp.Position).Unit
-            bv.Velocity = dir * speed
-            bg.CFrame = CFrame.new(hrp.Position, targetPos)
+            -- Нет цели: якорим в воздухе (не падаем)
+            bv.Velocity = Vector3.zero
+            hrp.Anchored = true
         end
     else
         if bv then resetFarm() end
+    end
+end)
+
+-- Очистка черного списка
+task.spawn(function()
+    while task.wait(10) do
+        for coin in pairs(blacklist) do
+            if not coin.Parent then blacklist[coin] = nil end
+        end
     end
 end)
 
@@ -323,4 +367,4 @@ secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 12, Ca
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Исправлены ESP (двойные) и падение под землю.", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Полностью исправлено: скачки, реакция, ESP.", Icon = "check", Tone = "Success", Duration = 5 })
