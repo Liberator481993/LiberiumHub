@@ -3,6 +3,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -19,7 +20,6 @@ local COLOR_BLUE = Color3.fromRGB(50, 120, 255)
 local COLOR_GREEN = Color3.fromRGB(50, 255, 100)
 
 local SPEED_MIN, SPEED_MAX = 16, 150
-local AUTO_MOVE_SPEED = 40 -- studs/sec
 local COIN_REFRESH_INTERVAL = 0.25
 
 -- ========== Состояние ==========
@@ -31,7 +31,7 @@ local state = {
 	speedTouched = false,
 }
 
--- ========== Безопасные хелперы персонажа ==========
+-- ========== Безопасные хелперы ==========
 local function getHumanoid()
 	local ok, result = pcall(function()
 		local char = player.Character
@@ -72,7 +72,6 @@ local screenGui = create("ScreenGui", {
 	IgnoreGuiInset = true,
 }, playerGui)
 
--- Кнопка открытия/закрытия
 local toggleButton = create("TextButton", {
 	Name = "MenuToggle",
 	Size = UDim2.fromOffset(96, 38),
@@ -87,7 +86,6 @@ local toggleButton = create("TextButton", {
 corner(toggleButton, 10)
 local toggleScale = create("UIScale", { Scale = 1 }, toggleButton)
 
--- Главное окно
 local window = create("Frame", {
 	Name = "Window",
 	Size = UDim2.fromOffset(340, 320),
@@ -112,7 +110,7 @@ create("TextLabel", {
 	Size = UDim2.new(1, -16, 1, 0),
 	Position = UDim2.fromOffset(14, 0),
 	BackgroundTransparency = 1,
-	Text = "Test Framework",
+	Text = "Liberium Hub",
 	TextColor3 = COLOR_TEXT,
 	Font = Enum.Font.GothamBold,
 	TextSize = 16,
@@ -233,7 +231,7 @@ local function createToggle(parent, text, order, callback)
 		if not silent then
 			local ok, err = pcall(callback, enabled)
 			if not ok then
-				warn("[TestFramework] Toggle error (" .. text .. "): " .. tostring(err))
+				warn("[Liberium] Toggle error: " .. tostring(err))
 			end
 		end
 	end
@@ -280,58 +278,41 @@ local function createSlider(parent, text, order, minValue, maxValue, initial, ca
 	}, bar)
 	corner(fill, 5)
 
-	local knob = create("Frame", {
-		Size = UDim2.fromOffset(18, 18),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(1, 0, 0.5, 0),
-		BackgroundColor3 = COLOR_TEXT,
-		BorderSizePixel = 0,
-	}, fill)
-	corner(knob, 9)
-
 	local dragging = false
 
 	local function updateFromX(x)
 		local width = bar.AbsoluteSize.X
-		if width <= 0 then
-			return
-		end
+		if width <= 0 then return end
 		local alpha = math.clamp((x - bar.AbsolutePosition.X) / width, 0, 1)
 		local value = math.floor(minValue + (maxValue - minValue) * alpha + 0.5)
 		fill.Size = UDim2.fromScale(alpha, 1)
 		label.Text = text .. ": " .. tostring(value)
 		local ok, err = pcall(callback, value)
-		if not ok then
-			warn("[TestFramework] Slider error (" .. text .. "): " .. tostring(err))
-		end
+		if not ok then warn("[Liberium] Slider error: " .. tostring(err)) end
 	end
 
 	bar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			updateFromX(input.Position.X)
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch) then
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			updateFromX(input.Position.X)
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
 		end
 	end)
-
 	return row
 end
 
--- ========== Перетаскивание (UserInputService) ==========
+-- ========== Перетаскивание ==========
 local function makeDraggable(handle, target, scaleObject)
 	local dragging = false
 	local dragStart = Vector3.zero
@@ -339,58 +320,43 @@ local function makeDraggable(handle, target, scaleObject)
 	local info = { moved = false }
 
 	handle.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			info.moved = false
 			dragStart = input.Position
 			startPos = target.Position
 			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					dragging = false
-				end
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
 			end)
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch) then
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			local delta = input.Position - dragStart
-			if delta.Magnitude > 6 then
-				info.moved = true
-			end
+			if delta.Magnitude > 6 then info.moved = true end
 			local scale = math.max(scaleObject.Scale, 0.01)
 			target.Position = UDim2.new(
-				startPos.X.Scale,
-				startPos.X.Offset + delta.X / scale,
-				startPos.Y.Scale,
-				startPos.Y.Offset + delta.Y / scale
+				startPos.X.Scale, startPos.X.Offset + delta.X / scale,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y / scale
 			)
 		end
 	end)
-
 	return info
 end
 
 local windowDrag = makeDraggable(titleBar, window, windowScale)
 local buttonDrag = makeDraggable(toggleButton, toggleButton, toggleScale)
-local _ = windowDrag
 
 toggleButton.MouseButton1Click:Connect(function()
-	if buttonDrag.moved then
-		buttonDrag.moved = false
-		return
-	end
+	if buttonDrag.moved then buttonDrag.moved = false; return end
 	window.Visible = not window.Visible
 end)
 
 -- ========== Адаптивный масштаб ==========
 local function updateScale()
 	local camera = Workspace.CurrentCamera
-	if not camera then
-		return
-	end
+	if not camera then return end
 	local viewport = camera.ViewportSize
 	local scale = math.min(viewport.X / 480, viewport.Y / 420)
 	scale = math.clamp(scale, 0.5, 1.25)
@@ -404,55 +370,51 @@ end
 updateScale()
 local function bindCamera()
 	local camera = Workspace.CurrentCamera
-	if camera then
-		camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
-	end
+	if camera then camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale) end
 end
 bindCamera()
-Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-	bindCamera()
-	updateScale()
-end)
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() bindCamera(); updateScale() end)
 
--- ========== Visuals: подсветка по роли ==========
-local highlights = {}
-local playerConnections = {}
+-- ========== РОЛИ ИЗ MM2 ==========
+local roles = {}
+local function fetchRoles()
+	pcall(function()
+		local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+		if getData and getData:IsA("RemoteFunction") then
+			local success, data = getData:InvokeServer()
+			if success and type(data) == "table" then roles = data end
+		end
+	end)
+end
+task.spawn(function() while task.wait(2) do fetchRoles() end end)
 
 local function getRoleColor(targetPlayer)
-	local ok, role = pcall(function()
-		return targetPlayer:GetAttribute("Role")
-	end)
-	if ok and role ~= nil then
-		if role == "Murderer" then
-			return COLOR_RED
-		elseif role == "Sheriff" then
-			return COLOR_BLUE
-		end
+	local roleData = roles[targetPlayer.Name]
+	if roleData then
+		local role = roleData.Role or roleData[1]
+		if role == "Murderer" then return COLOR_RED end
+		if role == "Sheriff" then return COLOR_BLUE end
 	end
 	return COLOR_GREEN
 end
 
+-- ========== Visuals (Highlight) ==========
+local highlights = {}
+local playerConnections = {}
+
 local function removeHighlight(targetPlayer)
 	local existing = highlights[targetPlayer]
 	highlights[targetPlayer] = nil
-	if existing then
-		pcall(function()
-			existing:Destroy()
-		end)
-	end
+	if existing then pcall(function() existing:Destroy() end) end
 end
 
 local function applyHighlight(targetPlayer)
 	pcall(function()
 		local character = targetPlayer.Character
-		if not character then
-			return
-		end
+		if not character then return end
 		local highlight = highlights[targetPlayer]
 		if not highlight or highlight.Parent == nil or highlight.Adornee ~= character then
-			if highlight then
-				highlight:Destroy()
-			end
+			if highlight then highlight:Destroy() end
 			highlight = Instance.new("Highlight")
 			highlight.Name = "RoleHighlight"
 			highlight.Adornee = character
@@ -469,21 +431,11 @@ local function applyHighlight(targetPlayer)
 end
 
 local function setupPlayer(targetPlayer)
-	if targetPlayer == player or playerConnections[targetPlayer] then
-		return
-	end
+	if targetPlayer == player or playerConnections[targetPlayer] then return end
 	local connections = {}
 	playerConnections[targetPlayer] = connections
-
 	table.insert(connections, targetPlayer.CharacterAdded:Connect(function()
-		if state.visuals then
-			task.defer(applyHighlight, targetPlayer)
-		end
-	end))
-	table.insert(connections, targetPlayer:GetAttributeChangedSignal("Role"):Connect(function()
-		if state.visuals then
-			applyHighlight(targetPlayer)
-		end
+		if state.visuals then task.defer(applyHighlight, targetPlayer) end
 	end))
 end
 
@@ -491,60 +443,42 @@ local function cleanupPlayer(targetPlayer)
 	removeHighlight(targetPlayer)
 	local connections = playerConnections[targetPlayer]
 	if connections then
-		for _, connection in ipairs(connections) do
-			connection:Disconnect()
-		end
+		for _, connection in ipairs(connections) do connection:Disconnect() end
 		playerConnections[targetPlayer] = nil
 	end
 end
 
-for _, p in ipairs(Players:GetPlayers()) do
-	setupPlayer(p)
-end
-Players.PlayerAdded:Connect(function(p)
-	setupPlayer(p)
-end)
+for _, p in ipairs(Players:GetPlayers()) do setupPlayer(p) end
+Players.PlayerAdded:Connect(setupPlayer)
 Players.PlayerRemoving:Connect(cleanupPlayer)
 
--- ========== Physics: Noclip ==========
+-- ========== Noclip ==========
 local originalCollide = setmetatable({}, { __mode = "k" })
 
 local function restoreCollisions()
 	for part, value in pairs(originalCollide) do
-		pcall(function()
-			if part and part.Parent then
-				part.CanCollide = value
-			end
-		end)
+		pcall(function() if part and part.Parent then part.CanCollide = value end end)
 	end
 	table.clear(originalCollide)
 end
 
 RunService.Stepped:Connect(function()
-	if not state.noclip then
-		return
-	end
+	if not state.noclip then return end
 	pcall(function()
 		local character = player.Character
-		if not character then
-			return
-		end
+		if not character then return end
 		for _, descendant in ipairs(character:GetDescendants()) do
 			if descendant:IsA("BasePart") then
-				if originalCollide[descendant] == nil then
-					originalCollide[descendant] = descendant.CanCollide
-				end
+				if originalCollide[descendant] == nil then originalCollide[descendant] = descendant.CanCollide end
 				descendant.CanCollide = false
 			end
 		end
 	end)
 end)
 
--- ========== Physics: WalkSpeed ==========
+-- ========== WalkSpeed ==========
 RunService.Heartbeat:Connect(function()
-	if not state.speedTouched then
-		return
-	end
+	if not state.speedTouched then return end
 	pcall(function()
 		local humanoid = getHumanoid()
 		if humanoid and humanoid.WalkSpeed ~= state.walkSpeed then
@@ -553,82 +487,66 @@ RunService.Heartbeat:Connect(function()
 	end)
 end)
 
--- ========== Automation: перемещение к TestCoin ==========
+-- ========== Auto Farm (Поиск CoinBags в MainGUI) ==========
 local currentCoin = nil
 local lastCoinSearch = 0
 
 local function findNearestCoin(rootPosition)
 	local nearest, nearestDistance = nil, math.huge
-	local ok = pcall(function()
-		for _, descendant in ipairs(Workspace:GetDescendants()) do
-			if descendant.Name == "TestCoin" and descendant:IsA("BasePart") then
-				local distance = (descendant.Position - rootPosition).Magnitude
-				if distance < nearestDistance then
-					nearest = descendant
-					nearestDistance = distance
+	pcall(function()
+		local main = playerGui:FindFirstChild("MainGUI")
+		local bags = main and main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")
+		if bags then
+			for _, bag in ipairs(bags:GetChildren()) do
+				if bag:IsA("BasePart") then
+					local distance = (bag.Position - rootPosition).Magnitude
+					if distance < nearestDistance then
+						nearest = bag
+						nearestDistance = distance
+					end
 				end
 			end
 		end
 	end)
-	if not ok then
-		return nil
-	end
 	return nearest
 end
 
-RunService.Heartbeat:Connect(function(dt)
-	if not state.auto then
-		currentCoin = nil
-		return
-	end
+RunService.Heartbeat:Connect(function()
+	if not state.auto then currentCoin = nil; return end
 	pcall(function()
 		local root = getRoot()
-		if not root then
-			return
-		end
-
+		if not root then return end
 		local now = os.clock()
-		local invalid = currentCoin == nil or currentCoin.Parent == nil
-		if invalid or now - lastCoinSearch >= COIN_REFRESH_INTERVAL then
+		if currentCoin == nil or currentCoin.Parent == nil or now - lastCoinSearch >= COIN_REFRESH_INTERVAL then
 			lastCoinSearch = now
 			currentCoin = findNearestCoin(root.Position)
 		end
-		if not currentCoin then
-			return
-		end
-
-		local delta = currentCoin.Position - root.Position
-		local distance = delta.Magnitude
-		if distance > 0.5 then
-			local step = math.min(distance, AUTO_MOVE_SPEED * dt)
-			root.CFrame = root.CFrame + delta.Unit * step
+		if currentCoin then
+			local delta = currentCoin.Position - root.Position
+			if delta.Magnitude > 3 then
+				root.CFrame = CFrame.new(currentCoin.Position + Vector3.new(0, 3, 0))
+			end
 		end
 	end)
 end)
 
--- ========== Вкладки и элементы ==========
+-- ========== Вкладки ==========
 local visualsPage = createTab("Visuals", 1)
 local physicsPage = createTab("Physics", 2)
 local automationPage = createTab("Automation", 3)
 
-createToggle(visualsPage, "Role Highlight", 1, function(enabled)
+createToggle(visualsPage, "Player ESP (Roles)", 1, function(enabled)
 	state.visuals = enabled
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player then
-			if enabled then
-				applyHighlight(p)
-			else
-				removeHighlight(p)
-			end
+			if enabled then applyHighlight(p) else removeHighlight(p) end
 		end
 	end
 end)
 
-createToggle(physicsPage, "Noclip (CanCollide off)", 1, function(enabled)
+createToggle(physicsPage, "Noclip", 1, function(enabled)
 	state.noclip = enabled
-	if not enabled then
-		restoreCollisions()
-	end
+	if not enabled then restoreCollisions() end
 end)
 
 createSlider(physicsPage, "WalkSpeed", 2, SPEED_MIN, SPEED_MAX, SPEED_MIN, function(value)
@@ -636,17 +554,13 @@ createSlider(physicsPage, "WalkSpeed", 2, SPEED_MIN, SPEED_MAX, SPEED_MIN, funct
 	state.speedTouched = true
 	pcall(function()
 		local humanoid = getHumanoid()
-		if humanoid then
-			humanoid.WalkSpeed = value
-		end
+		if humanoid then humanoid.WalkSpeed = value end
 	end)
 end)
 
-createToggle(automationPage, "Auto Move to TestCoin", 1, function(enabled)
+createToggle(automationPage, "Auto Farm Coins", 1, function(enabled)
 	state.auto = enabled
-	if not enabled then
-		currentCoin = nil
-	end
+	if not enabled then currentCoin = nil end
 end)
 
 selectTab("Visuals")
