@@ -4,13 +4,19 @@ local Workspace = game:GetService("Workspace")
 local LP = Players.LocalPlayer
 local isFarming = false
 
+-- Удаляем старое окно, если оно было
+local oldGui = LP.PlayerGui:FindFirstChild("FarmTestGui")
+if oldGui then oldGui:Destroy() end
+
 local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "FarmTestGui"
 ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 
--- Кнопка (теперь по центру)
+-- Кнопка строго по центру
 local Btn = Instance.new("TextButton")
 Btn.Size = UDim2.new(0, 150, 0, 50)
-Btn.Position = UDim2.new(0.5, -75, 0.3, 0) -- Центр по горизонтали
+Btn.AnchorPoint = Vector2.new(0.5, 0.5)
+Btn.Position = UDim2.new(0.5, 0, 0.4, 0) -- 0.5 = центр экрана
 Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
 Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Btn.Font = Enum.Font.GothamBold
@@ -18,24 +24,23 @@ Btn.TextSize = 18
 Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
--- Текст статуса (под кнопкой, с фоном)
+-- Текст статуса (под кнопкой)
 local StatusText = Instance.new("TextLabel")
 StatusText.Size = UDim2.new(0, 300, 0, 40)
-StatusText.Position = UDim2.new(0.5, -150, 0.3, 60) -- Прямо под кнопкой
+StatusText.AnchorPoint = Vector2.new(0.5, 0.5)
+StatusText.Position = UDim2.new(0.5, 0, 0.4, 60)
 StatusText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-StatusText.BackgroundTransparency = 0.4 -- Полупрозрачный черный фон
+StatusText.BackgroundTransparency = 0.4
 StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
 StatusText.Font = Enum.Font.Code
 StatusText.TextSize = 16
 StatusText.Text = "Ожидание..."
-StatusText.TextXAlignment = Enum.TextXAlignment.Center
 StatusText.Parent = ScreenGui
 
 local coinContainer = nil
 
 local function getContainer()
     if coinContainer and coinContainer.Parent then return coinContainer end
-    -- Ищем CoinContainer по всей игре
     local cc = Workspace:FindFirstChild("CoinContainer", true)
     if cc then
         coinContainer = cc
@@ -44,28 +49,19 @@ local function getContainer()
     return nil
 end
 
-local function getCoins()
-    local container = getContainer()
-    if not container then return {} end
-    local coins = {}
-    for _, obj in ipairs(container:GetChildren()) do
-        if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
-            table.insert(coins, obj)
-        end
-    end
-    return coins
-end
-
-local function teleportToCoin(coin)
+local function teleportAndGrab(coin)
     local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hrp then return end
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    
+    -- Проверка, что мы живы и можем двигаться
+    if not hrp or not hum or hum.Health <= 0 then return end
 
-    if hum then hum.PlatformStand = true end
+    -- Мгновенный телепорт через PivotTo (не ломает физику)
+    char:PivotTo(CFrame.new(coin.Position + Vector3.new(0, 1.5, 0)))
     
-    hrp.CFrame = CFrame.new(coin.Position + Vector3.new(0, 3, 0))
-    
+    -- Сбор
     pcall(function()
         firetouchinterest(hrp, coin, 0)
         firetouchinterest(hrp, coin, 1)
@@ -76,37 +72,43 @@ local function teleportToCoin(coin)
             pcall(function() fireproximityprompt(prompt) end)
         end
     end
-    
-    task.wait(0.15)
-    if hum then hum.PlatformStand = false end
 end
 
+-- Главный цикл (теперь без задержек)
 task.spawn(function()
-    while task.wait(0.1) do
+    while task.wait(0.05) do
         if isFarming then
-            local coins = getCoins()
-            StatusText.Text = "Монет найдено: " .. #coins
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
             
-            if #coins > 0 then
-                local char = LP.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local closest, minDist = nil, math.huge
-                    for _, c in ipairs(coins) do
-                        local d = (c.Position - hrp.Position).Magnitude
-                        if d < minDist then minDist = d; closest = c end
+            -- Если мертвы - не фармим
+            if not hrp or not hum or hum.Health <= 0 then
+                StatusText.Text = "Вы мертвы, ожидание респавна..."
+                continue
+            end
+
+            local container = getContainer()
+            if container then
+                local closest, minDist = nil, math.huge
+                for _, coin in ipairs(container:GetChildren()) do
+                    if coin.Name == "Coin_Server" and coin:IsA("BasePart") then
+                        local dist = (coin.Position - hrp.Position).Magnitude
+                        if dist < minDist then
+                            minDist = dist
+                            closest = coin
+                        end
                     end
-                    if closest then
-                        StatusText.Text = "ТП к монете (Дист: " .. math.floor(minDist) .. ")"
-                        teleportToCoin(closest)
-                    end
+                end
+
+                if closest then
+                    StatusText.Text = "ТП к монете (Дист: " .. math.floor(minDist) .. ")"
+                    teleportAndGrab(closest)
+                else
+                    StatusText.Text = "Монет нет на карте"
                 end
             else
-                if getContainer() then
-                    StatusText.Text = "Папка есть, монет нет (Ждем)"
-                else
-                    StatusText.Text = "Папка CoinContainer не найдена!"
-                end
+                StatusText.Text = "Папка CoinContainer не найдена!"
             end
         end
     end
@@ -121,10 +123,5 @@ Btn.MouseButton1Click:Connect(function()
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
         StatusText.Text = "Ожидание..."
-        local char = LP.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.PlatformStand = false end
-        end
     end
 end)
