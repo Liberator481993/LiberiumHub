@@ -33,16 +33,29 @@ textLabel.TextWrapped = true
 textLabel.Text = "Загрузка данных...\n\n"
 textLabel.Parent = frame
 
+-- Кнопка копирования
+local copyBtn = Instance.new("TextButton")
+copyBtn.Size = UDim2.new(0.9, 0, 0.06, 0)
+copyBtn.Position = UDim2.new(0.05, 0, 0.92, 0)
+copyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
+copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+copyBtn.Font = Enum.Font.GothamBold
+copyBtn.TextSize = 18
+copyBtn.Text = "КОПИРОВАТЬ ВСЕ"
+copyBtn.Parent = gui
+
+local logTable = {}
 local function log(msg)
-    textLabel.Text = textLabel.Text .. msg .. "\n"
+    table.insert(logTable, msg)
+    textLabel.Text = table.concat(logTable, "\n")
 end
 
--- 1. Проверка инжектора (хуки)
+-- 1. Проверка инжектора
 log("=== ПРОВЕРКА ИНЖЕКТОРА ===")
 log("getrawmetatable: " .. tostring(getrawmetatable ~= nil))
 log("hookfunction: " .. tostring(hookfunction ~= nil))
 log("setreadonly: " .. tostring(setreadonly ~= nil))
-log("is_synapse_function: " .. tostring(issynapsefunction ~= nil or is_synapse_function ~= nil))
+log("issynapsefunction: " .. tostring(issynapsefunction ~= nil or is_synapse_function ~= nil))
 log("----------------------------\n")
 
 -- 2. Проверка РОЛЕЙ
@@ -54,7 +67,7 @@ if getData and getData:IsA("RemoteFunction") then
         log("GetPlayerData РАБОТАЕТ.")
         local count = 0
         for name, roleData in pairs(data) do
-            if count < 5 then -- Показываем только первых 5 игроков, чтобы не засорять экран
+            if count < 5 then
                 log("Игрок: " .. tostring(name))
                 if type(roleData) == "table" then
                     for k, v in pairs(roleData) do
@@ -100,7 +113,7 @@ local foundCandies = 0
 for _, obj in ipairs(Workspace:GetDescendants()) do
     local name = string.lower(obj.Name)
     if name:find("candy") or name:find("sweet") then
-        if foundCandies < 10 then -- Показываем первые 10, чтобы понять структуру
+        if foundCandies < 10 then
             log("Найдено: " .. obj:GetFullName() .. " [" .. obj.ClassName .. "]")
         end
         foundCandies = foundCandies + 1
@@ -112,5 +125,37 @@ else
     log("Всего найдено конфет: " .. foundCandies)
 end
 log("----------------------------\n")
-
 log("КОНЕЦ СБОРА ДАННЫХ.")
+
+-- Функция копирования
+local function doCopy()
+    local finalText = table.concat(logTable, "\n")
+    local success = pcall(function()
+        if setclipboard then
+            setclipboard(finalText)
+        elseif toclipboard then
+            toclipboard(finalText)
+        elseif syn and syn.write_clipboard then
+            syn.write_clipboard(finalText)
+        else
+            error("No clipboard function found")
+        end
+    end)
+    
+    if success then
+        copyBtn.Text = "СКОПИРОВАНО!"
+        copyBtn.BackgroundColor3 = Color3.fromRGB(50, 255, 100)
+        task.delay(2, function()
+            copyBtn.Text = "КОПИРОВАТЬ ВСЕ"
+            copyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
+        end)
+    else
+        copyBtn.Text = "ОШИБКА КОПИРОВАНИЯ"
+        copyBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    end
+end
+
+copyBtn.MouseButton1Click:Connect(doCopy)
+
+-- Автоматически копируем через 2 секунды после сбора
+task.delay(2, doCopy)
