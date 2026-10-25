@@ -1,7 +1,6 @@
--- 1. Загружаем Slate
+-- 1. Загружаем Slate UI
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
--- 2. Настройки и Сервисы
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,44 +8,25 @@ local Workspace = game:GetService("Workspace")
 local LP = Players.LocalPlayer
 local Cam = Workspace.CurrentCamera
 
-local CFG = {
-    ESP = false,
-    SilentAim = false,
-    Noclip = false,
-    WalkSpeed = 16,
-    AutoFarm = false
-}
+local CFG = { ESP = false, SilentAim = false, Aimbot = false, Noclip = false, WalkSpeed = 16, AutoFarm = false }
 
--- 3. Создаем Окно
-local Window = Slate:CreateWindow({
-    Name = "Liberium Hub",
-    Subtitle = "MM2 Edition",
-    Icon = "shield",
-    Logo = true,
-    Size = UDim2.fromOffset(550, 380),
-    ToggleKey = Enum.KeyCode.RightShift,
-})
+-- Окно
+local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 Edition", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+local uiscale = Instance.new("UIScale", Window.root)
+local function updateScale() if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end end
+updateScale(); Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
--- Авто-масштабирование под экран
-local uiscale = Instance.new("UIScale")
-uiscale.Parent = Window.root
-local function updateScale()
-    if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end
-end
-updateScale()
-Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
-
--- 4. Создаем Вкладки
+-- Вкладки
 local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
 local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
 local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 
 -- ==========================================
--- 5. ЛОГИКА (ФУНКЦИИ)
+-- ЛОГИКА
 -- ==========================================
 
--- Роли
+-- Обновление ролей
 local roles = {}
 task.spawn(function()
     while task.wait(2) do
@@ -63,9 +43,8 @@ end)
 local function getRoleColor(plr)
     local rData = roles[plr.Name]
     if rData and rData.Role then
-        local r = rData.Role
-        if r == "Murderer" then return Color3.fromRGB(255, 50, 50) end
-        if r == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
+        if rData.Role == "Murderer" then return Color3.fromRGB(255, 50, 50) end
+        if rData.Role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
     end
     return Color3.fromRGB(50, 255, 100)
 end
@@ -95,14 +74,15 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Silent Aim
-local mt = getrawmetatable(game)
-local oldNamecall = mt.__namecall
-local oldIndex = mt.__index
-setreadonly(mt, false)
+-- Aimbot & Silent Aim
+local FOVCircle = Instance.new("Frame", Window.root)
+FOVCircle.Size = UDim2.fromOffset(240, 240); FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5); FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+FOVCircle.BackgroundTransparency = 1; FOVCircle.Visible = false
+local UIStrokeFOV = Instance.new("UIStroke", FOVCircle); UIStrokeFOV.Color = Color3.fromRGB(150, 50, 255); UIStrokeFOV.Thickness = 1.5
+local UICornerFOV = Instance.new("UICorner", FOVCircle); UICornerFOV.CornerRadius = UDim.new(1, 0)
 
 local function getClosestTarget()
-    local closest, dist = nil, 150
+    local closest, dist = nil, 120
     local center = Vector2.new(Cam.ViewportSize.X/2, Cam.ViewportSize.Y/2)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP and p.Character then
@@ -120,9 +100,15 @@ local function getClosestTarget()
     return closest
 end
 
+-- Хуки (Silent Aim)
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+local oldIndex = mt.__index
+setreadonly(mt, false)
+
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
-    if CFG.SilentAim and (method == "FireGun" or method == "ShootGun" or method == "HitKnife") then
+    if CFG.SilentAim and (method == "FireGun" or method == "ShootGun" or method == "HitKnife" or method == "KnifeHit") then
         local target = getClosestTarget()
         if target then return oldNamecall(self, target, ...) end
     end
@@ -141,9 +127,21 @@ mt.__index = newcclosure(function(self, key)
 end)
 setreadonly(mt, true)
 
--- Noclip & Speed & Farm
-local originalCollide = setmetatable({}, {__mode = "k"})
+-- Плавный Aimbot (Камера)
+RunService.RenderStepped:Connect(function()
+    if CFG.Aimbot then
+        local target = getClosestTarget()
+        if target then
+            Cam.CFrame = Cam.CFrame:Lerp(CFrame.new(Cam.CFrame.Position, target.Position), 0.25)
+        end
+        FOVCircle.Visible = true
+    else
+        FOVCircle.Visible = false
+    end
+end)
 
+-- Noclip & Speed
+local originalCollide = setmetatable({}, {__mode = "k"})
 RunService.Stepped:Connect(function()
     if CFG.Noclip and LP.Character then
         for _, d in ipairs(LP.Character:GetDescendants()) do
@@ -162,34 +160,27 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- УЛУЧШЕННЫЙ АВТОФАРМ
 task.spawn(function()
     while task.wait(0.5) do
         if CFG.AutoFarm and LP.Character then
             pcall(function()
                 local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
                 if not hrp then return end
-                local closest, minDist = nil, 100
+                local closest, minDist = nil, 150
                 
-                -- Монеты
-                local main = LP.PlayerGui:FindFirstChild("MainGUI")
-                if main and main:FindFirstChild("Game") then
-                    local gameFolder = main.Game
-                    for _, obj in ipairs(gameFolder:GetDescendants()) do
-                        if obj:IsA("BasePart") then
-                            local d = (obj.Position - hrp.Position).Magnitude
-                            if d < minDist then minDist = d; closest = obj end
-                        end
-                    end
-                end
-                -- Конфеты в воркспейсе
-                local gameW = Workspace:FindFirstChild("Game") or Workspace
-                for _, obj in ipairs(gameW:GetDescendants()) do
-                    if obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("Tool") then
-                        local n = string.lower(obj.Name)
-                        if n:find("candy") or n:find("sweet") then
-                            local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-                            local d = (pos - hrp.Position).Magnitude
-                            if d < minDist then minDist = d; closest = obj end
+                -- Ищем по всей карте (включая Workspace)
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") or obj:IsA("Model") then
+                        local name = string.lower(obj.Name)
+                        -- Ловим конфеты, монеты и мешки
+                        if name:find("candy") or name:find("sweet") or name:find("coin") or name:find("bag") then
+                            -- Игнорируем самого игрока и его части
+                            if not obj:IsDescendantOf(LP.Character) then
+                                local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
+                                local d = (pos - hrp.Position).Magnitude
+                                if d < minDist then minDist = d; closest = obj end
+                            end
                         end
                     end
                 end
@@ -204,62 +195,23 @@ task.spawn(function()
 end)
 
 -- ==========================================
--- 6. ПРИВЯЗКА UI К ЛОГИКЕ
+-- UI ПРИВЯЗКА
 -- ==========================================
-
--- Combat
 local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
-secCombat:Toggle({
-    Name = "Silent Aim",
-    Default = false,
-    Callback = function(v) CFG.SilentAim = v end
-})
-secCombat:Toggle({
-    Name = "Aimbot (Hold)", -- (Оставил просто для визуала, логику камеры мы убрали)
-    Default = false,
-    Callback = function(v) print("Aimbot:", v) end
-})
+secCombat:Toggle({ Name = "Silent Aim", Default = false, Callback = function(v) CFG.SilentAim = v end })
+secCombat:Toggle({ Name = "Aimbot (Авто-наведение)", Default = false, Callback = function(v) CFG.Aimbot = v end })
 
--- Visuals
 local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
-secVisuals:Toggle({
-    Name = "Player ESP (Roles)",
-    Default = false,
-    Callback = function(v) CFG.ESP = v end
-})
+secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
--- Movement
 local secMovement = TabMovement:CreateSection({ Name = "Player Physics" })
-secMovement:Toggle({
-    Name = "Noclip",
-    Default = false,
-    Callback = function(v) 
-        CFG.Noclip = v 
-        if not v then 
-            for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
-            table.clear(originalCollide) 
-        end 
-    end
-})
-secMovement:Slider({
-    Name = "WalkSpeed",
-    Min = 16, Max = 150, Default = 16,
-    Callback = function(v) CFG.WalkSpeed = v end
-})
+secMovement:Toggle({ Name = "Noclip", Default = false, Callback = function(v) 
+    CFG.Noclip = v 
+    if not v then for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end; table.clear(originalCollide) end 
+end })
+secMovement:Slider({ Name = "WalkSpeed", Min = 16, Max = 150, Default = 16, Callback = function(v) CFG.WalkSpeed = v end })
 
--- Farm
 local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-secFarm:Toggle({
-    Name = "Auto Farm (Coins/Candy)",
-    Default = false,
-    Callback = function(v) CFG.AutoFarm = v end
-})
+secFarm:Toggle({ Name = "Auto Farm (Coins/Candy)", Default = false, Callback = function(v) CFG.AutoFarm = v end })
 
--- Уведомление об успешной загрузке
-Slate:Notify({
-    Title = "Liberium Hub",
-    Description = "Успешно загружен!",
-    Icon = "check",
-    Tone = "Success",
-    Duration = 5,
-})
+Slate:Notify({ Title = "Liberium Hub", Description = "Обновлено. Жди начала раунда!", Icon = "check", Tone = "Success", Duration = 5 })
