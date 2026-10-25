@@ -1,20 +1,13 @@
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local VirtualUser = game:GetService("VirtualUser")
-
 local LP = Players.LocalPlayer
 local Cam = Workspace.CurrentCamera
 
-local CFG = {
-    ESP = false, SilentAim = false, Aimbot = false,
-    Noclip = false, WalkSpeed = 16,
-    AutoFarm = false, FarmSpeed = 24,
-    AntiAFK = false
-}
+local CFG = { ESP = false, SilentAim = false, Aimbot = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 24, AntiAFK = false }
 
 -- Окно
 local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 Edition", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
@@ -22,7 +15,6 @@ local uiscale = Instance.new("UIScale", Window.root)
 local function updateScale() if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end end
 updateScale(); Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
--- Вкладки
 local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
 local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
@@ -30,43 +22,58 @@ local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- ЛОГИКА
+-- РОЛИ (ИСПРАВЛЕНО)
 -- ==========================================
-
--- Роли (Обновление каждую секунду)
 local roles = {}
-task.spawn(function()
-    while task.wait(1) do
-        pcall(function()
-            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-            if getData and getData:IsA("RemoteFunction") then
-                local success, data = getData:InvokeServer()
-                if success and type(data) == "table" then roles = data end
-            end
-        end)
-    end
-end)
+local function updateRoles()
+    pcall(function()
+        local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+        if getData and getData:IsA("RemoteFunction") then
+            local success, data = getData:InvokeServer()
+            if success and type(data) == "table" then roles = data end
+        end
+    end)
+end
+task.spawn(function() while task.wait(1) do updateRoles() end end)
 
--- Проверка ролей + Фолбэк по оружию
 local function getRoleColor(plr)
+    -- 1. Пытаемся взять из RemoteFunction
     local rData = roles[plr.Name]
     if rData and rData.Role then
         if rData.Role == "Murderer" then return Color3.fromRGB(255, 50, 50) end
         if rData.Role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
+        if rData.Role == "Innocent" then return Color3.fromRGB(50, 255, 100) end
     end
-    if plr.Character then
-        for _, tool in ipairs(plr.Character:GetChildren()) do
+    
+    -- 2. Фолбэк: Чекаем и Character, и Backpack!
+    local function checkTools(container)
+        if not container then return nil end
+        for _, tool in ipairs(container:GetChildren()) do
             if tool:IsA("Tool") then
                 local n = string.lower(tool.Name)
                 if n:find("knife") or n:find("dagger") then return Color3.fromRGB(255, 50, 50) end
                 if n:find("gun") or n:find("revolver") then return Color3.fromRGB(50, 120, 255) end
             end
         end
+        return nil
     end
+
+    if plr.Character then
+        local c = checkTools(plr.Character)
+        if c then return c end
+    end
+    local backpack = plr:FindFirstChild("Backpack")
+    if backpack then
+        local c = checkTools(backpack)
+        if c then return c end
+    end
+
     return Color3.fromRGB(50, 255, 100)
 end
 
+-- ==========================================
 -- ESP
+-- ==========================================
 local highlights = {}
 RunService.RenderStepped:Connect(function()
     for _, p in ipairs(Players:GetPlayers()) do
@@ -91,7 +98,9 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Combat (Silent Aim + Aimbot)
+-- ==========================================
+-- COMBAT (Silent Aim + Aimbot)
+-- ==========================================
 local FOVCircle = Instance.new("Frame", Window.root)
 FOVCircle.Size = UDim2.fromOffset(240, 240); FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5); FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
 FOVCircle.BackgroundTransparency = 1; FOVCircle.Visible = false
@@ -155,7 +164,9 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Movement
+-- ==========================================
+-- MOVEMENT
+-- ==========================================
 local originalCollide = setmetatable({}, {__mode = "k"})
 RunService.Stepped:Connect(function()
     if CFG.Noclip and LP.Character then
@@ -175,17 +186,20 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ПЛАВНЫЙ ФАРМ (Полёт сквозь стены)
+-- ==========================================
+-- AUTO FARM (УЛУЧШЕННЫЙ)
+-- ==========================================
 local currentTarget = nil
+
 local function findNearestItem()
     local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     local closest, minDist = nil, 9999
     
     for _, obj in ipairs(Workspace:GetDescendants()) do
+        -- Ищем только физические объекты, игнорируя звуки и скрипты
         if obj:IsA("BasePart") or obj:IsA("Model") then
             local name = string.lower(obj.Name)
-            -- Ищем конфеты, монеты и мешки
             if name:find("candy") or name:find("sweet") or name:find("coin") or name:find("bag") then
                 if not obj:IsDescendantOf(LP.Character) then
                     local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
@@ -199,34 +213,41 @@ local function findNearestItem()
 end
 
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(0.5) do
         if CFG.AutoFarm then
             currentTarget = findNearestItem()
+        else
+            currentTarget = nil
         end
     end
 end)
 
--- Плавное движение к цели
+-- Плавный полёт с заданной скоростью
 RunService.RenderStepped:Connect(function()
     if CFG.AutoFarm and currentTarget then
         local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
             local targetPos = currentTarget:IsA("Model") and currentTarget:GetPivot().Position or currentTarget.Position
-            targetPos = targetPos + Vector3.new(0, 3, 0)
+            targetPos = targetPos + Vector3.new(0, 3, 0) -- Чуть выше предмета
             
             local distance = (hrp.Position - targetPos).Magnitude
             if distance > 3 then
-                -- Формула скорости: чем выше FarmSpeed, тем быстрее летим
-                local lerpSpeed = 0.05 * (CFG.FarmSpeed / 12) 
-                hrp.CFrame = CFrame.new(hrp.Position:Lerp(targetPos, lerpSpeed))
+                -- Движение: летим к цели с определенной скоростью
+                local dir = (targetPos - hrp.Position).Unit
+                -- FarmSpeed (1-24) умножаем на 1.5, чтобы было ощутимо
+                local moveDist = CFG.FarmSpeed * 1.5 * (1/60) 
+                if moveDist > distance then moveDist = distance end
+                hrp.CFrame = CFrame.new(hrp.Position + dir * moveDist)
             else
-                currentTarget = nil -- Долетели
+                currentTarget = nil
             end
         end
     end
 end)
 
--- Anti-AFK
+-- ==========================================
+-- ANTI-AFK
+-- ==========================================
 LP.Idled:Connect(function()
     if CFG.AntiAFK then
         VirtualUser:CaptureController()
@@ -252,10 +273,10 @@ end })
 secMovement:Slider({ Name = "WalkSpeed", Min = 16, Max = 150, Default = 16, Callback = function(v) CFG.WalkSpeed = v end })
 
 local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-secFarm:Toggle({ Name = "Auto Farm", Default = false, Callback = function(v) CFG.AutoFarm = v; currentTarget = nil end })
+secFarm:Toggle({ Name = "Auto Farm (Coins/Candy)", Default = false, Callback = function(v) CFG.AutoFarm = v; currentTarget = nil end })
 secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 24, Callback = function(v) CFG.FarmSpeed = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Обновлено. Жди начала раунда!", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Обновлено. Теперь ESP чекает Backpack!", Icon = "check", Tone = "Success", Duration = 5 })
