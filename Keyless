@@ -62,7 +62,7 @@ local function getRoleColor(plr)
 end
 
 -- ==========================================
--- ESP
+-- ESP (ФИКС ДВОЙНЫХ ХАЙЛАЙТОВ)
 -- ==========================================
 local highlights = {}
 RunService.RenderStepped:Connect(function()
@@ -70,9 +70,17 @@ RunService.RenderStepped:Connect(function()
         if p ~= LP then
             if CFG.ESP and p.Character then
                 local hl = highlights[p]
+                -- Если хайлайта нет или он перестал быть родителем персонажа
                 if not hl or hl.Parent ~= p.Character then
+                    -- Уничтожаем старый, если он был
                     if hl then hl:Destroy() end
+                    -- Уничтожаем ВСЕ хайлайты с именем LibESP на персонаже (чтобы убрать наложения)
+                    for _, child in ipairs(p.Character:GetChildren()) do
+                        if child:IsA("Highlight") and child.Name == "LibESP" then child:Destroy() end
+                    end
+                    
                     hl = Instance.new("Highlight")
+                    hl.Name = "LibESP"
                     hl.OutlineTransparency = 0
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                     hl.Parent = p.Character
@@ -153,7 +161,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ==========================================
--- MOVEMENT & NOCLIP
+-- MOVEMENT
 -- ==========================================
 local originalCollide = setmetatable({}, {__mode = "k"})
 RunService.Stepped:Connect(function()
@@ -182,7 +190,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (Идеально плавный полет через PlatformStand)
+-- AUTO FARM (БЕЗ ПАДЕНИЙ И БЫСТРЫЙ ПОИСК)
 -- ==========================================
 local currentTarget = nil
 local bv = nil
@@ -202,8 +210,9 @@ local function findNearestItem()
     return closest
 end
 
+-- Ускоренный поиск (каждые 0.1 сек)
 task.spawn(function()
-    while task.wait(0.5) do
+    while task.wait(0.1) do
         if CFG.AutoFarm then 
             currentTarget = findNearestItem() 
         else 
@@ -212,7 +221,6 @@ task.spawn(function()
     end
 end)
 
--- Сброс полета при смерти или выключении
 local function resetFarm()
     local char = LP.Character
     if char then
@@ -236,7 +244,6 @@ RunService.Heartbeat:Connect(function()
     if not hrp or not hum then return end
 
     if CFG.AutoFarm and currentTarget and currentTarget.Parent then
-        -- Отключаем контроль гуманоида, чтобы он не мешал лететь (убираем рывки)
         hum.PlatformStand = true
 
         if not bv or bv.Parent ~= hrp then
@@ -250,13 +257,18 @@ RunService.Heartbeat:Connect(function()
             bg.Parent = hrp
         end
 
-        local targetPos = currentTarget.Position
+        -- ВАЖНО: Летим на 4 стада ВЫШЕ конфеты, чтобы не влетать в текстуры
+        local targetPos = currentTarget.Position + Vector3.new(0, 4, 0)
         local distance = (hrp.Position - targetPos).Magnitude
 
-        if distance < 2 then
-            -- Долетели
+        if distance < 2.5 then
+            -- Долетели (находимся над конфетой)
             resetFarm()
-            hum.PlatformStand = false
+            
+            -- Сбрасываем на землю (чтобы не висеть в воздухе)
+            hrp.CFrame = CFrame.new(currentTarget.Position + Vector3.new(0, 1.5, 0))
+            
+            -- Активируем сбор
             for _, prompt in ipairs(currentTarget:GetDescendants()) do
                 if prompt:IsA("ProximityPrompt") then
                     pcall(function() fireproximityprompt(prompt) end)
@@ -272,8 +284,7 @@ RunService.Heartbeat:Connect(function()
             bg.CFrame = CFrame.new(hrp.Position, targetPos)
         end
     else
-        -- Если выключили
-        if bv then resetFarm(); hum.PlatformStand = false end
+        if bv then resetFarm() end
     end
 end)
 
@@ -312,4 +323,4 @@ secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 12, Ca
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Полёт исправлен (PlatformStand).", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Исправлены ESP (двойные) и падение под землю.", Icon = "check", Tone = "Success", Duration = 5 })
