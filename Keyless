@@ -1,16 +1,13 @@
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local LP = Players.LocalPlayer
 local isFarming = false
-local isMoving = false
 
--- Простая кнопка для вкл/выкл
+-- Кнопка
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = LP:WaitForChild("PlayerGui")
-
 local Btn = Instance.new("TextButton")
 Btn.Size = UDim2.new(0, 120, 0, 50)
 Btn.Position = UDim2.new(0, 20, 0.5, 0)
@@ -21,84 +18,91 @@ Btn.TextSize = 18
 Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
--- Функция поиска ближайшей конфеты
-local function findCoin()
+-- Кэш и черный список
+local coinContainer = nil
+local ignoredCoins = {}
+
+local function getCoinContainer()
+    if coinContainer and coinContainer.Parent then return coinContainer end
+    local gameFolder = Workspace:FindFirstChild("Game")
+    if gameFolder and gameFolder:FindFirstChild("CoinContainer") then
+        coinContainer = gameFolder.CoinContainer
+        return coinContainer
+    end
+    return nil
+end
+
+local function findNearestCoin()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
+    local container = getCoinContainer()
+    if not container then return nil end
+    
     local closest, minDist = nil, math.huge
-    -- Ищем Coin_Server по всей карте (быстро, так как проверяем только имена)
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
-            local dist = (obj.Position - hrp.Position).Magnitude
+    -- Ищем ТОЛЬКО внутри CoinContainer (это мгновенно)
+    for _, coin in ipairs(container:GetChildren()) do
+        if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not ignoredCoins[coin] then
+            local dist = (coin.Position - hrp.Position).Magnitude
             if dist < minDist then
                 minDist = dist
-                closest = obj
+                closest = coin
             end
         end
     end
     return closest
 end
 
--- Логика полета
-local function moveToCoin(coin)
+-- Мгновенный телепорт и сбор
+local function grabCoin(coin)
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
+    if not hrp then return end
 
-    isMoving = true
+    ignoredCoins[coin] = true
     
-    -- 1. Отключаем физику, чтобы не падать
-    hrp.Anchored = true
-    hum.PlatformStand = true
-    hrp.CanCollide = false
+    -- 1. Жесткий телепорт прямо к конфете (чуть выше, чтобы не застрять)
+    hrp.CFrame = CFrame.new(coin.Position + Vector3.new(0, 2, 0))
     
-    -- 2. Летим к конфете (встаем на 2 стада выше неё)
-    local targetPos = coin.Position + Vector3.new(0, 2.5, 0)
-    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Linear) -- 0.3 сек на полет
-    local tween = TweenService:Create(hrp, tweenInfo, { CFrame = CFrame.new(targetPos) })
-    tween:Play()
-    tween.Completed:Wait()
+    -- 2. Мгновенный сбор
+    pcall(function()
+        firetouchinterest(hrp, coin, 0)
+        firetouchinterest(hrp, coin, 1)
+    end)
     
-    -- 3. Собираем
-    if coin and coin.Parent then
-        -- Активируем нажатие (если есть)
-        for _, prompt in ipairs(coin:GetDescendants()) do
-            if prompt:IsA("ProximityPrompt") then
-                pcall(function() fireproximityprompt(prompt) end)
-            end
+    for _, prompt in ipairs(coin:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            pcall(function() fireproximityprompt(prompt) end)
         end
-        -- Имитируем касание
-        pcall(function()
-            firetouchinterest(hrp, coin, 0)
-            firetouchinterest(hrp, coin, 1)
-        end)
     end
-    
-    -- 4. Возвращаем управление
-    task.wait(0.1)
-    hrp.Anchored = false
-    hrp.CanCollide = true
-    hum.PlatformStand = false
-    
-    isMoving = false
 end
 
 -- Главный цикл
 task.spawn(function()
-    while task.wait(0.1) do
-        if isFarming and not isMoving then
-            local coin = findCoin()
+    while task.wait(0.05) do -- Очень быстро (20 раз в секунду)
+        if isFarming then
+            local coin = findNearestCoin()
             if coin then
-                moveToCoin(coin)
+                grabCoin(coin)
+                task.wait(0.1) -- Небольшая пауза, чтобы сервер успел обработать
             end
         end
     end
 end)
 
--- Кнопка вкл/выкл
+-- Очистка черного списка от удаленных монет (чтобы не забивать память)
+task.spawn(function()
+    while task.wait(5) do
+        for coin in pairs(ignoredCoins) do
+            if not coin.Parent then
+                ignoredCoins[coin] = nil
+            end
+        end
+    end
+end)
+
+-- Включение/выключение
 Btn.MouseButton1Click:Connect(function()
     isFarming = not isFarming
     if isFarming then
@@ -107,13 +111,5 @@ Btn.MouseButton1Click:Connect(function()
     else
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-        -- Возвращаем управление, если выключили в полете
-        local char = LP.Character
-        if char then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hrp then hrp.Anchored = false; hrp.CanCollide = true end
-            if hum then hum.PlatformStand = false end
-        end
     end
 end)
