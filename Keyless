@@ -1,4 +1,4 @@
--- LiberiumHub | UI Fix (Draggable + ZIndex)
+-- LiberiumHub | UI Drag Fix (Mobile)
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
@@ -6,42 +6,58 @@ local LP = Players.LocalPlayer
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LiberiumTest"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.DisplayOrder = 999 -- Поверх всего интерфейса игры
+ScreenGui.DisplayOrder = 999
 ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 
 -- ============ КНОПКА ============
 local IconBtn = Instance.new("TextButton")
 IconBtn.Size = UDim2.new(0, 50, 0, 50)
-IconBtn.Position = UDim2.new(0, 20, 0, 100)
+IconBtn.Position = UDim2.new(0, 100, 0, 100) -- Сдвинул правее, чтобы не мешала кнопкам Roblox
 IconBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
 IconBtn.Text = "L"
 IconBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconBtn.Font = Enum.Font.GothamBlack
 IconBtn.TextSize = 24
 IconBtn.BorderSizePixel = 0
-IconBtn.ZIndex = 10 -- Поверх других кнопок
+IconBtn.ZIndex = 10
 IconBtn.Parent = ScreenGui
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(1, 0)
 corner.Parent = IconBtn
 
--- Логика перетаскивания кнопки
-local draggingIcon, dragStartIcon, startPosIcon
-IconBtn.InputBegan:Connect(function(input)
+-- ============ ПЕРЕТАСКИВАНИЕ КНОПКИ (ЧЕРЕЗ UIS) ============
+local draggingIcon = false
+local dragStartIcon = nil
+local startPosIcon = nil
+
+-- Проверка, попал ли палец/мышь в кнопку
+local function isInsideIcon(pos)
+    local absPos = IconBtn.AbsolutePosition
+    local absSize = IconBtn.AbsoluteSize
+    return pos.X >= absPos.X and pos.X <= absPos.X + absSize.X and pos.Y >= absPos.Y and pos.Y <= absPos.Y + absSize.Y
+end
+
+UIS.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingIcon = true
-        dragStartIcon = input.Position
-        startPosIcon = IconBtn.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then draggingIcon = false end
-        end)
+        if isInsideIcon(input.Position) then
+            draggingIcon = true
+            dragStartIcon = input.Position
+            startPosIcon = IconBtn.Position
+        end
     end
 end)
+
 UIS.InputChanged:Connect(function(input)
     if draggingIcon and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStartIcon
         IconBtn.Position = UDim2.new(startPosIcon.X.Scale, startPosIcon.X.Offset + delta.X, startPosIcon.Y.Scale, startPosIcon.Y.Offset + delta.Y)
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingIcon = false
     end
 end)
 
@@ -52,7 +68,7 @@ Main.Position = UDim2.new(0.5, -150, 0.5, -100)
 Main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 Main.BorderSizePixel = 0
 Main.Visible = false
-Main.ZIndex = 5 -- Поверх игры
+Main.ZIndex = 5
 Main.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
@@ -69,25 +85,35 @@ Title.TextSize = 18
 Title.ZIndex = 6
 Title.Parent = Main
 
--- Перетаскивание ОКНА (за верхнюю часть)
-local draggingMain, dragStartMain, startPosMain
-Main.InputBegan:Connect(function(input)
+-- Перетаскивание окна (за шапку)
+local draggingMain = false
+local dragStartMain = nil
+local startPosMain = nil
+
+local function isInsideHeader(pos)
+    local absPos = Main.AbsolutePosition
+    local absSize = Main.AbsoluteSize
+    -- Проверяем только верхние 50 пикселей окна
+    return pos.X >= absPos.X and pos.X <= absPos.X + absSize.X and pos.Y >= absPos.Y and pos.Y <= absPos.Y + 50
+end
+
+UIS.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        -- Проверяем, что зажали именно шапку (верхние 50 пикселей)
-        local relativeY = input.Position.Y - Main.AbsolutePosition.Y
-        if relativeY <= 50 then
+        if Main.Visible and isInsideHeader(input.Position) then
             draggingMain = true
             dragStartMain = input.Position
             startPosMain = Main.Position
         end
     end
 end)
+
 UIS.InputChanged:Connect(function(input)
     if draggingMain and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStartMain
         Main.Position = UDim2.new(startPosMain.X.Scale, startPosMain.X.Offset + delta.X, startPosMain.Y.Scale, startPosMain.Y.Offset + delta.Y)
     end
 end)
+
 UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         draggingMain = false
@@ -98,3 +124,5 @@ end)
 IconBtn.MouseButton1Click:Connect(function()
     Main.Visible = not Main.Visible
 end)
+
+print("[Liberium] UI Drag Test Loaded. Try dragging the 'L' button.")
