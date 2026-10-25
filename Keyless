@@ -23,7 +23,7 @@ local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- РОЛИ (С учетом режима Зомби и Backpack)
+-- РОЛИ (С учетом режима Зомби)
 -- ==========================================
 local roles = {}
 local function updateRoles()
@@ -45,7 +45,7 @@ local function getRoleColor(plr)
         if rData.Role == "Survivor" then return Color3.fromRGB(255, 165, 0) end
     end
     
-    -- Фолбэк по оружию в руках и рюкзаке
+    -- Фолбэк по оружию
     local function checkTools(container)
         if not container then return nil end
         for _, tool in ipairs(container:GetChildren()) do
@@ -57,10 +57,8 @@ local function getRoleColor(plr)
         end
         return nil
     end
-
     if plr.Character then local c = checkTools(plr.Character); if c then return c end end
     if plr:FindFirstChild("Backpack") then local c = checkTools(plr:FindFirstChild("Backpack")); if c then return c end end
-
     return Color3.fromRGB(50, 255, 100)
 end
 
@@ -178,7 +176,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (ТОЧНЫЙ ПОИСК Coin_Server + ПЛАВНЫЙ ПОЛЕТ)
+-- AUTO FARM (Ищем Coin_Server, плавный полет)
 -- ==========================================
 local currentTarget = nil
 
@@ -187,7 +185,7 @@ local function findNearestItem()
     if not hrp then return nil end
     local closest, minDist = nil, 9999
     
-    -- Ищем только объекты с именем Coin_Server
+    -- Ищем строго Coin_Server
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
             local d = (obj.Position - hrp.Position).Magnitude
@@ -199,40 +197,29 @@ end
 
 task.spawn(function()
     while task.wait(0.2) do
-        if CFG.AutoFarm then 
-            currentTarget = findNearestItem() 
-        else 
-            currentTarget = nil 
-        end
+        if CFG.AutoFarm then currentTarget = findNearestItem() else currentTarget = nil end
     end
 end)
 
--- Плавное движение с учетом времени кадра (deltaTime)
 RunService.RenderStepped:Connect(function(dt)
     if CFG.AutoFarm and currentTarget and currentTarget.Parent then
         local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
-            local targetPos = currentTarget.Position + Vector3.new(0, 2, 0) -- Встаем чуть выше самой монеты
+            local targetPos = currentTarget.Position + Vector3.new(0, 2, 0)
             local distance = (hrp.Position - targetPos).Magnitude
             
             if distance > 2 then
-                -- Скорость фарма (1-24), переведенная в стады в секунду
                 local speed = CFG.FarmSpeed * 2 
                 local moveStep = speed * dt
-                
                 if moveStep > distance then moveStep = distance end
-                
                 local dir = (targetPos - hrp.Position).Unit
                 hrp.CFrame = CFrame.new(hrp.Position + dir * moveStep)
             else
-                -- Если рядом, активируем ProximityPrompt (если есть) и сбрасываем цель
                 for _, prompt in ipairs(currentTarget:GetDescendants()) do
                     if prompt:IsA("ProximityPrompt") then
                         pcall(function() fireproximityprompt(prompt) end)
                     end
                 end
-                -- Сбрасываем цель, чтобы он не застрял, если монета не подобралась
-                task.wait(0.1)
                 currentTarget = nil 
             end
         end
@@ -273,4 +260,4 @@ secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 12, Ca
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Автофарм починен! Летим ровно в Coin_Server", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Загружено. Фарм настроен на Coin_Server!", Icon = "check", Tone = "Success", Duration = 5 })
