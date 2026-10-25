@@ -1,83 +1,276 @@
-local player = game.Players.LocalPlayer
+local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
 
-local gui = Instance.new("ScreenGui", player.PlayerGui)
-gui.Name = "CandyScanner"
-gui.DisplayOrder = 999
+local LP = Players.LocalPlayer
+local Cam = Workspace.CurrentCamera
 
-local frame = Instance.new("ScrollingFrame", gui)
-frame.Size = UDim2.new(0.9, 0, 0.8, 0)
-frame.Position = UDim2.new(0.05, 0, 0.1, 0)
-frame.BackgroundColor3 = Color3.new(0, 0, 0)
-frame.BorderSizePixel = 2
-frame.BorderColor3 = Color3.new(1, 0.5, 0)
+local CFG = { ESP = false, SilentAim = false, Aimbot = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 12, AntiAFK = false }
 
-local txt = Instance.new("TextLabel", frame)
-txt.Size = UDim2.new(1, 0, 1, 0)
-txt.BackgroundTransparency = 1
-txt.TextColor3 = Color3.new(1, 1, 1)
-txt.Font = Enum.Font.Code
-txt.TextSize = 14
-txt.TextWrapped = true
-txt.TextXAlignment = Enum.TextXAlignment.Left
-txt.TextYAlignment = Enum.TextYAlignment.Top
-txt.Text = "Ищу объекты вокруг...\n"
+-- Окно
+local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 Edition", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+local uiscale = Instance.new("UIScale", Window.root)
+local function updateScale() if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end end
+updateScale(); Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
-local btn = Instance.new("TextButton", gui)
-btn.Size = UDim2.new(0.9, 0, 0.06, 0)
-btn.Position = UDim2.new(0.05, 0, 0.92, 0)
-btn.BackgroundColor3 = Color3.new(0.5, 0, 1)
-btn.TextColor3 = Color3.new(1, 1, 1)
-btn.Font = Enum.Font.GothamBold
-btn.Text = "СКОПИРОВАТЬ"
-btn.TextSize = 18
+local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
+local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
+local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
+local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
+local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
-local logs = {}
-local function addLog(text)
-    table.insert(logs, text)
-    txt.Text = table.concat(logs, "\n")
+-- ==========================================
+-- РОЛИ (С учетом режима Зомби и Backpack)
+-- ==========================================
+local roles = {}
+local function updateRoles()
+    pcall(function()
+        local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+        if getData and getData:IsA("RemoteFunction") then
+            local success, data = getData:InvokeServer()
+            if success and type(data) == "table" then roles = data end
+        end
+    end)
+end
+task.spawn(function() while task.wait(1) do updateRoles() end end)
+
+local function getRoleColor(plr)
+    local rData = roles[plr.Name]
+    if rData and rData.Role then
+        if rData.Role == "Murderer" or rData.Role == "Zombie" then return Color3.fromRGB(255, 50, 50) end
+        if rData.Role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
+        if rData.Role == "Survivor" then return Color3.fromRGB(255, 165, 0) end
+    end
+    
+    -- Фолбэк по оружию в руках и рюкзаке
+    local function checkTools(container)
+        if not container then return nil end
+        for _, tool in ipairs(container:GetChildren()) do
+            if tool:IsA("Tool") then
+                local n = string.lower(tool.Name)
+                if n:find("knife") or n:find("dagger") then return Color3.fromRGB(255, 50, 50) end
+                if n:find("gun") or n:find("revolver") then return Color3.fromRGB(50, 120, 255) end
+            end
+        end
+        return nil
+    end
+
+    if plr.Character then local c = checkTools(plr.Character); if c then return c end end
+    if plr:FindFirstChild("Backpack") then local c = checkTools(plr:FindFirstChild("Backpack")); if c then return c end end
+
+    return Color3.fromRGB(50, 255, 100)
 end
 
-task.spawn(function()
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then addLog("Нет персонажа!") return end
+-- ==========================================
+-- ESP
+-- ==========================================
+local highlights = {}
+RunService.RenderStepped:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            if CFG.ESP and p.Character then
+                local hl = highlights[p]
+                if not hl or hl.Parent ~= p.Character then
+                    if hl then hl:Destroy() end
+                    hl = Instance.new("Highlight")
+                    hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = p.Character
+                    highlights[p] = hl
+                end
+                local c = getRoleColor(p)
+                hl.FillColor = c
+                hl.OutlineColor = c
+            else
+                if highlights[p] then highlights[p]:Destroy(); highlights[p] = nil end
+            end
+        end
+    end
+end)
 
-    addLog("=== ПОИСК КОНФЕТ ===")
-    
-    -- Ищем всё, что находится в радиусе 30 стадов от тебя
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") or obj:IsA("Model") then
-            local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-            local dist = (pos - hrp.Position).Magnitude
-            
-            if dist < 30 then
-                local name = string.lower(obj.Name)
-                -- Ищем всё, что похоже на конфету, или просто странные объекты
-                if name:find("candy") or name:find("sweet") or name:find("lolli") or name:find("drop") or name:find("bag") or name:find("coin") then
-                    addLog("Имя: " .. obj.Name)
-                    addLog("Класс: " .. obj.ClassName)
-                    addLog("Родитель: " .. obj.Parent.Name)
-                    addLog("Дистанция: " .. math.floor(dist) .. " стадов")
-                    addLog("-----------------")
+-- ==========================================
+-- COMBAT
+-- ==========================================
+local FOVCircle = Instance.new("Frame", Window.root)
+FOVCircle.Size = UDim2.fromOffset(240, 240); FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5); FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+FOVCircle.BackgroundTransparency = 1; FOVCircle.Visible = false
+local UIStrokeFOV = Instance.new("UIStroke", FOVCircle); UIStrokeFOV.Color = Color3.fromRGB(150, 50, 255); UIStrokeFOV.Thickness = 1.5
+local UICornerFOV = Instance.new("UICorner", FOVCircle); UICornerFOV.CornerRadius = UDim.new(1, 0)
+
+local function getClosestTarget()
+    local closest, dist = nil, 240
+    local center = Vector2.new(Cam.ViewportSize.X/2, Cam.ViewportSize.Y/2)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character then
+            local head = p.Character:FindFirstChild("Head")
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if head and hum and hum.Health > 0 then
+                local sp, onScreen = Cam:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    if d < dist then dist = d; closest = head end
                 end
             end
         end
     end
-    
-    if #logs == 1 then
-        addLog("Ничего не найдено. Подойди ближе к конфете!")
+    return closest
+end
+
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+local oldIndex = mt.__index
+setreadonly(mt, false)
+
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    if CFG.SilentAim and (method == "FireGun" or method == "ShootGun" or method == "HitKnife" or method == "KnifeHit") then
+        local target = getClosestTarget()
+        if target then return oldNamecall(self, target, ...) end
+    end
+    return oldNamecall(self, ...)
+end)
+
+mt.__index = newcclosure(function(self, key)
+    if CFG.SilentAim and (key == "Hit" or key == "Target") then
+        local target = getClosestTarget()
+        if target then
+            if key == "Hit" then return CFrame.new(target.Position) end
+            if key == "Target" then return target end
+        end
+    end
+    return oldIndex(self, key)
+end)
+setreadonly(mt, true)
+
+RunService.RenderStepped:Connect(function()
+    if CFG.Aimbot then
+        local target = getClosestTarget()
+        if target then Cam.CFrame = Cam.CFrame:Lerp(CFrame.new(Cam.CFrame.Position, target.Position), 0.25) end
+        FOVCircle.Visible = true
     else
-        addLog("=== КОНЕЦ СПИСКА ===")
+        FOVCircle.Visible = false
     end
 end)
 
-btn.MouseButton1Click:Connect(function()
-    local finalText = table.concat(logs, "\n")
-    pcall(function()
-        if setclipboard then setclipboard(finalText) end
-        if toclipboard then toclipboard(finalText) end
-        if syn and syn.write_clipboard then syn.write_clipboard(finalText) end
-    end)
-    btn.Text = "СКОПИРОВАНО!"
-    btn.BackgroundColor3 = Color3.new(0, 1, 0)
+-- ==========================================
+-- MOVEMENT
+-- ==========================================
+local originalCollide = setmetatable({}, {__mode = "k"})
+RunService.Stepped:Connect(function()
+    if CFG.Noclip and LP.Character then
+        for _, d in ipairs(LP.Character:GetDescendants()) do
+            if d:IsA("BasePart") then
+                if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
+                d.CanCollide = false
+            end
+        end
+    end
 end)
+
+RunService.Heartbeat:Connect(function()
+    if LP.Character then
+        local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum.WalkSpeed ~= CFG.WalkSpeed then hum.WalkSpeed = CFG.WalkSpeed end
+    end
+end)
+
+-- ==========================================
+-- AUTO FARM (ТОЧНЫЙ ПОИСК Coin_Server + ПЛАВНЫЙ ПОЛЕТ)
+-- ==========================================
+local currentTarget = nil
+
+local function findNearestItem()
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local closest, minDist = nil, 9999
+    
+    -- Ищем только объекты с именем Coin_Server
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
+            local d = (obj.Position - hrp.Position).Magnitude
+            if d < minDist then minDist = d; closest = obj end
+        end
+    end
+    return closest
+end
+
+task.spawn(function()
+    while task.wait(0.2) do
+        if CFG.AutoFarm then 
+            currentTarget = findNearestItem() 
+        else 
+            currentTarget = nil 
+        end
+    end
+end)
+
+-- Плавное движение с учетом времени кадра (deltaTime)
+RunService.RenderStepped:Connect(function(dt)
+    if CFG.AutoFarm and currentTarget and currentTarget.Parent then
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local targetPos = currentTarget.Position + Vector3.new(0, 2, 0) -- Встаем чуть выше самой монеты
+            local distance = (hrp.Position - targetPos).Magnitude
+            
+            if distance > 2 then
+                -- Скорость фарма (1-24), переведенная в стады в секунду
+                local speed = CFG.FarmSpeed * 2 
+                local moveStep = speed * dt
+                
+                if moveStep > distance then moveStep = distance end
+                
+                local dir = (targetPos - hrp.Position).Unit
+                hrp.CFrame = CFrame.new(hrp.Position + dir * moveStep)
+            else
+                -- Если рядом, активируем ProximityPrompt (если есть) и сбрасываем цель
+                for _, prompt in ipairs(currentTarget:GetDescendants()) do
+                    if prompt:IsA("ProximityPrompt") then
+                        pcall(function() fireproximityprompt(prompt) end)
+                    end
+                end
+                -- Сбрасываем цель, чтобы он не застрял, если монета не подобралась
+                task.wait(0.1)
+                currentTarget = nil 
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- ANTI-AFK
+-- ==========================================
+LP.Idled:Connect(function()
+    if CFG.AntiAFK then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
+
+-- ==========================================
+-- ПРИВЯЗКА UI
+-- ==========================================
+local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
+secCombat:Toggle({ Name = "Silent Aim", Default = false, Callback = function(v) CFG.SilentAim = v end })
+secCombat:Toggle({ Name = "Aimbot (Авто-наведение)", Default = false, Callback = function(v) CFG.Aimbot = v end })
+
+local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
+secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
+
+local secMovement = TabMovement:CreateSection({ Name = "Player Physics" })
+secMovement:Toggle({ Name = "Noclip", Default = false, Callback = function(v) 
+    CFG.Noclip = v 
+    if not v then for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end; table.clear(originalCollide) end 
+end })
+secMovement:Slider({ Name = "WalkSpeed", Min = 16, Max = 150, Default = 16, Callback = function(v) CFG.WalkSpeed = v end })
+
+local secFarm = TabFarm:CreateSection({ Name = "Automation" })
+secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) CFG.AutoFarm = v; currentTarget = nil end })
+secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 12, Callback = function(v) CFG.FarmSpeed = v end })
+
+local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
+secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
+
+Slate:Notify({ Title = "Liberium Hub", Description = "Автофарм починен! Летим ровно в Coin_Server", Icon = "check", Tone = "Success", Duration = 5 })
