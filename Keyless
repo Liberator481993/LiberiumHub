@@ -1,4 +1,4 @@
--- LIBERIUM HUB (UI First, Logic Later)
+-- LIBERIUM HUB (UI First, Logic Later) - FIXED SYNTAX
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -19,7 +19,8 @@ local ROLE_RED = Color3.fromRGB(255, 50, 50)
 local ROLE_BLUE = Color3.fromRGB(50, 120, 255)
 local ROLE_GREEN = Color3.fromRGB(50, 255, 100)
 
-local state = { highlight = false, highlightFill = 0.5, noclip = false, walkSpeed = 16, walkSpeedTouched = false, autoFarm = false }
+local state = { highlight = false, highlightFill = 0.5, noclip = false, walkSpeed = 16, walkSpeedTouched = false, autoFarm = false, aimbot = false, aimFOV = 120 }
+local originalCollide = setmetatable({}, {__mode = "k"})
 
 local function safe(fn, ...) local ok, res = pcall(fn, ...); if not ok then warn(res) end; return res end
 local function create(class, props, parent) local inst = Instance.new(class); for k,v in pairs(props or {}) do inst[k] = v end; if parent then inst.Parent = parent end; return inst end
@@ -32,7 +33,7 @@ local function getHumanoid() local c = player.Character; return c and c:FindFirs
 local function getRoot() local c = player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 
 -- ==========================================
--- 1. СНАЧАЛА СОЗДАЕМ UI (ЧТОБЫ КНОПКА ПОЯВИЛАСЬ)
+-- 1. СНАЧАЛА СОЗДАЕМ UI
 -- ==========================================
 local old = playerGui:FindFirstChild("DarkPremiumUI")
 if old then old:Destroy() end
@@ -105,20 +106,42 @@ local function createSlider(page, text, order, min, max, default, callback)
 end
 
 local function makeDraggable(handle, target, scaleObj)
-	local drag, active, start, startPos, moved = false, nil, Vector2.zero, target.Position, false
-	handle.InputBegan:Connect(function(i) if isPress(i) then drag = true; active = i; moved = false; start = Vector2.new(i.Position.X, i.Position.Y); startPos = target.Position end end)
+	local dragState = { moved = false }
+	local drag, active, start, startPos = false, nil, Vector2.zero, target.Position
+	
+    handle.InputBegan:Connect(function(i) 
+        if isPress(i) then 
+            drag = true; active = i; dragState.moved = false; start = Vector2.new(i.Position.X, i.Position.Y); startPos = target.Position 
+        end 
+    end)
 	UserInputService.InputChanged:Connect(function(i)
 		if not drag or not isMove(i) then return end
 		if i.UserInputType == Enum.UserInputType.Touch and i ~= active then return end
-		safe(function() local d = Vector2.new(i.Position.X, i.Position.Y) - start; if d.Magnitude > 6 then moved = true end; if moved then local s = math.max(scaleObj.Scale, 0.01); target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X/s, startPos.Y.Scale, startPos.Y.Offset + d.Y/s) end end)
+		safe(function() 
+            local d = Vector2.new(i.Position.X, i.Position.Y) - start
+            if d.Magnitude > 6 then dragState.moved = true end
+            if dragState.moved then 
+                local s = math.max(scaleObj.Scale, 0.01)
+                target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X/s, startPos.Y.Scale, startPos.Y.Offset + d.Y/s)
+            end
+        end)
 	end)
-	UserInputService.InputEnded:Connect(function(i) if drag and (i == active or isPress(i)) then drag = false; active = nil end end)
-	return { get moved() return moved end, set moved(v) moved = v end }
+	UserInputService.InputEnded:Connect(function(i) 
+        if drag and (i == active or isPress(i)) then drag = false; active = nil end 
+    end)
+	return dragState
 end
 
-makeDraggable(titleBar, window, windowScale)
 local btnDrag = makeDraggable(toggleButton, toggleButton, toggleScale)
-toggleButton.MouseButton1Click:Connect(function() if btnDrag.moved then btnDrag.moved = false; return end; window.Visible = not window.Visible end)
+local windowDrag = makeDraggable(titleBar, window, windowScale)
+
+toggleButton.MouseButton1Click:Connect(function() 
+    if btnDrag.moved then 
+        btnDrag.moved = false
+        return 
+    end
+    window.Visible = not window.Visible 
+end)
 closeButton.MouseButton1Click:Connect(function() window.Visible = false end)
 
 local function updateScale()
@@ -146,19 +169,26 @@ createSlider(visualsPage, "Highlight Fill %", 2, 0, 100, 50, function(v) state.h
 createToggle(combatPage, "Aimbot (Hold)", 1, false, function(v) state.aimbot = v end)
 createSlider(combatPage, "Aim FOV", 2, 50, 300, 120, function(v) state.aimFOV = v end)
 
-createToggle(movementPage, "Noclip", 1, false, function(v) state.noclip = v; if not v then for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end; table.clear(originalCollide) end end)
+createToggle(movementPage, "Noclip", 1, false, function(v) 
+    state.noclip = v
+    if not v then 
+        for p, c in pairs(originalCollide) do 
+            pcall(function() if p and p.Parent then p.CanCollide = c end end) 
+        end
+        table.clear(originalCollide) 
+    end 
+end)
 createSlider(movementPage, "WalkSpeed", 2, 16, 150, 16, function(v) state.walkSpeed = v; state.walkSpeedTouched = true end)
 
 createToggle(automationPage, "Auto Farm (Coins/Candy)", 1, false, function(v) state.autoFarm = v end)
 selectTab("Visuals")
 
 -- ==========================================
--- 2. ТЕПЕРЬ ЛОГИКА (В ОТДЕЛЬНОМ ПОТОКЕ, ЧТОБЫ НЕ ЛАГАЛО)
+-- 2. ЛОГИКА
 -- ==========================================
 task.spawn(function()
-    task.wait(1) -- Ждем, чтобы UI 100% отрисовался
+    task.wait(1)
     
-    -- 1. Роли
     local roles = {}
     task.spawn(function()
         while task.wait(2) do
@@ -182,7 +212,6 @@ task.spawn(function()
         return ROLE_GREEN
     end
 
-    -- 2. ESP
     local highlights = {}
     RunService.RenderStepped:Connect(function()
         for _, p in ipairs(Players:GetPlayers()) do
@@ -208,13 +237,11 @@ task.spawn(function()
         end
     end)
 
-    -- 3. Движение
-    local origCol = setmetatable({}, {__mode = "k"})
     RunService.Stepped:Connect(function()
         if state.noclip and player.Character then
             for _, d in ipairs(player.Character:GetDescendants()) do
                 if d:IsA("BasePart") then
-                    if origCol[d] == nil then origCol[d] = d.CanCollide end
+                    if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
                     d.CanCollide = false
                 end
             end
@@ -227,7 +254,6 @@ task.spawn(function()
         end
     end)
 
-    -- 4. Фарм
     task.spawn(function()
         while task.wait(0.5) do
             if state.autoFarm and player.Character then
@@ -235,8 +261,6 @@ task.spawn(function()
                     local hrp = player.Character:FindFirstChild("HumanoidRootPart")
                     if not hrp then return end
                     local closest, minDist = nil, 100
-                    
-                    -- Ищем монеты
                     local main = playerGui:FindFirstChild("MainGUI")
                     local bags = main and main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")
                     if bags then
@@ -247,7 +271,6 @@ task.spawn(function()
                             end
                         end
                     end
-                    -- Ищем конфеты
                     for _, obj in ipairs(Workspace:GetChildren()) do
                         if obj:IsA("BasePart") or obj:IsA("Model") then
                             local n = string.lower(obj.Name)
@@ -267,7 +290,6 @@ task.spawn(function()
         end
     end)
 
-    -- 5. Аимбот
     local aimTarget = nil
     local fovGui = Instance.new("Frame", screenGui)
     fovGui.Size = UDim2.fromOffset(240, 240); fovGui.AnchorPoint = Vector2.new(0.5, 0.5); fovGui.Position = UDim2.new(0.5, 0, 0.5, 0); fovGui.BackgroundTransparency = 1; fovGui.Visible = false
@@ -305,3 +327,5 @@ task.spawn(function()
         if state.aimbot then fovGui.Size = UDim2.fromOffset((state.aimFOV or 120)*2, (state.aimFOV or 120)*2) end
     end)
 end)
+
+print("[LIBERIUM] Loaded successfully! (No syntax errors this time)")
