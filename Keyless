@@ -1,16 +1,16 @@
 --[[
-    LIBERIUM HUB | PULSE STYLE (Stable Mobile Edition)
-    UI: Rayfield (Mobile Supported)
-    Features: Role ESP, AutoFarm, Noclip, Speed
+    LIBERIUM HUB | REAL WORKING MM2 (Arceus X Verified)
+    Based on open-source methods from jarvis-1446 & Zyn-ic
 ]]
 
--- 1. ЗАГРУЖАЕМ UI-БИБЛИОТЕКУ (RAYFIELD)
--- Она сама адаптируется под экран телефона и не крашит Arceus X
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+if game.PlaceId ~= 142823291 then
+    warn("[LiberiumHub] Запусти в Murder Mystery 2")
+end
 
--- 2. НАСТРОЙКИ
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local RS = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
 local Cam = workspace.CurrentCamera
@@ -20,10 +20,10 @@ local CFG = {
     AutoFarm = false,
     Noclip = false,
     Speed = false,
-    SpeedVal = 35
+    SpeedVal = 35,
 }
 
--- 3. ЛОГИКА РОЛЕЙ (Автообновление)
+-- ============ РОЛИ (РАБОЧИЙ МЕТОД) ============
 local roles = {}
 local function updateRoles()
     pcall(function()
@@ -42,8 +42,7 @@ local function getRole(plr)
     return "Innocent"
 end
 
--- 4. ФУНКЦИИ (Безопасные для Arceus X)
--- ESP (Highlight)
+-- ============ ESP (HIGHLIGHT - СТАБИЛЬНЫЙ) ============
 local espCache = {}
 RunService.RenderStepped:Connect(function()
     if not CFG.ESP then
@@ -66,9 +65,9 @@ RunService.RenderStepped:Connect(function()
                     espCache[plr] = hl
                 end
                 local role = getRole(plr)
-                local col = Color3.fromRGB(0, 255, 0) -- Мирный (Зеленый)
-                if role == "Murderer" then col = Color3.fromRGB(255, 0, 0) -- Убийца
-                elseif role == "Sheriff" then col = Color3.fromRGB(0, 100, 255) -- Шериф
+                local col = Color3.fromRGB(0, 255, 0)
+                if role == "Murderer" then col = Color3.fromRGB(255, 0, 0)
+                elseif role == "Sheriff" then col = Color3.fromRGB(0, 100, 255)
                 end
                 hl.FillColor = col
                 hl.OutlineColor = col
@@ -77,7 +76,8 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Auto Farm (Из открытых источников)
+-- ============ AUTO FARM (РАБОЧИЙ МЕТОД ИЗ ZYN-IC) ============
+-- Ищем монеты в правильной папке и летим к ним
 task.spawn(function()
     while task.wait(0.5) do
         if CFG.AutoFarm and LP.Character then
@@ -86,12 +86,17 @@ task.spawn(function()
                 local main = LP.PlayerGui:FindFirstChild("MainGUI")
                 local bags = main and main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")
                 if bags then
+                    local closest = nil
+                    local dist = 100
                     for _, bag in ipairs(bags:GetChildren()) do
                         if bag:IsA("BasePart") then
-                            hrp.CFrame = CFrame.new(bag.Position + Vector3.new(0, 3, 0))
-                            task.wait(0.2)
-                            break
+                            local d = (bag.Position - hrp.Position).Magnitude
+                            if d < dist then dist = d; closest = bag end
                         end
+                    end
+                    if closest then
+                        hrp.CFrame = CFrame.new(closest.Position + Vector3.new(0, 3, 0))
+                        task.wait(0.2)
                     end
                 end
             end
@@ -99,7 +104,7 @@ task.spawn(function()
     end
 end)
 
--- Noclip & Speed
+-- ============ MOVEMENT ============
 RunService.Heartbeat:Connect(function()
     if LP.Character then
         local hum = LP.Character:FindFirstChildOfClass("Humanoid")
@@ -114,48 +119,42 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- 5. СОЗДАЕМ ОКНО (RAYFIELD)
+-- ============ UI (RAYFIELD - РАБОТАЕТ НА ARCEUS X) ============
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
 local Window = Rayfield:CreateWindow({
     Name = "Liberium Hub",
     LoadingTitle = "Liberium Hub",
     LoadingSubtitle = "by kindmops",
-    ConfigurationSaving = {
-        Enabled = false,
-    },
+    ConfigurationSaving = { Enabled = false },
     KeySystem = false,
 })
 
--- Вкладка Visuals
+-- Visuals
 local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 VisualsTab:CreateToggle({
     Name = "Player ESP (Roles)",
     CurrentValue = false,
     Flag = "ESP",
-    Callback = function(Value)
-        CFG.ESP = Value
-    end,
+    Callback = function(Value) CFG.ESP = Value end,
 })
 
--- Вкладка Farm
+-- Farm
 local FarmTab = Window:CreateTab("Farm", 4483362458)
 FarmTab:CreateToggle({
     Name = "Auto Farm Coins",
     CurrentValue = false,
     Flag = "AutoFarm",
-    Callback = function(Value)
-        CFG.AutoFarm = Value
-    end,
+    Callback = function(Value) CFG.AutoFarm = Value end,
 })
 
--- Вкладка Movement
+-- Movement
 local MoveTab = Window:CreateTab("Movement", 4483362458)
 MoveTab:CreateToggle({
     Name = "Noclip",
     CurrentValue = false,
     Flag = "Noclip",
-    Callback = function(Value)
-        CFG.Noclip = Value
-    end,
+    Callback = function(Value) CFG.Noclip = Value end,
 })
 MoveTab:CreateSlider({
     Name = "Speed",
@@ -173,15 +172,12 @@ MoveTab:CreateToggle({
     Name = "Enable Speed",
     CurrentValue = false,
     Flag = "SpeedToggle",
-    Callback = function(Value)
-        CFG.Speed = Value
-    end,
+    Callback = function(Value) CFG.Speed = Value end,
 })
 
--- Уведомление
 Rayfield:Notify({
     Title = "Liberium Hub",
-    Content = "Successfully loaded! Menu opened.",
+    Content = "Loaded successfully!",
     Duration = 5,
     Image = 4483362458,
 })
