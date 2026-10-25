@@ -1,37 +1,104 @@
+--[[
+	Dark Premium UI Framework + Test Logic (LocalScript)
+	Только Instance.new, чистый Luau, без внешних библиотек.
+	Разместить в StarterPlayer > StarterPlayerScripts.
+]]
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- ========== Тема ==========
-local COLOR_BG = Color3.fromRGB(15, 15, 20)
-local COLOR_PANEL = Color3.fromRGB(26, 26, 36)
-local COLOR_ACCENT = Color3.fromRGB(150, 50, 255)
-local COLOR_TEXT = Color3.fromRGB(235, 235, 245)
-local COLOR_MUTED = Color3.fromRGB(110, 110, 130)
-
-local COLOR_RED = Color3.fromRGB(255, 50, 50)
-local COLOR_BLUE = Color3.fromRGB(50, 120, 255)
-local COLOR_GREEN = Color3.fromRGB(50, 255, 100)
-
-local SPEED_MIN, SPEED_MAX = 16, 150
-local COIN_REFRESH_INTERVAL = 0.25
-
--- ========== Состояние ==========
-local state = {
-	visuals = false,
-	noclip = false,
-	auto = false,
-	walkSpeed = SPEED_MIN,
-	speedTouched = false,
+local Theme = {
+	Background = Color3.fromRGB(15, 15, 20),
+	Panel = Color3.fromRGB(25, 25, 30),
+	PanelLight = Color3.fromRGB(35, 35, 44),
+	Accent = Color3.fromRGB(150, 50, 255),
+	Text = Color3.fromRGB(240, 240, 248),
+	Muted = Color3.fromRGB(120, 120, 140),
 }
 
--- ========== Безопасные хелперы ==========
+local ROLE_RED = Color3.fromRGB(255, 50, 50)
+local ROLE_BLUE = Color3.fromRGB(50, 120, 255)
+local ROLE_GREEN = Color3.fromRGB(50, 255, 100)
+
+local TWEEN_FAST = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local SPEED_MIN, SPEED_MAX = 16, 150
+local COIN_SEARCH_INTERVAL = 0.25
+local COIN_STOP_DISTANCE = 0.5
+
+-- ========== Состояние логики ==========
+local state = {
+	highlight = false,
+	highlightFill = 0.5,
+	noclip = false,
+	walkSpeed = SPEED_MIN,
+	walkSpeedTouched = false,
+	autoMove = false,
+	autoMoveSpeed = 40, -- studs/sec
+}
+
+-- ========== Хелперы ==========
+local function safe(fn, ...)
+	local ok, result = pcall(fn, ...)
+	if not ok then
+		warn("[UI] " .. tostring(result))
+		return nil
+	end
+	return result
+end
+
+local function create(className, props, parent)
+	local inst = Instance.new(className)
+	for key, value in pairs(props or {}) do
+		pcall(function()
+			inst[key] = value
+		end)
+	end
+	if parent then
+		pcall(function()
+			inst.Parent = parent
+		end)
+	end
+	return inst
+end
+
+local function addCorner(parent, radius)
+	return create("UICorner", { CornerRadius = UDim.new(0, radius) }, parent)
+end
+
+local function addStroke(parent, color, thickness, transparency)
+	return create("UIStroke", {
+		Color = color,
+		Thickness = thickness or 1,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, parent)
+end
+
+local function tween(obj, props)
+	safe(function()
+		TweenService:Create(obj, TWEEN_FAST, props):Play()
+	end)
+end
+
+local function isPress(input)
+	return input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function isMove(input)
+	return input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
+-- Безопасные геттеры персонажа
 local function getHumanoid()
 	local ok, result = pcall(function()
 		local char = player.Character
@@ -51,391 +118,561 @@ local function getRoot()
 	return nil
 end
 
--- ========== Построение UI ==========
-local function create(className, props, parent)
-	local inst = Instance.new(className)
-	for k, v in pairs(props) do
-		inst[k] = v
-	end
-	inst.Parent = parent
-	return inst
-end
-
-local function corner(parent, radius)
-	return create("UICorner", { CornerRadius = UDim.new(0, radius or 8) }, parent)
+-- ========== Корневой ScreenGui ==========
+local oldGui = playerGui:FindFirstChild("DarkPremiumUI")
+if oldGui then
+	safe(function()
+		oldGui:Destroy()
+	end)
 end
 
 local screenGui = create("ScreenGui", {
-	Name = "TestFrameworkUI",
+	Name = "DarkPremiumUI",
 	ResetOnSpawn = false,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 	IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	DisplayOrder = 100,
 }, playerGui)
 
+-- ========== Главная кнопка "L" ==========
 local toggleButton = create("TextButton", {
-	Name = "MenuToggle",
-	Size = UDim2.fromOffset(96, 38),
-	Position = UDim2.new(0, 20, 0.5, -19),
-	BackgroundColor3 = COLOR_ACCENT,
-	Text = "MENU",
-	TextColor3 = COLOR_TEXT,
-	Font = Enum.Font.GothamBold,
-	TextSize = 16,
-	AutoButtonColor = true,
+	Name = "OpenButton",
+	Size = UDim2.fromOffset(52, 52),
+	Position = UDim2.new(0, 24, 0.5, -26),
+	BackgroundColor3 = Theme.Accent,
+	Text = "L",
+	TextColor3 = Theme.Text,
+	Font = Enum.Font.GothamBlack,
+	TextSize = 26,
+	AutoButtonColor = false,
+	ZIndex = 50,
 }, screenGui)
-corner(toggleButton, 10)
+addCorner(toggleButton, 26)
+addStroke(toggleButton, Color3.fromRGB(200, 140, 255), 2, 0.2)
 local toggleScale = create("UIScale", { Scale = 1 }, toggleButton)
 
+-- ========== Главное окно ==========
 local window = create("Frame", {
 	Name = "Window",
-	Size = UDim2.fromOffset(340, 320),
-	Position = UDim2.new(0.5, -170, 0.5, -160),
-	BackgroundColor3 = COLOR_BG,
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(560, 340),
+	Position = UDim2.new(0.5, 0, 0.5, 0),
+	BackgroundColor3 = Theme.Background,
 	BorderSizePixel = 0,
 	Visible = false,
+	ClipsDescendants = true,
 }, screenGui)
-corner(window, 12)
-create("UIStroke", { Color = COLOR_ACCENT, Thickness = 2 }, window)
+addCorner(window, 14)
+addStroke(window, Theme.Accent, 2, 0.15)
 local windowScale = create("UIScale", { Scale = 1 }, window)
 
+-- TitleBar
 local titleBar = create("Frame", {
 	Name = "TitleBar",
-	Size = UDim2.new(1, 0, 0, 38),
-	BackgroundColor3 = COLOR_PANEL,
+	Size = UDim2.new(1, 0, 0, 42),
+	BackgroundColor3 = Theme.Panel,
 	BorderSizePixel = 0,
+	ZIndex = 2,
 }, window)
-corner(titleBar, 12)
 
-create("TextLabel", {
-	Size = UDim2.new(1, -16, 1, 0),
-	Position = UDim2.fromOffset(14, 0),
-	BackgroundTransparency = 1,
-	Text = "Liberium Hub",
-	TextColor3 = COLOR_TEXT,
-	Font = Enum.Font.GothamBold,
-	TextSize = 16,
-	TextXAlignment = Enum.TextXAlignment.Left,
+create("Frame", {
+	Size = UDim2.new(1, 0, 0, 2),
+	Position = UDim2.new(0, 0, 1, -2),
+	BackgroundColor3 = Theme.Accent,
+	BorderSizePixel = 0,
+	ZIndex = 3,
 }, titleBar)
 
-local tabBar = create("Frame", {
-	Name = "TabBar",
-	Size = UDim2.new(1, -20, 0, 32),
-	Position = UDim2.fromOffset(10, 46),
+create("TextLabel", {
+	Size = UDim2.new(1, -60, 1, 0),
+	Position = UDim2.fromOffset(16, 0),
 	BackgroundTransparency = 1,
+	Text = "LUMINA  <font color=\"rgb(150,50,255)\">UI</font>",
+	RichText = true,
+	TextColor3 = Theme.Text,
+	Font = Enum.Font.GothamBold,
+	TextSize = 17,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 3,
+}, titleBar)
+
+local closeButton = create("TextButton", {
+	Size = UDim2.fromOffset(28, 28),
+	Position = UDim2.new(1, -38, 0.5, -14),
+	BackgroundColor3 = Theme.PanelLight,
+	Text = "×",
+	TextColor3 = Theme.Text,
+	Font = Enum.Font.GothamBold,
+	TextSize = 20,
+	AutoButtonColor = false,
+	ZIndex = 4,
+}, titleBar)
+addCorner(closeButton, 8)
+
+-- Sidebar
+local sidebar = create("Frame", {
+	Name = "Sidebar",
+	Size = UDim2.new(0, 140, 1, -42),
+	Position = UDim2.fromOffset(0, 42),
+	BackgroundColor3 = Theme.Panel,
+	BorderSizePixel = 0,
 }, window)
+create("UIPadding", {
+	PaddingTop = UDim.new(0, 10),
+	PaddingLeft = UDim.new(0, 10),
+	PaddingRight = UDim.new(0, 10),
+}, sidebar)
 create("UIListLayout", {
-	FillDirection = Enum.FillDirection.Horizontal,
-	Padding = UDim.new(0, 6),
+	Padding = UDim.new(0, 8),
 	SortOrder = Enum.SortOrder.LayoutOrder,
-}, tabBar)
+}, sidebar)
 
-local pagesHolder = create("Frame", {
-	Name = "Pages",
-	Size = UDim2.new(1, -20, 1, -94),
-	Position = UDim2.fromOffset(10, 84),
+-- Контейнер контента
+local content = create("Frame", {
+	Name = "Content",
+	Size = UDim2.new(1, -140, 1, -42),
+	Position = UDim2.fromOffset(140, 42),
 	BackgroundTransparency = 1,
 }, window)
 
-local tabButtons = {}
-local tabPages = {}
+-- ========== Вкладки ==========
+local tabs = {}
+local activeTab = nil
 
 local function selectTab(name)
-	for tabName, button in pairs(tabButtons) do
+	for tabName, tab in pairs(tabs) do
 		local active = tabName == name
-		button.BackgroundColor3 = active and COLOR_ACCENT or COLOR_PANEL
-		button.TextColor3 = active and COLOR_TEXT or COLOR_MUTED
-		tabPages[tabName].Visible = active
+		tween(tab.button, {
+			BackgroundColor3 = active and Theme.Accent or Theme.PanelLight,
+			TextColor3 = active and Theme.Text or Theme.Muted,
+		})
+		tab.page.Visible = active
 	end
+	activeTab = name
 end
 
 local function createTab(name, order)
 	local button = create("TextButton", {
 		Name = name .. "Tab",
-		Size = UDim2.new(1 / 3, -4, 1, 0),
-		BackgroundColor3 = COLOR_PANEL,
+		Size = UDim2.new(1, 0, 0, 36),
+		BackgroundColor3 = Theme.PanelLight,
 		Text = name,
-		TextColor3 = COLOR_MUTED,
+		TextColor3 = Theme.Muted,
 		Font = Enum.Font.GothamBold,
 		TextSize = 14,
-		LayoutOrder = order,
 		AutoButtonColor = false,
-	}, tabBar)
-	corner(button, 8)
+		LayoutOrder = order,
+	}, sidebar)
+	addCorner(button, 8)
 
-	local page = create("Frame", {
+	local page = create("ScrollingFrame", {
 		Name = name .. "Page",
-		Size = UDim2.fromScale(1, 1),
+		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = Theme.Accent,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Visible = false,
-	}, pagesHolder)
+	}, content)
+	create("UIPadding", {
+		PaddingTop = UDim.new(0, 12),
+		PaddingLeft = UDim.new(0, 12),
+		PaddingRight = UDim.new(0, 12),
+		PaddingBottom = UDim.new(0, 12),
+	}, page)
 	create("UIListLayout", {
-		Padding = UDim.new(0, 8),
+		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, page)
 
-	tabButtons[name] = button
-	tabPages[name] = page
+	tabs[name] = { button = button, page = page }
 	button.MouseButton1Click:Connect(function()
 		selectTab(name)
 	end)
 	return page
 end
 
-local function createToggle(parent, text, order, callback)
+-- ========== Компонент: Toggle ==========
+local function createToggle(page, text, order, default, callback)
 	local row = create("Frame", {
-		Size = UDim2.new(1, 0, 0, 42),
-		BackgroundColor3 = COLOR_PANEL,
+		Name = text .. "Toggle",
+		Size = UDim2.new(1, 0, 0, 46),
+		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
 		LayoutOrder = order,
-	}, parent)
-	corner(row, 8)
+	}, page)
+	addCorner(row, 10)
+	addStroke(row, Theme.PanelLight, 1)
 
 	create("TextLabel", {
 		Size = UDim2.new(1, -80, 1, 0),
-		Position = UDim2.fromOffset(12, 0),
+		Position = UDim2.fromOffset(14, 0),
 		BackgroundTransparency = 1,
 		Text = text,
-		TextColor3 = COLOR_TEXT,
-		Font = Enum.Font.Gotham,
+		TextColor3 = Theme.Text,
+		Font = Enum.Font.GothamMedium,
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, row)
 
-	local switch = create("TextButton", {
-		Size = UDim2.fromOffset(46, 24),
-		Position = UDim2.new(1, -58, 0.5, -12),
-		BackgroundColor3 = COLOR_MUTED,
+	local track = create("TextButton", {
+		Size = UDim2.fromOffset(48, 26),
+		Position = UDim2.new(1, -62, 0.5, -13),
+		BackgroundColor3 = Theme.PanelLight,
 		Text = "",
 		AutoButtonColor = false,
 	}, row)
-	corner(switch, 12)
+	addCorner(track, 13)
 
 	local knob = create("Frame", {
-		Size = UDim2.fromOffset(18, 18),
+		Size = UDim2.fromOffset(20, 20),
 		Position = UDim2.fromOffset(3, 3),
-		BackgroundColor3 = COLOR_TEXT,
+		BackgroundColor3 = Theme.Text,
 		BorderSizePixel = 0,
-	}, switch)
-	corner(knob, 9)
+	}, track)
+	addCorner(knob, 10)
 
-	local enabled = false
-	local function setState(value, silent)
-		enabled = value
-		local info = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		TweenService:Create(switch, info, {
-			BackgroundColor3 = enabled and COLOR_ACCENT or COLOR_MUTED,
-		}):Play()
-		TweenService:Create(knob, info, {
-			Position = enabled and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3),
-		}):Play()
-		if not silent then
-			local ok, err = pcall(callback, enabled)
-			if not ok then
-				warn("[Liberium] Toggle error: " .. tostring(err))
+	local enabled = default == true
+
+	local function render(animate)
+		local trackColor = enabled and Theme.Accent or Theme.PanelLight
+		local knobPos = enabled and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3)
+		if animate then
+			tween(track, { BackgroundColor3 = trackColor })
+			tween(knob, { Position = knobPos })
+		else
+			track.BackgroundColor3 = trackColor
+			knob.Position = knobPos
+		end
+	end
+	render(false)
+
+	track.MouseButton1Click:Connect(function()
+		enabled = not enabled
+		render(true)
+		if callback then
+			safe(callback, enabled)
+		end
+	end)
+
+	return row
+end
+
+-- ========== Компонент: Slider ==========
+local function createSlider(page, text, order, minValue, maxValue, default, callback)
+	local row = create("Frame", {
+		Name = text .. "Slider",
+		Size = UDim2.new(1, 0, 0, 64),
+		BackgroundColor3 = Theme.Panel,
+		BorderSizePixel = 0,
+		LayoutOrder = order,
+	}, page)
+	addCorner(row, 10)
+	addStroke(row, Theme.PanelLight, 1)
+
+	create("TextLabel", {
+		Size = UDim2.new(1, -90, 0, 24),
+		Position = UDim2.fromOffset(14, 6),
+		BackgroundTransparency = 1,
+		Text = text,
+		TextColor3 = Theme.Text,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+
+	local valueLabel = create("TextLabel", {
+		Size = UDim2.fromOffset(70, 24),
+		Position = UDim2.new(1, -84, 0, 6),
+		BackgroundTransparency = 1,
+		Text = tostring(default),
+		TextColor3 = Theme.Accent,
+		Font = Enum.Font.GothamBold,
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Right,
+	}, row)
+
+	local bar = create("TextButton", {
+		Size = UDim2.new(1, -28, 0, 8),
+		Position = UDim2.new(0, 14, 0, 44),
+		BackgroundColor3 = Theme.PanelLight,
+		Text = "",
+		AutoButtonColor = false,
+	}, row)
+	addCorner(bar, 4)
+
+	local initialAlpha = math.clamp((default - minValue) / (maxValue - minValue), 0, 1)
+
+	local fill = create("Frame", {
+		Size = UDim2.fromScale(initialAlpha, 1),
+		BackgroundColor3 = Theme.Accent,
+		BorderSizePixel = 0,
+	}, bar)
+	addCorner(fill, 4)
+
+	local knob = create("Frame", {
+		Size = UDim2.fromOffset(20, 20),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		BackgroundColor3 = Theme.Text,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+	}, fill)
+	addCorner(knob, 10)
+	addStroke(knob, Theme.Accent, 2)
+
+	local dragging = false
+	local activeInput = nil
+	local lastValue = default
+
+	local function updateFromX(x)
+		local width = bar.AbsoluteSize.X
+		if width <= 0 then
+			return
+		end
+		local alpha = math.clamp((x - bar.AbsolutePosition.X) / width, 0, 1)
+		local value = math.floor(minValue + (maxValue - minValue) * alpha + 0.5)
+		fill.Size = UDim2.fromScale(alpha, 1)
+		valueLabel.Text = tostring(value)
+		if value ~= lastValue then
+			lastValue = value
+			if callback then
+				safe(callback, value)
 			end
 		end
 	end
 
-	switch.MouseButton1Click:Connect(function()
-		setState(not enabled)
-	end)
-	return row
-end
-
-local function createSlider(parent, text, order, minValue, maxValue, initial, callback)
-	local row = create("Frame", {
-		Size = UDim2.new(1, 0, 0, 62),
-		BackgroundColor3 = COLOR_PANEL,
-		BorderSizePixel = 0,
-		LayoutOrder = order,
-	}, parent)
-	corner(row, 8)
-
-	local label = create("TextLabel", {
-		Size = UDim2.new(1, -24, 0, 24),
-		Position = UDim2.fromOffset(12, 6),
-		BackgroundTransparency = 1,
-		Text = text .. ": " .. tostring(initial),
-		TextColor3 = COLOR_TEXT,
-		Font = Enum.Font.Gotham,
-		TextSize = 14,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, row)
-
-	local bar = create("TextButton", {
-		Size = UDim2.new(1, -24, 0, 10),
-		Position = UDim2.new(0, 12, 0, 40),
-		BackgroundColor3 = COLOR_BG,
-		Text = "",
-		AutoButtonColor = false,
-	}, row)
-	corner(bar, 5)
-
-	local fill = create("Frame", {
-		Size = UDim2.fromScale((initial - minValue) / (maxValue - minValue), 1),
-		BackgroundColor3 = COLOR_ACCENT,
-		BorderSizePixel = 0,
-	}, bar)
-	corner(fill, 5)
-
-	local dragging = false
-
-	local function updateFromX(x)
-		local width = bar.AbsoluteSize.X
-		if width <= 0 then return end
-		local alpha = math.clamp((x - bar.AbsolutePosition.X) / width, 0, 1)
-		local value = math.floor(minValue + (maxValue - minValue) * alpha + 0.5)
-		fill.Size = UDim2.fromScale(alpha, 1)
-		label.Text = text .. ": " .. tostring(value)
-		local ok, err = pcall(callback, value)
-		if not ok then warn("[Liberium] Slider error: " .. tostring(err)) end
-	end
-
 	bar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if isPress(input) then
 			dragging = true
+			activeInput = input
+			page.ScrollingEnabled = false
 			updateFromX(input.Position.X)
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		if not dragging then
+			return
+		end
+		local valid = (input == activeInput) or (input.UserInputType == Enum.UserInputType.MouseMovement
+			and activeInput and activeInput.UserInputType == Enum.UserInputType.MouseButton1)
+		if valid and isMove(input) then
 			updateFromX(input.Position.X)
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if dragging and (input == activeInput or (isPress(input) and activeInput
+			and activeInput.UserInputType == input.UserInputType)) then
 			dragging = false
+			activeInput = nil
+			page.ScrollingEnabled = true
 		end
 	end)
+
 	return row
 end
 
--- ========== Перетаскивание ==========
+-- ========== Перетаскивание (InputBegan / InputChanged / InputEnded) ==========
 local function makeDraggable(handle, target, scaleObject)
 	local dragging = false
-	local dragStart = Vector3.zero
+	local activeInput = nil
+	local dragStart = Vector2.zero
 	local startPos = target.Position
-	local info = { moved = false }
+	local dragState = { moved = false }
 
 	handle.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if isPress(input) then
 			dragging = true
-			info.moved = false
-			dragStart = input.Position
+			activeInput = input
+			dragState.moved = false
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
 			startPos = target.Position
-			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then dragging = false end
-			end)
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			local delta = input.Position - dragStart
-			if delta.Magnitude > 6 then info.moved = true end
-			local scale = math.max(scaleObject.Scale, 0.01)
-			target.Position = UDim2.new(
-				startPos.X.Scale, startPos.X.Offset + delta.X / scale,
-				startPos.Y.Scale, startPos.Y.Offset + delta.Y / scale
-			)
+		if not dragging or not isMove(input) then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.Touch and input ~= activeInput then
+			return
+		end
+		safe(function()
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			if delta.Magnitude > 6 then
+				dragState.moved = true
+			end
+			if dragState.moved then
+				local scale = math.max(scaleObject.Scale, 0.01)
+				target.Position = UDim2.new(
+					startPos.X.Scale,
+					startPos.X.Offset + delta.X / scale,
+					startPos.Y.Scale,
+					startPos.Y.Offset + delta.Y / scale
+				)
+			end
+		end)
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if dragging and (input == activeInput or (isPress(input) and activeInput
+			and activeInput.UserInputType == input.UserInputType)) then
+			dragging = false
+			activeInput = nil
 		end
 	end)
-	return info
+
+	return dragState
 end
 
-local windowDrag = makeDraggable(titleBar, window, windowScale)
+makeDraggable(titleBar, window, windowScale)
 local buttonDrag = makeDraggable(toggleButton, toggleButton, toggleScale)
 
-toggleButton.MouseButton1Click:Connect(function()
-	if buttonDrag.moved then buttonDrag.moved = false; return end
-	window.Visible = not window.Visible
-end)
-
--- ========== Адаптивный масштаб ==========
-local function updateScale()
-	local camera = Workspace.CurrentCamera
-	if not camera then return end
-	local viewport = camera.ViewportSize
-	local scale = math.min(viewport.X / 480, viewport.Y / 420)
-	scale = math.clamp(scale, 0.5, 1.25)
-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-		scale = math.clamp(scale, 0.5, 1)
-	end
-	windowScale.Scale = scale
-	toggleScale.Scale = scale
-end
-
-updateScale()
-local function bindCamera()
-	local camera = Workspace.CurrentCamera
-	if camera then camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale) end
-end
-bindCamera()
-Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() bindCamera(); updateScale() end)
-
--- ========== РОЛИ ИЗ MM2 ==========
-local roles = {}
-local function fetchRoles()
-	pcall(function()
-		local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-		if getData and getData:IsA("RemoteFunction") then
-			local success, data = getData:InvokeServer()
-			if success and type(data) == "table" then roles = data end
-		end
+-- ========== Открытие / закрытие ==========
+local function setWindowVisible(visible)
+	safe(function()
+		window.Visible = visible
 	end)
 end
-task.spawn(function() while task.wait(2) do fetchRoles() end end)
 
-local function getRoleColor(targetPlayer)
-	local roleData = roles[targetPlayer.Name]
-	if roleData then
-		local role = roleData.Role or roleData[1]
-		if role == "Murderer" then return COLOR_RED end
-		if role == "Sheriff" then return COLOR_BLUE end
+toggleButton.MouseButton1Click:Connect(function()
+	if buttonDrag.moved then
+		buttonDrag.moved = false
+		return
 	end
-	return COLOR_GREEN
+	setWindowVisible(not window.Visible)
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+	setWindowVisible(false)
+end)
+
+-- ========== Адаптивный масштаб (UIScale) ==========
+local function updateScale()
+	safe(function()
+		local camera = Workspace.CurrentCamera
+		if not camera then
+			return
+		end
+		local viewport = camera.ViewportSize
+		local fit = math.min(viewport.X / 620, viewport.Y / 400)
+		local isPhone = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+		local maxScale = isPhone and 1 or 1.25
+		windowScale.Scale = math.clamp(fit, 0.4, maxScale)
+		toggleScale.Scale = math.clamp(fit, 0.7, 1.1)
+	end)
 end
 
--- ========== Visuals (Highlight) ==========
-local highlights = {}
-local playerConnections = {}
+local cameraConnection = nil
+local function bindCamera()
+	if cameraConnection then
+		cameraConnection:Disconnect()
+		cameraConnection = nil
+	end
+	local camera = Workspace.CurrentCamera
+	if camera then
+		cameraConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
+	end
+	updateScale()
+end
+
+bindCamera()
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera)
+
+-- =====================================================================
+-- ЛОГИКА
+-- =====================================================================
+
+-- ---------- Visuals: Player Highlight ----------
+local highlights = {}        -- [Player] = Highlight
+local playerConnections = {} -- [Player] = { RBXScriptConnection, ... }
+
+local function getRoleColor(targetPlayer)
+	local ok, role = pcall(function()
+		return targetPlayer:GetAttribute("Role")
+	end)
+	if ok and role ~= nil then
+		if role == "Murderer" then
+			return ROLE_RED
+		elseif role == "Sheriff" then
+			return ROLE_BLUE
+		end
+	end
+	return ROLE_GREEN
+end
 
 local function removeHighlight(targetPlayer)
 	local existing = highlights[targetPlayer]
 	highlights[targetPlayer] = nil
-	if existing then pcall(function() existing:Destroy() end) end
+	if existing then
+		pcall(function()
+			existing:Destroy()
+		end)
+	end
 end
 
 local function applyHighlight(targetPlayer)
 	pcall(function()
 		local character = targetPlayer.Character
-		if not character then return end
+		if not character or not character.Parent then
+			return
+		end
+
 		local highlight = highlights[targetPlayer]
 		if not highlight or highlight.Parent == nil or highlight.Adornee ~= character then
-			if highlight then highlight:Destroy() end
+			if highlight then
+				highlight:Destroy()
+			end
 			highlight = Instance.new("Highlight")
 			highlight.Name = "RoleHighlight"
 			highlight.Adornee = character
-			highlight.FillTransparency = 0.5
 			highlight.OutlineTransparency = 0
 			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 			highlight.Parent = character
 			highlights[targetPlayer] = highlight
 		end
+
 		local color = getRoleColor(targetPlayer)
 		highlight.FillColor = color
 		highlight.OutlineColor = color
+		highlight.FillTransparency = state.highlightFill
 	end)
 end
 
+local function refreshAllHighlights()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if state.highlight then
+			applyHighlight(p)
+		else
+			removeHighlight(p)
+		end
+	end
+end
+
 local function setupPlayer(targetPlayer)
-	if targetPlayer == player or playerConnections[targetPlayer] then return end
+	if playerConnections[targetPlayer] then
+		return
+	end
 	local connections = {}
 	playerConnections[targetPlayer] = connections
+
 	table.insert(connections, targetPlayer.CharacterAdded:Connect(function()
-		if state.visuals then task.defer(applyHighlight, targetPlayer) end
+		if state.highlight then
+			task.defer(applyHighlight, targetPlayer)
+		end
+	end))
+	table.insert(connections, targetPlayer.CharacterRemoving:Connect(function()
+		removeHighlight(targetPlayer)
+	end))
+	table.insert(connections, targetPlayer:GetAttributeChangedSignal("Role"):Connect(function()
+		if state.highlight then
+			applyHighlight(targetPlayer)
+		end
 	end))
 end
 
@@ -443,42 +680,60 @@ local function cleanupPlayer(targetPlayer)
 	removeHighlight(targetPlayer)
 	local connections = playerConnections[targetPlayer]
 	if connections then
-		for _, connection in ipairs(connections) do connection:Disconnect() end
+		for _, connection in ipairs(connections) do
+			pcall(function()
+				connection:Disconnect()
+			end)
+		end
 		playerConnections[targetPlayer] = nil
 	end
 end
 
-for _, p in ipairs(Players:GetPlayers()) do setupPlayer(p) end
+for _, p in ipairs(Players:GetPlayers()) do
+	setupPlayer(p)
+end
 Players.PlayerAdded:Connect(setupPlayer)
 Players.PlayerRemoving:Connect(cleanupPlayer)
 
--- ========== Noclip ==========
-local originalCollide = setmetatable({}, { __mode = "k" })
+-- ---------- Movement: Noclip (RunService.Stepped) ----------
+local originalCollide = setmetatable({}, { __mode = "k" }) -- [BasePart] = исходный CanCollide
 
 local function restoreCollisions()
 	for part, value in pairs(originalCollide) do
-		pcall(function() if part and part.Parent then part.CanCollide = value end end)
+		pcall(function()
+			if part and part.Parent then
+				part.CanCollide = value
+			end
+		end)
 	end
 	table.clear(originalCollide)
 end
 
 RunService.Stepped:Connect(function()
-	if not state.noclip then return end
+	if not state.noclip then
+		return
+	end
 	pcall(function()
 		local character = player.Character
-		if not character then return end
+		if not character then
+			return
+		end
 		for _, descendant in ipairs(character:GetDescendants()) do
 			if descendant:IsA("BasePart") then
-				if originalCollide[descendant] == nil then originalCollide[descendant] = descendant.CanCollide end
+				if originalCollide[descendant] == nil then
+					originalCollide[descendant] = descendant.CanCollide
+				end
 				descendant.CanCollide = false
 			end
 		end
 	end)
 end)
 
--- ========== WalkSpeed ==========
+-- ---------- Movement: WalkSpeed (RunService.Heartbeat) ----------
 RunService.Heartbeat:Connect(function()
-	if not state.speedTouched then return end
+	if not state.walkSpeedTouched then
+		return
+	end
 	pcall(function()
 		local humanoid = getHumanoid()
 		if humanoid and humanoid.WalkSpeed ~= state.walkSpeed then
@@ -487,23 +742,19 @@ RunService.Heartbeat:Connect(function()
 	end)
 end)
 
--- ========== Auto Farm (Поиск CoinBags в MainGUI) ==========
+-- ---------- Automation: Auto Move к ближайшему TestCoin ----------
 local currentCoin = nil
 local lastCoinSearch = 0
 
-local function findNearestCoin(rootPosition)
+local function findNearestCoin(fromPosition)
 	local nearest, nearestDistance = nil, math.huge
 	pcall(function()
-		local main = playerGui:FindFirstChild("MainGUI")
-		local bags = main and main:FindFirstChild("Game") and main.Game:FindFirstChild("CoinBags")
-		if bags then
-			for _, bag in ipairs(bags:GetChildren()) do
-				if bag:IsA("BasePart") then
-					local distance = (bag.Position - rootPosition).Magnitude
-					if distance < nearestDistance then
-						nearest = bag
-						nearestDistance = distance
-					end
+		for _, descendant in ipairs(Workspace:GetDescendants()) do
+			if descendant.Name == "TestCoin" and descendant:IsA("BasePart") then
+				local distance = (descendant.Position - fromPosition).Magnitude
+				if distance < nearestDistance then
+					nearest = descendant
+					nearestDistance = distance
 				end
 			end
 		end
@@ -511,56 +762,100 @@ local function findNearestCoin(rootPosition)
 	return nearest
 end
 
-RunService.Heartbeat:Connect(function()
-	if not state.auto then currentCoin = nil; return end
+RunService.Heartbeat:Connect(function(dt)
+	if not state.autoMove then
+		currentCoin = nil
+		return
+	end
 	pcall(function()
 		local root = getRoot()
-		if not root then return end
+		if not root then
+			return
+		end
+
 		local now = os.clock()
-		if currentCoin == nil or currentCoin.Parent == nil or now - lastCoinSearch >= COIN_REFRESH_INTERVAL then
+		local invalid = currentCoin == nil or currentCoin.Parent == nil
+		if invalid or now - lastCoinSearch >= COIN_SEARCH_INTERVAL then
 			lastCoinSearch = now
 			currentCoin = findNearestCoin(root.Position)
 		end
-		if currentCoin then
-			local delta = currentCoin.Position - root.Position
-			if delta.Magnitude > 3 then
-				root.CFrame = CFrame.new(currentCoin.Position + Vector3.new(0, 3, 0))
-			end
+		if not currentCoin then
+			return
+		end
+
+		local delta = currentCoin.Position - root.Position
+		local distance = delta.Magnitude
+		if distance > COIN_STOP_DISTANCE then
+			local step = math.min(distance, state.autoMoveSpeed * dt)
+			root.CFrame = root.CFrame + delta.Unit * step
+			root.AssemblyLinearVelocity = Vector3.zero
 		end
 	end)
 end)
 
--- ========== Вкладки ==========
-local visualsPage = createTab("Visuals", 1)
-local physicsPage = createTab("Physics", 2)
-local automationPage = createTab("Automation", 3)
+-- Сброс кэша монеты и коллизий при респавне
+player.CharacterAdded:Connect(function()
+	currentCoin = nil
+	table.clear(originalCollide)
+end)
 
-createToggle(visualsPage, "Player ESP (Roles)", 1, function(enabled)
-	state.visuals = enabled
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player then
-			if enabled then applyHighlight(p) else removeHighlight(p) end
-		end
+-- =====================================================================
+-- НАПОЛНЕНИЕ ВКЛАДОК И ПРИВЯЗКА ЛОГИКИ К UI
+-- =====================================================================
+local config = {}
+
+local visualsPage = createTab("Visuals", 1)
+local combatPage = createTab("Combat", 2)
+local movementPage = createTab("Movement", 3)
+local automationPage = createTab("Automation", 4)
+
+-- Visuals
+createToggle(visualsPage, "Player Highlight", 1, false, function(enabled)
+	state.highlight = enabled
+	refreshAllHighlights()
+end)
+createSlider(visualsPage, "Highlight Fill %", 2, 0, 100, 50, function(value)
+	state.highlightFill = value / 100
+	if state.highlight then
+		refreshAllHighlights()
 	end
 end)
 
-createToggle(physicsPage, "Noclip", 1, function(enabled)
-	state.noclip = enabled
-	if not enabled then restoreCollisions() end
+-- Combat (заглушка-конфиг для будущих механик)
+createToggle(combatPage, "Combat Toggle", 1, false, function(enabled)
+	config.combatToggle = enabled
+end)
+createSlider(combatPage, "Combat Slider", 2, 0, 100, 50, function(value)
+	config.combatSlider = value
 end)
 
-createSlider(physicsPage, "WalkSpeed", 2, SPEED_MIN, SPEED_MAX, SPEED_MIN, function(value)
+-- Movement
+createToggle(movementPage, "Noclip", 1, false, function(enabled)
+	state.noclip = enabled
+	if not enabled then
+		restoreCollisions()
+	end
+end)
+createSlider(movementPage, "WalkSpeed", 2, SPEED_MIN, SPEED_MAX, SPEED_MIN, function(value)
 	state.walkSpeed = value
-	state.speedTouched = true
+	state.walkSpeedTouched = true
 	pcall(function()
 		local humanoid = getHumanoid()
-		if humanoid then humanoid.WalkSpeed = value end
+		if humanoid then
+			humanoid.WalkSpeed = value
+		end
 	end)
 end)
 
-createToggle(automationPage, "Auto Farm Coins", 1, function(enabled)
-	state.auto = enabled
-	if not enabled then currentCoin = nil end
+-- Automation
+createToggle(automationPage, "Auto Move", 1, false, function(enabled)
+	state.autoMove = enabled
+	if not enabled then
+		currentCoin = nil
+	end
+end)
+createSlider(automationPage, "Move Speed", 2, 10, 120, 40, function(value)
+	state.autoMoveSpeed = value
 end)
 
 selectTab("Visuals")
