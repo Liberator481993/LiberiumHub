@@ -4,29 +4,31 @@ local Workspace = game:GetService("Workspace")
 local LP = Players.LocalPlayer
 local isFarming = false
 
--- Кнопка и текст для дебага
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 
+-- Кнопка (теперь по центру)
 local Btn = Instance.new("TextButton")
 Btn.Size = UDim2.new(0, 150, 0, 50)
-Btn.Position = UDim2.new(0, 20, 0.4, 0)
+Btn.Position = UDim2.new(0.5, -75, 0.3, 0) -- Центр по горизонтали
 Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
 Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Btn.Font = Enum.Font.GothamBold
-Btn.TextSize = 16
+Btn.TextSize = 18
 Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
+-- Текст статуса (под кнопкой, с фоном)
 local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 250, 0, 30)
-StatusText.Position = UDim2.new(0, 20, 0.4, 60)
-StatusText.BackgroundTransparency = 1
-StatusText.TextColor3 = Color3.fromRGB(255, 255, 0)
+StatusText.Size = UDim2.new(0, 300, 0, 40)
+StatusText.Position = UDim2.new(0.5, -150, 0.3, 60) -- Прямо под кнопкой
+StatusText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+StatusText.BackgroundTransparency = 0.4 -- Полупрозрачный черный фон
+StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
 StatusText.Font = Enum.Font.Code
-StatusText.TextSize = 14
+StatusText.TextSize = 16
 StatusText.Text = "Ожидание..."
-StatusText.TextXAlignment = Enum.TextXAlignment.Left
+StatusText.TextXAlignment = Enum.TextXAlignment.Center
 StatusText.Parent = ScreenGui
 
 local coinContainer = nil
@@ -60,13 +62,10 @@ local function teleportToCoin(coin)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp then return end
 
-    -- Отключаем физику на мгновение
     if hum then hum.PlatformStand = true end
     
-    -- Телепорт ровно на конфету
     hrp.CFrame = CFrame.new(coin.Position + Vector3.new(0, 3, 0))
     
-    -- Сбор
     pcall(function()
         firetouchinterest(hrp, coin, 0)
         firetouchinterest(hrp, coin, 1)
@@ -78,7 +77,6 @@ local function teleportToCoin(coin)
         end
     end
     
-    -- Возвращаем управление
     task.wait(0.15)
     if hum then hum.PlatformStand = false end
 end
@@ -99,13 +97,13 @@ task.spawn(function()
                         if d < minDist then minDist = d; closest = c end
                     end
                     if closest then
-                        StatusText.Text = "Телепорт к монете (Дист: " .. math.floor(minDist) .. ")"
+                        StatusText.Text = "ТП к монете (Дист: " .. math.floor(minDist) .. ")"
                         teleportToCoin(closest)
                     end
                 end
             else
                 if getContainer() then
-                    StatusText.Text = "Папка есть, но монет нет (Ждем спавн)"
+                    StatusText.Text = "Папка есть, монет нет (Ждем)"
                 else
                     StatusText.Text = "Папка CoinContainer не найдена!"
                 end
