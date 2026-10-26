@@ -3,7 +3,7 @@ local Workspace = game:GetService("Workspace")
 
 local LP = Players.LocalPlayer
 local isFarming = false
-local blacklist = {} -- Список монет, к которым уже телепортировались
+local blacklist = {}
 
 -- Удаляем старое окно
 local oldGui = LP.PlayerGui:FindFirstChild("FarmTestGui")
@@ -40,18 +40,38 @@ local function getContainer()
     return Workspace:FindFirstChild("CoinContainer", true)
 end
 
+local function getClosestCoin()
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local container = getContainer()
+    if not container then return nil end
+
+    local closest, minDist = nil, math.huge
+    for _, coin in ipairs(container:GetChildren()) do
+        if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] then
+            local dist = (coin.Position - hrp.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                closest = coin
+            end
+        end
+    end
+    return closest, minDist
+end
+
 local function teleportAndCollect(coin)
     local char = LP.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    -- 1. Сразу добавляем в черный список, чтобы не спамить телепорт на одно место
+    if not hrp then return end
+
     blacklist[coin] = true
 
-    -- 2. Телепортируемся ровно на монету (чуть выше)
-    char:PivotTo(CFrame.new(coin.Position + Vector3.new(0, 2, 0)))
+    -- Телепорт на 3 стада выше монеты
+    char:PivotTo(CFrame.new(coin.Position + Vector3.new(0, 3, 0)))
     
-    -- 3. Собираем (касание + кнопка, если есть)
     pcall(function()
         firetouchinterest(hrp, coin, 0)
         firetouchinterest(hrp, coin, 1)
@@ -64,52 +84,45 @@ local function teleportAndCollect(coin)
     end
 end
 
--- Главный цикл
+-- Главный цикл (пошаговый, без резких прыжков)
 task.spawn(function()
     while task.wait(0.1) do
         if isFarming then
             local char = LP.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             
-            if not hrp or not hum or hum.Health <= 0 then
+            if not char or not hum or hum.Health <= 0 then
                 StatusText.Text = "Мертв..."
                 continue
             end
 
-            local container = getContainer()
-            if container then
-                local closest, minDist = nil, math.huge
+            local coin, dist = getClosestCoin()
+            if coin then
+                StatusText.Text = "Летим к монете (" .. math.floor(dist) .. " st)"
+                teleportAndCollect(coin)
                 
-                -- Ищем ближайшую монету, которой нет в черном списке
-                for _, coin in ipairs(container:GetChildren()) do
-                    if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] then
-                        local dist = (coin.Position - hrp.Position).Magnitude
-                        if dist < minDist then
-                            minDist = dist
-                            closest = coin
-                        end
-                    end
+                -- Ждем, пока сервер удалит монету
+                local timeout = 0
+                while coin.Parent and timeout < 0.4 do
+                    task.wait(0.05)
+                    timeout += 0.05
                 end
-
-                if closest then
-                    StatusText.Text = "ТП к монете (" .. math.floor(minDist) .. " st)"
-                    teleportAndCollect(closest)
-                    
-                    -- ВАЖНАЯ ПАУЗА: Даем серверу 0.2 сек, чтобы удалить монету.
-                    -- Без этой паузы будет тряска экрана.
-                    task.wait(0.2) 
-                else
-                    StatusText.Text = "Все монеты собраны (ждем)"
+                
+                -- Если монета не удалилась, скипаем
+                if coin.Parent then
+                    blacklist[coin] = true
                 end
+                
+                -- Пауза чтобы античит не спалил
+                task.wait(0.15)
             else
-                StatusText.Text = "Нет папки CoinContainer!"
+                StatusText.Text = "Все монеты собраны (ждем)"
             end
         end
     end
 end)
 
--- Очистка черного списка от удаленных монет (чтобы не копился мусор)
+-- Очистка черного списка
 task.spawn(function()
     while task.wait(5) do
         for coin in pairs(blacklist) do
