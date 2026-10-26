@@ -1,57 +1,239 @@
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local LP = Players.LocalPlayer
 
-local gui = Instance.new("ScreenGui", LP:WaitForChild("PlayerGui"))
-gui.Name = "ScannerGui"
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
-local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.new(0, 300, 0, 300)
-frame.Position = UDim2.new(0.5, -150, 0.5, -150)
-frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-frame.BackgroundTransparency = 0.3
-frame.BorderSizePixel = 2
-frame.BorderColor3 = Color3.fromRGB(255, 0, 0)
+-- ========== Настройки ==========
+local TARGET_NAME = "Coin_Server"
+local COLLECT_DISTANCE = 1.5   
+local TARGET_TIMEOUT = 2       
+local SPEED_MIN, SPEED_MAX = 5, 24
+local Speed = 18
+local SCAN_INTERVAL = 0.3
 
-local txt = Instance.new("TextLabel", frame)
-txt.Size = UDim2.new(1, -10, 1, -10)
-txt.Position = UDim2.new(0, 5, 0, 5)
-txt.BackgroundTransparency = 1
-txt.TextColor3 = Color3.fromRGB(0, 255, 0)
-txt.Font = Enum.Font.Code
-txt.TextSize = 12
-txt.TextWrapped = true
-txt.TextXAlignment = Enum.TextXAlignment.Left
-txt.TextYAlignment = Enum.TextYAlignment.Top
-txt.Text = "Сканирую...\n"
+-- ========== Состояние ==========
+local running = false
+local Blacklist = {}
+local candidates = {}
+local lastScan = 0
+local currentTarget = nil
+local targetSince = 0
+local collecting = false
+local originalCollide = setmetatable({}, { __mode = "k" })
 
-task.spawn(function()
-    task.wait(2)
-    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        txt.Text = "Персонаж не найден!"
-        return
+local attachment, alignPos, alignOri = nil, nil, nil
+
+local Theme = {
+    Bg = Color3.fromRGB(15, 15, 20),
+    Panel = Color3.fromRGB(25, 25, 30),
+    Accent = Color3.fromRGB(150, 50, 255),
+    Text = Color3.fromRGB(240, 240, 248),
+    Muted = Color3.fromRGB(120, 120, 140),
+}
+
+local function create(className, props, parent)
+    local inst = Instance.new(className)
+    for k, v in pairs(props or {}) do pcall(function() inst[k] = v end) end
+    if parent then pcall(function() inst.Parent = parent end) end
+    return inst
+end
+
+local function getHumanoid()
+    local ok, r = pcall(function() local c = player.Character; return c and c:FindFirstChildOfClass("Humanoid") end)
+    return ok and r or nil
+end
+
+local function getRoot()
+    local ok, r = pcall(function() local c = player.Character; return c and c:FindFirstChild("HumanoidRootPart") end)
+    if ok and r and r:IsA("BasePart") then return r end
+    return nil
+end
+
+pcall(function()
+    local old = playerGui:FindFirstChild("AutoCollectUI")
+    if old then old:Destroy() end
+end)
+
+local gui = create("ScreenGui", { Name = "AutoCollectUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, playerGui)
+local frame = create("Frame", { Size = UDim2.fromOffset(260, 160), Position = UDim2.new(0.5, -130, 0.2, 0), BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 }, gui)
+create("UICorner", { CornerRadius = UDim.new(0, 12) }, frame)
+create("UIStroke", { Color = Theme.Accent, Thickness = 2 }, frame)
+local frameScale = create("UIScale", { Scale = 1 }, frame)
+
+local startButton = create("TextButton", { Size = UDim2.new(1, -24, 0, 38), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Accent, Text = "Start", TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false }, frame)
+create("UICorner", { CornerRadius = UDim.new(0, 8) }, startButton)
+
+local speedLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 20), Position = UDim2.fromOffset(12, 60), BackgroundTransparency = 1, Text = "Speed: " .. Speed, TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, frame)
+local bar = create("TextButton", { Size = UDim2.new(1, -24, 0, 8), Position = UDim2.fromOffset(12, 86), BackgroundColor3 = Theme.Panel, Text = "", AutoButtonColor = false }, frame)
+create("UICorner", { CornerRadius = UDim.new(0, 4) }, bar)
+
+local fill = create("Frame", { Size = UDim2.fromScale((Speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0 }, bar)
+create("UICorner", { CornerRadius = UDim.new(0, 4) }, fill)
+
+local statusLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 24), Position = UDim2.fromOffset(12, 108), BackgroundTransparency = 1, Text = "Status: idle", TextColor3 = Theme.Muted, Font = Enum.Font.Gotham, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, frame)
+local countLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 20), Position = UDim2.fromOffset(12, 130), BackgroundTransparency = 1, Text = "Found: 0", TextColor3 = Theme.Accent, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left }, frame)
+
+local function setStatus(text) pcall(function() statusLabel.Text = "Status: " .. text end) end
+local function setCount(num) pcall(function() countLabel.Text = "Found: " .. num end) end
+local function updateScale() pcall(function() local cam = Workspace.CurrentCamera; if cam then frameScale.Scale = math.clamp(math.min(cam.ViewportSize.X / 400, cam.ViewportSize.Y / 300), 0.6, 1.2) end end) end
+updateScale()
+pcall(function() Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale) end)
+
+do
+    local dragging, activeInput, dragStart, startPos = false, nil, Vector2.zero, frame.Position
+    frame.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; activeInput = input; dragStart = Vector2.new(input.Position.X, input.Position.Y); startPos = frame.Position end end)
+    UserInputService.InputChanged:Connect(function(input) if dragging and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseMovement) then pcall(function() local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart; local s = math.max(frameScale.Scale, 0.01); frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X / s, startPos.Y.Scale, startPos.Y.Offset + d.Y / s) end) end end)
+    UserInputService.InputEnded:Connect(function(input) if dragging and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseButton1) then dragging = false; activeInput = nil end end)
+end
+
+do
+    local sliding, activeInput = false, nil
+    local function update(x)
+        local w = bar.AbsoluteSize.X; if w <= 0 then return end
+        local a = math.clamp((x - bar.AbsolutePosition.X) / w, 0, 1)
+        Speed = math.floor(SPEED_MIN + (SPEED_MAX - SPEED_MIN) * a + 0.5)
+        fill.Size = UDim2.fromScale(a, 1); speedLabel.Text = "Speed: " .. Speed
+        pcall(function() if alignPos then alignPos.MaxVelocity = Speed end end)
     end
+    bar.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sliding = true; activeInput = input; update(input.Position.X) end end)
+    UserInputService.InputChanged:Connect(function(input) if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseMovement) then update(input.Position.X) end end)
+    UserInputService.InputEnded:Connect(function(input) if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseButton1) then sliding = false; activeInput = nil end end)
+end
 
-    local textList = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and not obj:IsDescendantOf(LP.Character) then
-            local dist = (obj.Position - hrp.Position).Magnitude
-            -- Ищем только то, что рядом (в радиусе 40 стадов)
-            if dist < 40 then
-                local name = obj.Name
-                local class = obj.ClassName
-                -- Отсеиваем стены и пол (обычно у них нет имен или они гигантские)
-                if obj.Size.Magnitude < 20 then
-                    table.insert(textList, string.format("%s [%s] (%d st)", name, class, math.floor(dist)))
-                end
+local function setNoclip(enabled)
+    pcall(function()
+        local char = player.Character; if not char then return end
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then
+                if enabled then if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end; d.CanCollide = false
+                elseif originalCollide[d] ~= nil then d.CanCollide = originalCollide[d] end
             end
         end
-    end
+    end)
+    if not enabled then table.clear(originalCollide) end
+end
 
-    if #textList == 0 then
-        txt.Text = "Вообще ничего не найдено рядом."
-    else
-        txt.Text = "Объекты рядом:\n" .. table.concat(textList, "\n")
+local function destroyAligns() for _, obj in ipairs({ alignPos, alignOri, attachment }) do pcall(function() obj:Destroy() end) end; alignPos, alignOri, attachment = nil, nil, nil end
+
+local function createAligns(root)
+    destroyAligns()
+    pcall(function()
+        attachment = Instance.new("Attachment"); attachment.Parent = root
+        alignPos = Instance.new("AlignPosition"); alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment; alignPos.Attachment0 = attachment; alignPos.MaxForce = math.huge; alignPos.Responsiveness = 50; alignPos.MaxVelocity = Speed; alignPos.Position = root.Position; alignPos.Parent = root
+        alignOri = Instance.new("AlignOrientation"); alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment; alignOri.Attachment0 = attachment; alignOri.MaxTorque = math.huge; alignOri.Responsiveness = 30; alignOri.CFrame = root.CFrame; alignOri.Parent = root
+    end)
+end
+
+local function applyHumanoidState(active)
+    pcall(function()
+        local hum = getHumanoid(); if not hum then return end
+        if active then hum.PlatformStand = true; hum:ChangeState(Enum.HumanoidStateType.Physics)
+        else hum.PlatformStand = false; hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    end)
+end
+
+-- ФИКС: Убрали проверку Transparency и ищем только Coin_Server
+local function rescan()
+    local list = {}
+    pcall(function()
+        for _, d in ipairs(Workspace:GetDescendants()) do
+            if d.Name == TARGET_NAME and d:IsA("BasePart") then
+                table.insert(list, d)
+            end
+        end
+    end)
+    candidates = list
+    setCount(#candidates) 
+end
+
+local function findNearest(fromPos)
+    local best, bestDist = nil, math.huge
+    for _, part in ipairs(candidates) do
+        if part.Parent and not Blacklist[part] then
+            local dist = (part.Position - fromPos).Magnitude
+            if dist < bestDist then best, bestDist = part, dist end
+        end
     end
+    return best
+end
+
+local function collect(target)
+    collecting = true
+    setStatus("collecting")
+    pcall(function()
+        local root = getRoot()
+        if root then
+            firetouchinterest(root, target, 0)
+            firetouchinterest(root, target, 1)
+            local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and prompt.Enabled then fireproximityprompt(prompt) end
+        end
+        task.wait(0.15)
+    end)
+    Blacklist[target] = true
+    currentTarget = nil
+    collecting = false
+end
+
+local function stop()
+    running = false; currentTarget = nil; collecting = false; destroyAligns(); setNoclip(false); applyHumanoidState(false); startButton.Text = "Start"; setStatus("idle")
+end
+
+local function start()
+    local root = getRoot()
+    if not root then setStatus("no character"); return end
+    running = true; table.clear(Blacklist); currentTarget = nil; lastScan = 0; createAligns(root); applyHumanoidState(true); startButton.Text = "Stop"; setStatus("waiting")
+end
+
+startButton.MouseButton1Click:Connect(function() if running then stop() else start() end end)
+
+RunService.Heartbeat:Connect(function()
+    if not running or collecting then return end
+    pcall(function()
+        local root = getRoot()
+        local hum = getHumanoid()
+        if not root or not hum then setStatus("waiting for character"); return end
+
+        if not alignPos or alignPos.Parent ~= root then createAligns(root); applyHumanoidState(true) end
+        setNoclip(true)
+
+        local now = os.clock()
+        if now - lastScan >= SCAN_INTERVAL then lastScan = now; rescan() end
+
+        local target = findNearest(root.Position)
+
+        if target ~= currentTarget then
+            currentTarget = target
+            targetSince = now
+        end
+
+        if not target then
+            alignPos.Position = root.Position
+            setStatus("waiting (no items)")
+            return
+        end
+
+        if now - targetSince > TARGET_TIMEOUT then
+            Blacklist[target] = true
+            currentTarget = nil
+            return
+        end
+
+        local dist = (target.Position - root.Position).Magnitude
+        if dist <= COLLECT_DISTANCE then
+            alignPos.Position = root.Position 
+            task.spawn(collect, target)
+            return
+        end
+
+        alignPos.MaxVelocity = Speed
+        alignPos.Position = target.Position
+        alignOri.CFrame = CFrame.lookAt(root.Position, Vector3.new(target.Position.X, root.Position.Y, target.Position.Z))
+        setStatus(string.format("flying (%.0f st)", dist))
+    end)
 end)
+
+player.CharacterRemoving:Connect(function() destroyAligns(); table.clear(originalCollide) end)
