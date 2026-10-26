@@ -9,7 +9,7 @@ local currentTarget = nil
 local bv = nil
 local bg = nil
 
--- Очистка старого мусора
+-- Очистка старого GUI
 pcall(function()
     local core = game:GetService("CoreGui")
     if core:FindFirstChild("FarmTestGui") then core.FarmTestGui:Destroy() end
@@ -48,34 +48,37 @@ StatusText.TextSize = 14
 StatusText.Text = "Ожидание..."
 StatusText.Parent = ScreenGui
 
--- УМНЫЙ ПОИСК (Ищем только маленькие объекты)
+local function getContainer()
+    local gameW = Workspace:FindFirstChild("Game")
+    if gameW and gameW:FindFirstChild("CoinContainer") then
+        return gameW.CoinContainer
+    end
+    return Workspace:FindFirstChild("CoinContainer", true)
+end
+
 local function findNearest()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
-    local closest, minDist = nil, math.huge
+    local container = getContainer()
+    if not container then return nil end
     
-    -- Ищем в Workspace и в CoinContainer
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and not blacklist[obj] then
-            local name = string.lower(obj.Name)
-            -- Проверяем, что это конфета/монета и она маленькая (не зона)
-            if (name:find("coin") or name:find("candy") or name:find("sweet")) then
-                if obj.Size.Magnitude < 10 then -- Игнорируем гигантские зоны
-                    local dist = (obj.Position - hrp.Position).Magnitude
-                    if dist < minDist then
-                        minDist = dist
-                        closest = obj
-                    end
-                end
+    local closest, minDist = nil, math.huge
+    for _, obj in ipairs(container:GetChildren()) do
+        -- СТРОГИЙ ПОИСК: Только Coin_Server
+        if obj.Name == "Coin_Server" and obj:IsA("BasePart") and not blacklist[obj] then
+            local dist = (obj.Position - hrp.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                closest = obj
             end
         end
     end
     return closest
 end
 
--- Основной цикл (Плавный полет через физику)
+-- Основной цикл (Плавный полет с безопасной скоростью)
 RunService.Heartbeat:Connect(function()
     local char = LP.Character
     if not char then return end
@@ -90,7 +93,7 @@ RunService.Heartbeat:Connect(function()
         end
         if not hum.PlatformStand then hum.PlatformStand = true end
 
-        -- Создаем физику
+        -- Физика
         if not bv or bv.Parent ~= hrp then
             if bv then bv:Destroy() end
             if bg then bg:Destroy() end
@@ -116,9 +119,9 @@ RunService.Heartbeat:Connect(function()
             local targetPos = currentTarget.Position
             local distance = (hrp.Position - targetPos).Magnitude
 
-            StatusText.Text = "Летим: " .. currentTarget.Name .. " (" .. math.floor(distance) .. " st)"
+            StatusText.Text = "Летим: Coin_Server (" .. math.floor(distance) .. " st)"
 
-            if distance < 3.5 then
+            if distance < 4 then
                 -- Долетели, собираем
                 bv.Velocity = Vector3.zero
                 blacklist[currentTarget] = true
@@ -134,16 +137,16 @@ RunService.Heartbeat:Connect(function()
                 end
                 
                 currentTarget = nil
-                task.wait(0.1)
+                task.wait(0.1) -- Микро-пауза для сервера
             else
-                -- Летим
+                -- Летим (Скорость 40 - безопасно для античита)
                 local dir = (targetPos - hrp.Position).Unit
-                bv.Velocity = dir * 70 -- Скорость 70 (безопасно для античита)
+                bv.Velocity = dir * 40
                 bg.CFrame = CFrame.new(hrp.Position, targetPos)
             end
         else
             bv.Velocity = Vector3.zero
-            StatusText.Text = "Ничего не найдено рядом"
+            StatusText.Text = "Нет монет (ждем раунд)"
         end
     else
         -- Выключено
@@ -156,7 +159,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Очистка черного списка
+-- Очистка
 task.spawn(function()
     while task.wait(5) do
         for obj in pairs(blacklist) do
