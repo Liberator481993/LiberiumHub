@@ -82,7 +82,18 @@ local function collect(coin)
     end
 end
 
--- Главный цикл физики (Плавный полет)
+-- Включаем Noclip, пока летим
+local function setNoclip(state)
+    local char = LP.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not state
+        end
+    end
+end
+
+-- Главный цикл физики
 RunService.Heartbeat:Connect(function()
     local char = LP.Character
     if not char then return end
@@ -91,10 +102,13 @@ RunService.Heartbeat:Connect(function()
     if not hrp or not hum then return end
     
     if isFarming then
-        -- Отключаем стандартную физику персонажа, чтобы он не сопротивлялся
+        -- 1. Включаем Noclip, чтобы пролетать сквозь стены
+        setNoclip(true)
+        
+        -- 2. Отключаем гравитацию и управление
         if not hum.PlatformStand then hum.PlatformStand = true end
         
-        -- Создаем физические силы (один раз)
+        -- 3. Создаем силы
         if not bv or bv.Parent ~= hrp then
             bv = Instance.new("BodyVelocity")
             bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
@@ -106,12 +120,12 @@ RunService.Heartbeat:Connect(function()
             bg.Parent = hrp
         end
         
-        -- Если цель потеряна (ее собрали), сбрасываем
+        -- 4. Сброс цели, если ее украли
         if currentTarget and not currentTarget.Parent then
             currentTarget = nil
         end
         
-        -- Ищем новую, если нет цели
+        -- 5. Поиск цели
         if not currentTarget then
             currentTarget = findNearest()
             if currentTarget then
@@ -121,28 +135,29 @@ RunService.Heartbeat:Connect(function()
             end
         end
         
-        -- Летим к цели
+        -- 6. Полет
         if currentTarget then
             local targetPos = currentTarget.Position
             local distance = (hrp.Position - targetPos).Magnitude
             
-            -- Если подлетели близко (на 3.5 стада), собираем
+            -- Если подлетели близко, собираем
             if distance < 3.5 then
                 collect(currentTarget)
                 currentTarget = nil
                 bv.Velocity = Vector3.zero
-                task.wait(0.1) -- Пауза, чтобы сервер удалил монету
+                task.wait(0.1) -- Пауза
             else
-                -- Летим
+                -- Летим строго к цели
                 local dir = (targetPos - hrp.Position).Unit
-                bv.Velocity = dir * 90 -- Скорость полета (90 стадов в секунду)
+                bv.Velocity = dir * 100 -- Скорость полета
                 bg.CFrame = CFrame.new(hrp.Position, targetPos)
             end
         else
-            bv.Velocity = Vector3.zero -- Висим на месте, если нет цели
+            bv.Velocity = Vector3.zero
         end
     else
-        -- Если выключено, убиваем физику и возвращаем управление
+        -- Если выключено, возвращаем всё как было
+        setNoclip(false)
         if bv then bv:Destroy(); bv = nil end
         if bg then bg:Destroy(); bg = nil end
         if hum.PlatformStand then hum.PlatformStand = false end
