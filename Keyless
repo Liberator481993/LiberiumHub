@@ -1,4 +1,4 @@
--- Liberium Hub | Slate UI + Safe Farm (No Kick)
+-- Liberium Hub | Slate UI + Anti-Gravity Farm (No Fall)
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -12,7 +12,7 @@ local Cam = Workspace.CurrentCamera
 
 local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 15, AntiAFK = false }
 
--- Окно Slate (то самое, с щитом)
+-- Окно Slate (с щитом)
 local Window = Slate:CreateWindow({ 
     Name = "Liberium Hub", 
     Subtitle = "MM2 Edition", 
@@ -29,7 +29,6 @@ end
 updateScale()
 Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
-local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
 local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
 local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
@@ -58,19 +57,6 @@ local function getRoleColor(plr)
         if r == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
         if r == "Survivor" then return Color3.fromRGB(255, 165, 0) end
     end
-    local function checkTools(container)
-        if not container then return nil end
-        for _, tool in ipairs(container:GetChildren()) do
-            if tool:IsA("Tool") then
-                local n = string.lower(tool.Name)
-                if n:find("knife") or n:find("dagger") then return Color3.fromRGB(255, 50, 50) end
-                if n:find("gun") or n:find("revolver") then return Color3.fromRGB(50, 120, 255) end
-            end
-        end
-        return nil
-    end
-    if plr.Character then local c = checkTools(plr.Character); if c then return c end end
-    if plr:FindFirstChild("Backpack") then local c = checkTools(plr:FindFirstChild("Backpack")); if c then return c end end
     return Color3.fromRGB(50, 255, 100)
 end
 
@@ -93,7 +79,6 @@ RunService.RenderStepped:Connect(function()
                     end
                 end
             end
-            
             for _, hl in ipairs(toDestroy) do hl:Destroy() end
             
             if CFG.ESP then
@@ -142,7 +127,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (БЕЗОПАСНЫЙ CFrame - БЕЗ КИКОВ)
+-- AUTO FARM (ANTI-GRAVITY)
 -- ==========================================
 local currentTarget = nil
 local blacklist = {}
@@ -176,7 +161,9 @@ RunService.Heartbeat:Connect(function(dt)
     if not hrp or not hum then return end
 
     if CFG.AutoFarm then
-        if not hum.PlatformStand then hum.PlatformStand = true end
+        -- Отключаем гравитацию (якорим персонажа, чтобы он не упал под пол)
+        hrp.Anchored = true
+        hum.PlatformStand = true
         
         if currentTarget and not currentTarget.Parent then
             currentTarget = nil
@@ -202,9 +189,9 @@ RunService.Heartbeat:Connect(function(dt)
                     end
                 end
                 currentTarget = nil
-                task.wait(0.05) -- Микро пауза, чтобы сервер удалил монету
+                task.wait(0.05)
             else
-                -- Плавное движение мелкими шагами (обходит античит 267)
+                -- Двигаемся к цели (безопасно, т.к. персонаж привязан и не упадет)
                 local dir = (targetPos - hrp.Position).Unit
                 local moveStep = CFG.FarmSpeed * dt
                 if moveStep > distance then moveStep = distance end
@@ -212,6 +199,8 @@ RunService.Heartbeat:Connect(function(dt)
             end
         end
     else
+        -- Возвращаем всё обратно при выключении
+        hrp.Anchored = false
         if hum.PlatformStand then hum.PlatformStand = false end
     end
 end)
@@ -248,10 +237,15 @@ local secFarm = TabFarm:CreateSection({ Name = "Automation" })
 secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) 
     CFG.AutoFarm = v
     currentTarget = nil
+    local char = LP.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and not v then hrp.Anchored = false end
+    end
 end })
 secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 15, Callback = function(v) CFG.FarmSpeed = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Загружено успешно!", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Загружено. Проваливания больше не будет!", Icon = "check", Tone = "Success", Duration = 5 })
