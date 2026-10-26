@@ -1,13 +1,10 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 
 local LP = Players.LocalPlayer
 local isFarming = false
 local blacklist = {}
 local currentTarget = nil
-local bv = nil
-local bg = nil
 
 -- GUI для теста
 local oldGui = LP.PlayerGui:FindFirstChild("FarmTestGui")
@@ -40,6 +37,44 @@ StatusText.TextSize = 16
 StatusText.Text = "Ожидание..."
 StatusText.Parent = ScreenGui
 
+-- Ссылки на физические объекты
+local alignPos = nil
+local alignOri = nil
+
+local function setupPhysics(hrp)
+    if alignPos then alignPos:Destroy() end
+    if alignOri then alignOri:Destroy() end
+
+    alignPos = Instance.new("AlignPosition")
+    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+    alignPos.MaxForce = math.huge
+    alignPos.Responsiveness = 200 -- Скорость притяжения (чем выше, тем быстрее летит)
+    alignPos.Attachment0 = hrp:FindFirstChild("RootAttachment") or Instance.new("Attachment", hrp)
+    alignPos.Parent = hrp
+
+    alignOri = Instance.new("AlignOrientation")
+    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    alignOri.MaxTorque = math.huge
+    alignOri.Responsiveness = 200
+    alignOri.Attachment0 = alignPos.Attachment0
+    alignOri.Parent = hrp
+end
+
+local function destroyPhysics()
+    if alignPos then alignPos:Destroy(); alignPos = nil end
+    if alignOri then alignOri:Destroy(); alignOri = nil end
+end
+
+local function setNoclip(state)
+    local char = LP.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not state
+        end
+    end
+end
+
 local function getContainer()
     return Workspace:FindFirstChild("CoinContainer", true)
 end
@@ -65,106 +100,83 @@ local function findNearest()
     return closest
 end
 
-local function collect(coin)
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    blacklist[coin] = true
-    pcall(function()
-        firetouchinterest(hrp, coin, 0)
-        firetouchinterest(hrp, coin, 1)
-    end)
-    for _, prompt in ipairs(coin:GetDescendants()) do
-        if prompt:IsA("ProximityPrompt") then
-            pcall(function() fireproximityprompt(prompt) end)
-        end
-    end
-end
-
--- Включаем Noclip, пока летим
-local function setNoclip(state)
-    local char = LP.Character
-    if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = not state
-        end
-    end
-end
-
--- Главный цикл физики
-RunService.Heartbeat:Connect(function()
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
-    
-    if isFarming then
-        -- 1. Включаем Noclip, чтобы пролетать сквозь стены
-        setNoclip(true)
-        
-        -- 2. Отключаем гравитацию и управление
-        if not hum.PlatformStand then hum.PlatformStand = true end
-        
-        -- 3. Создаем силы
-        if not bv or bv.Parent ~= hrp then
-            bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.P = 1250
-            bv.Parent = hrp
-            bg = Instance.new("BodyGyro")
-            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-            bg.P = 1000
-            bg.Parent = hrp
-        end
-        
-        -- 4. Сброс цели, если ее украли
-        if currentTarget and not currentTarget.Parent then
-            currentTarget = nil
-        end
-        
-        -- 5. Поиск цели
-        if not currentTarget then
-            currentTarget = findNearest()
-            if currentTarget then
-                StatusText.Text = "Цель найдена!"
-            else
-                StatusText.Text = "Нет монет..."
-            end
-        end
-        
-        -- 6. Полет
-        if currentTarget then
-            local targetPos = currentTarget.Position
-            local distance = (hrp.Position - targetPos).Magnitude
+-- Главный цикл
+task.spawn(function()
+    while task.wait(0.1) do
+        if isFarming then
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
             
-            -- Если подлетели близко, собираем
-            if distance < 3.5 then
-                collect(currentTarget)
+            if not char or not hum or hum.Health <= 0 then
+                StatusText.Text = "Мертв..."
+                continue
+            end
+
+            -- Если физика не настроена, настраиваем
+            if not alignPos then
+                setupPhysics(hrp)
+                hum.PlatformStand = true
+                setNoclip(true)
+            end
+
+            -- Если цель украли, ищем новую
+            if currentTarget and not currentTarget.Parent then
                 currentTarget = nil
-                bv.Velocity = Vector3.zero
-                task.wait(0.1) -- Пауза
-            else
-                -- Летим строго к цели
-                local dir = (targetPos - hrp.Position).Unit
-                bv.Velocity = dir * 100 -- Скорость полета
-                bg.CFrame = CFrame.new(hrp.Position, targetPos)
+            end
+
+            -- Ищем новую цель
+            if not currentTarget then
+                currentTarget = findNearest()
+                if currentTarget then
+                    StatusText.Text = "Летим к монете!"
+                else
+                    StatusText.Text = "Монет нет..."
+                    alignPos.Position = hrp.Position -- Висим на месте
+                end
+            end
+
+            -- Летим
+            if currentTarget then
+                local targetPos = currentTarget.Position
+                local distance = (hrp.Position - targetPos).Magnitude
+
+                if distance < 3.5 then
+                    -- Долетели
+                    blacklist[currentTarget] = true
+                    pcall(function()
+                        firetouchinterest(hrp, currentTarget, 0)
+                        firetouchinterest(hrp, currentTarget, 1)
+                    end)
+                    for _, prompt in ipairs(currentTarget:GetDescendants()) do
+                        if prompt:IsA("ProximityPrompt") then
+                            pcall(function() fireproximityprompt(prompt) end)
+                        end
+                    end
+                    currentTarget = nil
+                    task.wait(0.1)
+                else
+                    -- Тянем к цели
+                    alignPos.Position = targetPos
+                    alignOri.CFrame = CFrame.new(hrp.Position, targetPos)
+                end
             end
         else
-            bv.Velocity = Vector3.zero
+            -- Выключено
+            if alignPos then
+                destroyPhysics()
+                setNoclip(false)
+                local char = LP.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum then hum.PlatformStand = false end
+                end
+            end
         end
-    else
-        -- Если выключено, возвращаем всё как было
-        setNoclip(false)
-        if bv then bv:Destroy(); bv = nil end
-        if bg then bg:Destroy(); bg = nil end
-        if hum.PlatformStand then hum.PlatformStand = false end
     end
 end)
 
--- Очистка черного списка
+-- Очистка
 task.spawn(function()
     while task.wait(5) do
         for coin in pairs(blacklist) do
