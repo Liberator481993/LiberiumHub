@@ -1,24 +1,10 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 
 local LP = Players.LocalPlayer
 local isFarming = false
 local blacklist = {}
 local currentTarget = nil
-local bv = nil
-local bg = nil
-local farmSpeed = 20
-
--- 1. ОЧИСТКА СТАРОГО МУСОРА (Фикс врезания в стены)
-local char = LP.Character
-if char then
-    for _, obj in ipairs(char:GetDescendants()) do
-        if obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") or obj:IsA("BodyPosition") then
-            obj:Destroy()
-        end
-    end
-end
 
 -- Очистка старого GUI
 pcall(function()
@@ -27,7 +13,6 @@ pcall(function()
     if LP.PlayerGui:FindFirstChild("FarmTestGui") then LP.PlayerGui.FarmTestGui:Destroy() end
 end)
 
--- 2. СОЗДАНИЕ GUI (Защита от исчезновения при респавне)
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "FarmTestGui"
 ScreenGui.ResetOnSpawn = false
@@ -57,23 +42,9 @@ StatusText.BackgroundColor3 = Color3.fromRGB(0,0,0)
 StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
 StatusText.Font = Enum.Font.Code
 StatusText.TextSize = 14
-StatusText.Text = "Скорость: " .. farmSpeed
+StatusText.Text = "Ожидание..."
 StatusText.Parent = ScreenGui
 
--- Слайдер скорости
-local SliderBg = Instance.new("Frame")
-SliderBg.Size = UDim2.new(0, 200, 0, 10)
-SliderBg.AnchorPoint = Vector2.new(0.5, 0.5)
-SliderBg.Position = UDim2.new(0.5, 0, 0.4, 60)
-SliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-SliderBg.Parent = ScreenGui
-
-local SliderFill = Instance.new("Frame")
-SliderFill.Size = UDim2.new(farmSpeed / 24, 0, 1, 0)
-SliderFill.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-SliderFill.Parent = SliderBg
-
--- 3. ЛОГИКА ПОИСКА И СБОРА
 local function getContainer()
     return Workspace:FindFirstChild("CoinContainer", true)
 end
@@ -88,7 +59,8 @@ local function findNearest()
     
     local closest, minDist = nil, math.huge
     for _, coin in ipairs(container:GetChildren()) do
-        if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] then
+        -- Проверяем, что монета существует, это BasePart, не в черном списке и она видима (не собрана)
+        if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] and coin.Transparency < 1 then
             local dist = (coin.Position - hrp.Position).Magnitude
             if dist < minDist then
                 minDist = dist
@@ -99,57 +71,36 @@ local function findNearest()
     return closest
 end
 
--- 4. ФИЗИКА И ПОЛЕТ
-RunService.Heartbeat:Connect(function()
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
+-- Основной цикл сбора
+task.spawn(function()
+    while task.wait(0.03) do -- Очень быстро (30 раз в секунду)
+        if isFarming then
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            
+            if not hrp or not hum or hum.Health <= 0 then
+                StatusText.Text = "Мертв..."
+                continue
+            end
 
-    if isFarming then
-        -- Noclip (сквозь стены)
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = false end
-        end
+            -- Если мы в полете (сбрасываем цель)
+            if currentTarget and not currentTarget.Parent then
+                currentTarget = nil
+            end
 
-        if not hum.PlatformStand then hum.PlatformStand = true end
+            if not currentTarget then
+                currentTarget = findNearest()
+            end
 
-        -- Создаем физику (или обновляем, если ее нет)
-        if not bv or bv.Parent ~= hrp then
-            if bv then bv:Destroy() end
-            if bg then bg:Destroy() end
-            bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.P = 1250
-            bv.Parent = hrp
-            bg = Instance.new("BodyGyro")
-            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-            bg.P = 1000
-            bg.Parent = hrp
-        end
-
-        if currentTarget and not currentTarget.Parent then
-            currentTarget = nil
-        end
-
-        if not currentTarget then
-            currentTarget = findNearest()
-        end
-
-        if currentTarget then
-            local targetPos = currentTarget.Position
-            local distance = (hrp.Position - targetPos).Magnitude
-
-            -- Если мы близко (меньше 3 стадов)
-            if distance < 3 then
-                -- ЖЕСТКО СТАВИМ НА МОНЕТУ (без инерции)
-                bv.Velocity = Vector3.zero
-                hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
+            if currentTarget then
+                StatusText.Text = "Телепорт к монете!"
                 
-                blacklist[currentTarget] = true
+                -- 1. Мгновенно телепортируемся
+                local targetPos = currentTarget.Position + Vector3.new(0, 2.5, 0)
+                hrp.CFrame = CFrame.new(targetPos)
                 
-                -- Сбор
+                -- 2. Активируем сбор
                 pcall(function()
                     firetouchinterest(hrp, currentTarget, 0)
                     firetouchinterest(hrp, currentTarget, 1)
@@ -159,69 +110,18 @@ RunService.Heartbeat:Connect(function()
                         pcall(function() fireproximityprompt(prompt) end)
                     end
                 end
-
-                -- Ждем удаления монеты
-                local timeout = 0
-                while currentTarget.Parent and timeout < 0.3 do
-                    task.wait(0.05)
-                    timeout += 0.05
-                end
+                
+                -- 3. Сразу заносим в черный список и сбрасываем цель
+                blacklist[currentTarget] = true
                 currentTarget = nil
-                task.wait(0.1)
             else
-                -- Летим физикой
-                local dir = (targetPos - hrp.Position).Unit
-                bv.Velocity = dir * farmSpeed
-                bg.CFrame = CFrame.new(hrp.Position, targetPos)
+                StatusText.Text = "Все собрано (ждем)"
             end
-        else
-            bv.Velocity = Vector3.zero
-        end
-    else
-        -- Выключено
-        if bv then bv:Destroy(); bv = nil end
-        if bg then bg:Destroy(); bg = nil end
-        if hum.PlatformStand then hum.PlatformStand = false end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = true end
         end
     end
 end)
 
--- 5. ОЧИСТКА ПРИ СМЕРТИ / РЕСПАВНЕ (Фикс бага в лобби)
-LP.CharacterAdded:Connect(function(newChar)
-    currentTarget = nil
-    if bv then bv:Destroy(); bv = nil end
-    if bg then bg:Destroy(); bg = nil end
-    local hum = newChar:WaitForChild("Humanoid", 5)
-    if hum then hum.PlatformStand = false end
-end)
-
--- 6. УПРАВЛЕНИЕ
-SliderBg.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local function update(x)
-            local percent = math.clamp((x - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
-            farmSpeed = math.floor(percent * 24) + 1
-            SliderFill.Size = UDim2.new(percent, 0, 1, 0)
-            StatusText.Text = "Скорость: " .. farmSpeed
-        end
-        update(input.Position.X)
-        
-        local moveConn
-        moveConn = game:GetService("UserInputService").InputChanged:Connect(function(i)
-            if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
-                update(i.Position.X)
-            end
-        end)
-        game:GetService("UserInputService").InputEnded:Connect(function(i)
-            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-                if moveConn then moveConn:Disconnect() end
-            end
-        end)
-    end
-end)
-
+-- Управление кнопкой
 Btn.MouseButton1Click:Connect(function()
     isFarming = not isFarming
     if isFarming then
@@ -230,10 +130,11 @@ Btn.MouseButton1Click:Connect(function()
     else
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-        StatusText.Text = "Скорость: " .. farmSpeed
+        StatusText.Text = "Ожидание..."
     end
 end)
 
+-- Очистка черного списка, чтобы не забивать память
 task.spawn(function()
     while task.wait(5) do
         for coin in pairs(blacklist) do
