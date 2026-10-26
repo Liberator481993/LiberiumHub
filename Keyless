@@ -1,11 +1,12 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local LP = Players.LocalPlayer
 local isFarming = false
+local isMoving = false
 local blacklist = {}
-local currentTarget = nil
+local tweenSpeed = 20 -- Скорость полета (можно менять)
 
 -- Очистка старого GUI
 pcall(function()
@@ -35,16 +36,29 @@ Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
 local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 350, 0, 40)
+StatusText.Size = UDim2.new(0, 350, 0, 30)
 StatusText.AnchorPoint = Vector2.new(0.5, 0.5)
 StatusText.Position = UDim2.new(0.5, 0, 0.4, 40)
+StatusText.BackgroundTransparency = 0.5
 StatusText.BackgroundColor3 = Color3.fromRGB(0,0,0)
-StatusText.BackgroundTransparency = 0.4
 StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
 StatusText.Font = Enum.Font.Code
 StatusText.TextSize = 14
-StatusText.Text = "Ожидание..."
+StatusText.Text = "Скорость: " .. tweenSpeed
 StatusText.Parent = ScreenGui
+
+-- Слайдер скорости
+local SliderBg = Instance.new("Frame")
+SliderBg.Size = UDim2.new(0, 200, 0, 10)
+SliderBg.AnchorPoint = Vector2.new(0.5, 0.5)
+SliderBg.Position = UDim2.new(0.5, 0, 0.4, 60)
+SliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+SliderBg.Parent = ScreenGui
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new(tweenSpeed / 50, 0, 1, 0) -- Максимум 50
+SliderFill.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
+SliderFill.Parent = SliderBg
 
 local function getContainer()
     local gameW = Workspace:FindFirstChild("Game")
@@ -75,66 +89,101 @@ local function findNearest()
     return closest
 end
 
--- Основной цикл (Бег, а не полет)
+-- Основная логика полета через Tween
+local function flyTo(coin)
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return end
+
+    isMoving = true
+    blacklist[coin] = true
+
+    -- Отключаем физику на время полета
+    hrp.Anchored = true
+    hum.PlatformStand = true
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = false end
+    end
+
+    local targetPos = coin.Position + Vector3.new(0, 2, 0)
+    local distance = (hrp.Position - targetPos).Magnitude
+    local duration = distance / tweenSpeed
+
+    local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+    tween:Play()
+    tween.Completed:Wait()
+
+    -- Сбор
+    pcall(function()
+        firetouchinterest(hrp, coin, 0)
+        firetouchinterest(hrp, coin, 1)
+    end)
+    for _, prompt in ipairs(coin:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            pcall(function() fireproximityprompt(prompt) end)
+        end
+    end
+
+    -- Пауза, чтобы сервер удалил монету
+    task.wait(0.2)
+
+    -- Возвращаем физику
+    hrp.Anchored = false
+    hum.PlatformStand = false
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = true end
+    end
+    isMoving = false
+end
+
+-- Главный цикл
 task.spawn(function()
     while task.wait(0.1) do
-        if isFarming then
+        if isFarming and not isMoving then
             local char = LP.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            
-            if not hrp or not hum or hum.Health <= 0 then
+            if not char or not hum or hum.Health <= 0 then
                 StatusText.Text = "Мертв..."
                 continue
             end
-
-            -- Включаем огромную скорость бега (античит на это не кикает)
-            hum.WalkSpeed = 150
-
-            if currentTarget and not currentTarget.Parent then
-                currentTarget = nil
-            end
-
-            if not currentTarget then
-                currentTarget = findNearest()
-            end
-
-            if currentTarget then
-                local targetPos = currentTarget.Position
-                local distance = (hrp.Position - targetPos).Magnitude
-
-                StatusText.Text = "Бежим к монете (" .. math.floor(distance) .. " st)"
-
-                if distance < 4 then
-                    -- Долетели, собираем
-                    hum:MoveTo(hrp.Position) -- Останавливаем
-                    blacklist[currentTarget] = true
-                    
-                    pcall(function()
-                        firetouchinterest(hrp, currentTarget, 0)
-                        firetouchinterest(hrp, currentTarget, 1)
-                    end)
-                    for _, prompt in ipairs(currentTarget:GetDescendants()) do
-                        if prompt:IsA("ProximityPrompt") then
-                            pcall(function() fireproximityprompt(prompt) end)
-                        end
-                    end
-                    
-                    currentTarget = nil
-                    task.wait(0.1)
-                else
-                    -- Даем команду бежать к цели
-                    hum:MoveTo(targetPos)
-                end
+            local coin = findNearest()
+            if coin then
+                StatusText.Text = "Летим к монете!"
+                flyTo(coin)
             else
-                hum:MoveTo(hrp.Position)
-                StatusText.Text = "Нет монет (ждем раунд)"
+                StatusText.Text = "Монет нет (ждем)"
             end
         end
     end
 end)
 
--- Выключение
+-- Управление слайдером
+SliderBg.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        local function update(x)
+            local percent = math.clamp((x - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+            tweenSpeed = math.floor(percent * 50) + 5
+            SliderFill.Size = UDim2.new(percent, 0, 1, 0)
+            StatusText.Text = "Скорость: " .. tweenSpeed
+        end
+        update(input.Position.X)
+        
+        local moveConn
+        moveConn = game:GetService("UserInputService").InputChanged:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
+                update(i.Position.X)
+            end
+        end)
+        game:GetService("UserInputService").InputEnded:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                if moveConn then moveConn:Disconnect() end
+            end
+        end)
+    end
+end)
+
 Btn.MouseButton1Click:Connect(function()
     isFarming = not isFarming
     if isFarming then
@@ -143,15 +192,14 @@ Btn.MouseButton1Click:Connect(function()
     else
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-        StatusText.Text = "Ожидание..."
-        
-        local char = LP.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = 16 -- Возвращаем нормальную скорость
-                hum:MoveTo(char.HumanoidRootPart.Position) -- Останавливаем
-            end
+        StatusText.Text = "Скорость: " .. tweenSpeed
+    end
+end)
+
+task.spawn(function()
+    while task.wait(5) do
+        for coin in pairs(blacklist) do
+            if not coin.Parent then blacklist[coin] = nil end
         end
     end
 end)
