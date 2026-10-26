@@ -34,15 +34,17 @@ Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
 local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 350, 0, 30)
+StatusText.Size = UDim2.new(0, 450, 0, 100)
 StatusText.AnchorPoint = Vector2.new(0.5, 0.5)
-StatusText.Position = UDim2.new(0.5, 0, 0.4, 40)
-StatusText.BackgroundTransparency = 0.5
-StatusText.BackgroundColor3 = Color3.fromRGB(0,0,0)
+StatusText.Position = UDim2.new(0.5, 0, 0.4, 70)
+StatusText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+StatusText.BackgroundTransparency = 0.3
 StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
 StatusText.Font = Enum.Font.Code
-StatusText.TextSize = 14
+StatusText.TextSize = 12
 StatusText.Text = "Ожидание..."
+StatusText.TextWrapped = true
+StatusText.TextYAlignment = Enum.TextYAlignment.Top
 StatusText.Parent = ScreenGui
 
 local function getContainer()
@@ -54,26 +56,49 @@ local function findNearest()
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
-    local container = getContainer()
-    if not container then return nil end
-    
     local closest, minDist = nil, math.huge
-    for _, coin in ipairs(container:GetChildren()) do
-        -- Проверяем, что монета существует, это BasePart, не в черном списке и она видима (не собрана)
-        if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] and coin.Transparency < 1 then
-            local dist = (coin.Position - hrp.Position).Magnitude
-            if dist < minDist then
-                minDist = dist
-                closest = coin
+    local debugNames = {}
+
+    -- 1. Сначала ищем Coin_Server (монеты), как ты и скидывал
+    local container = getContainer()
+    if container then
+        for _, coin in ipairs(container:GetChildren()) do
+            if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] and coin.Transparency < 1 then
+                local dist = (coin.Position - hrp.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    closest = coin
+                end
+            end
+        end
+    end
+
+    -- 2. Если монет нет, ищем конфеты (все подряд в радиусе 50 стадов)
+    if not closest then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if (obj:IsA("BasePart") or obj:IsA("Model")) and not blacklist[obj] then
+                local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
+                local dist = (pos - hrp.Position).Magnitude
+                
+                if dist < 50 then -- Ищем только вблизи
+                    local name = string.lower(obj.Name)
+                    -- Проверяем, что это не часть персонажа и не стена
+                    if not obj:IsDescendantOf(char) and (name:find("candy") or name:find("sweet") or name:find("halloween") or name:find("bag") or name:find("coin")) then
+                        if dist < minDist then
+                            minDist = dist
+                            closest = obj
+                        end
+                    end
+                end
             end
         end
     end
     return closest
 end
 
--- Основной цикл сбора
+-- Основной цикл
 task.spawn(function()
-    while task.wait(0.03) do -- Очень быстро (30 раз в секунду)
+    while task.wait(0.1) do
         if isFarming then
             local char = LP.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -84,7 +109,6 @@ task.spawn(function()
                 continue
             end
 
-            -- Если мы в полете (сбрасываем цель)
             if currentTarget and not currentTarget.Parent then
                 currentTarget = nil
             end
@@ -94,13 +118,12 @@ task.spawn(function()
             end
 
             if currentTarget then
-                StatusText.Text = "Телепорт к монете!"
+                -- ПОКАЗЫВАЕМ ИМЯ ЦЕЛИ
+                StatusText.Text = "Цель найдена:\n" .. currentTarget.Name .. "\n(Класс: " .. currentTarget.ClassName .. ")"
                 
-                -- 1. Мгновенно телепортируемся
-                local targetPos = currentTarget.Position + Vector3.new(0, 2.5, 0)
-                hrp.CFrame = CFrame.new(targetPos)
+                local targetPos = currentTarget:IsA("Model") and currentTarget:GetPivot().Position or currentTarget.Position
+                hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 2.5, 0))
                 
-                -- 2. Активируем сбор
                 pcall(function()
                     firetouchinterest(hrp, currentTarget, 0)
                     firetouchinterest(hrp, currentTarget, 1)
@@ -111,17 +134,15 @@ task.spawn(function()
                     end
                 end
                 
-                -- 3. Сразу заносим в черный список и сбрасываем цель
                 blacklist[currentTarget] = true
                 currentTarget = nil
             else
-                StatusText.Text = "Все собрано (ждем)"
+                StatusText.Text = "Ничего не найдено рядом (Ждем)"
             end
         end
     end
 end)
 
--- Управление кнопкой
 Btn.MouseButton1Click:Connect(function()
     isFarming = not isFarming
     if isFarming then
@@ -134,11 +155,10 @@ Btn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Очистка черного списка, чтобы не забивать память
 task.spawn(function()
     while task.wait(5) do
-        for coin in pairs(blacklist) do
-            if not coin.Parent then blacklist[coin] = nil end
+        for obj in pairs(blacklist) do
+            if not obj.Parent then blacklist[obj] = nil end
         end
     end
 end)
