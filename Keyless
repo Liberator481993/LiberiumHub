@@ -6,6 +6,15 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- ========== УДАЛЯЕМ СТАРЫЙ СКАНЕР И СТАРОЕ МЕНЮ ==========
+pcall(function()
+    local oldScanner = playerGui:FindFirstChild("ScannerGui")
+    if oldScanner then oldScanner:Destroy() end
+    
+    local oldUI = playerGui:FindFirstChild("AutoCollectUI")
+    if oldUI then oldUI:Destroy() end
+end)
+
 -- ========== Настройки ==========
 local TARGET_NAME = "Coin_Server"
 local COLLECT_DISTANCE = 1.5   
@@ -52,11 +61,7 @@ local function getRoot()
     return nil
 end
 
-pcall(function()
-    local old = playerGui:FindFirstChild("AutoCollectUI")
-    if old then old:Destroy() end
-end)
-
+-- ========== UI ==========
 local gui = create("ScreenGui", { Name = "AutoCollectUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, playerGui)
 local frame = create("Frame", { Size = UDim2.fromOffset(260, 160), Position = UDim2.new(0.5, -130, 0.2, 0), BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 }, gui)
 create("UICorner", { CornerRadius = UDim.new(0, 12) }, frame)
@@ -73,11 +78,12 @@ create("UICorner", { CornerRadius = UDim.new(0, 4) }, bar)
 local fill = create("Frame", { Size = UDim2.fromScale((Speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0 }, bar)
 create("UICorner", { CornerRadius = UDim.new(0, 4) }, fill)
 
-local statusLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 24), Position = UDim2.fromOffset(12, 108), BackgroundTransparency = 1, Text = "Status: idle", TextColor3 = Theme.Muted, Font = Enum.Font.Gotham, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, frame)
+local statusLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 24), Position = UDim2.fromOffset(12, 108), BackgroundTransparency = 1, Text = "Status: idle (нажми Start)", TextColor3 = Theme.Muted, Font = Enum.Font.Gotham, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, frame)
 local countLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 20), Position = UDim2.fromOffset(12, 130), BackgroundTransparency = 1, Text = "Found: 0", TextColor3 = Theme.Accent, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left }, frame)
 
 local function setStatus(text) pcall(function() statusLabel.Text = "Status: " .. text end) end
 local function setCount(num) pcall(function() countLabel.Text = "Found: " .. num end) end
+
 local function updateScale() pcall(function() local cam = Workspace.CurrentCamera; if cam then frameScale.Scale = math.clamp(math.min(cam.ViewportSize.X / 400, cam.ViewportSize.Y / 300), 0.6, 1.2) end end) end
 updateScale()
 pcall(function() Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale) end)
@@ -103,6 +109,7 @@ do
     UserInputService.InputEnded:Connect(function(input) if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseButton1) then sliding = false; activeInput = nil end end)
 end
 
+-- ========== Физика ==========
 local function setNoclip(enabled)
     pcall(function()
         local char = player.Character; if not char then return end
@@ -135,7 +142,7 @@ local function applyHumanoidState(active)
     end)
 end
 
--- ФИКС: Убрали проверку Transparency и ищем только Coin_Server
+-- ========== Поиск ==========
 local function rescan()
     local list = {}
     pcall(function()
@@ -188,8 +195,11 @@ local function start()
     running = true; table.clear(Blacklist); currentTarget = nil; lastScan = 0; createAligns(root); applyHumanoidState(true); startButton.Text = "Stop"; setStatus("waiting")
 end
 
-startButton.MouseButton1Click:Connect(function() if running then stop() else start() end end)
+startButton.MouseButton1Click:Connect(function() 
+    if running then stop() else start() end 
+end)
 
+-- ========== Главный цикл ==========
 RunService.Heartbeat:Connect(function()
     if not running or collecting then return end
     pcall(function()
@@ -236,4 +246,7 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
-player.CharacterRemoving:Connect(function() destroyAligns(); table.clear(originalCollide) end)
+player.CharacterRemoving:Connect(function() 
+    destroyAligns(); 
+    table.clear(originalCollide) 
+end)
