@@ -1,12 +1,13 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 local LP = Players.LocalPlayer
 local isFarming = false
+local isMoving = false
 local blacklist = {}
-local currentTarget = nil
 
--- GUI для теста
+-- GUI
 local oldGui = LP.PlayerGui:FindFirstChild("FarmTestGui")
 if oldGui then oldGui:Destroy() end
 
@@ -37,44 +38,6 @@ StatusText.TextSize = 16
 StatusText.Text = "Ожидание..."
 StatusText.Parent = ScreenGui
 
--- Ссылки на физические объекты
-local alignPos = nil
-local alignOri = nil
-
-local function setupPhysics(hrp)
-    if alignPos then alignPos:Destroy() end
-    if alignOri then alignOri:Destroy() end
-
-    alignPos = Instance.new("AlignPosition")
-    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
-    alignPos.MaxForce = math.huge
-    alignPos.Responsiveness = 200 -- Скорость притяжения (чем выше, тем быстрее летит)
-    alignPos.Attachment0 = hrp:FindFirstChild("RootAttachment") or Instance.new("Attachment", hrp)
-    alignPos.Parent = hrp
-
-    alignOri = Instance.new("AlignOrientation")
-    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    alignOri.MaxTorque = math.huge
-    alignOri.Responsiveness = 200
-    alignOri.Attachment0 = alignPos.Attachment0
-    alignOri.Parent = hrp
-end
-
-local function destroyPhysics()
-    if alignPos then alignPos:Destroy(); alignPos = nil end
-    if alignOri then alignOri:Destroy(); alignOri = nil end
-end
-
-local function setNoclip(state)
-    local char = LP.Character
-    if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = not state
-        end
-    end
-end
-
 local function getContainer()
     return Workspace:FindFirstChild("CoinContainer", true)
 end
@@ -100,12 +63,69 @@ local function findNearest()
     return closest
 end
 
+local function flyToAndCollect(coin)
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return end
+
+    isMoving = true
+    blacklist[coin] = true
+    
+    -- 1. Полностью отключаем физику персонажа
+    hrp.Anchored = true
+    hum.PlatformStand = true
+    
+    -- 2. Отключаем коллизии всем частям тела (чтобы не застрять в стене)
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+
+    -- 3. Летим строго в центр конфеты (на 1.5 стада выше пола)
+    local targetPos = coin.Position + Vector3.new(0, 1.5, 0)
+    local distance = (hrp.Position - targetPos).Magnitude
+    
+    -- Время полета (чем дальше, тем дольше летим, но не более 0.3 сек)
+    local travelTime = math.clamp(distance / 200, 0.05, 0.3)
+    
+    local tween = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+    tween:Play()
+    tween.Completed:Wait()
+
+    -- 4. Собираем монету (касание + Prompt)
+    pcall(function()
+        firetouchinterest(hrp, coin, 0)
+        firetouchinterest(hrp, coin, 1)
+    end)
+    for _, prompt in ipairs(coin:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            pcall(function() fireproximityprompt(prompt) end)
+        end
+    end
+
+    -- 5. ВАЖНАЯ ПАУЗА: Ждем 0.2 секунды, чтобы сервер удалил монету из игры!
+    task.wait(0.2)
+
+    -- 6. Возвращаем физику
+    hrp.Anchored = false
+    hum.PlatformStand = false
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+        end
+    end
+    
+    isMoving = false
+end
+
 -- Главный цикл
 task.spawn(function()
     while task.wait(0.1) do
-        if isFarming then
+        if isFarming and not isMoving then -- Ищем новую цель, только если не в процессе полета
             local char = LP.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             
             if not char or not hum or hum.Health <= 0 then
@@ -113,64 +133,12 @@ task.spawn(function()
                 continue
             end
 
-            -- Если физика не настроена, настраиваем
-            if not alignPos then
-                setupPhysics(hrp)
-                hum.PlatformStand = true
-                setNoclip(true)
-            end
-
-            -- Если цель украли, ищем новую
-            if currentTarget and not currentTarget.Parent then
-                currentTarget = nil
-            end
-
-            -- Ищем новую цель
-            if not currentTarget then
-                currentTarget = findNearest()
-                if currentTarget then
-                    StatusText.Text = "Летим к монете!"
-                else
-                    StatusText.Text = "Монет нет..."
-                    alignPos.Position = hrp.Position -- Висим на месте
-                end
-            end
-
-            -- Летим
-            if currentTarget then
-                local targetPos = currentTarget.Position
-                local distance = (hrp.Position - targetPos).Magnitude
-
-                if distance < 3.5 then
-                    -- Долетели
-                    blacklist[currentTarget] = true
-                    pcall(function()
-                        firetouchinterest(hrp, currentTarget, 0)
-                        firetouchinterest(hrp, currentTarget, 1)
-                    end)
-                    for _, prompt in ipairs(currentTarget:GetDescendants()) do
-                        if prompt:IsA("ProximityPrompt") then
-                            pcall(function() fireproximityprompt(prompt) end)
-                        end
-                    end
-                    currentTarget = nil
-                    task.wait(0.1)
-                else
-                    -- Тянем к цели
-                    alignPos.Position = targetPos
-                    alignOri.CFrame = CFrame.new(hrp.Position, targetPos)
-                end
-            end
-        else
-            -- Выключено
-            if alignPos then
-                destroyPhysics()
-                setNoclip(false)
-                local char = LP.Character
-                if char then
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    if hum then hum.PlatformStand = false end
-                end
+            local coin = findNearest()
+            if coin then
+                StatusText.Text = "Летим к монете!"
+                flyToAndCollect(coin)
+            else
+                StatusText.Text = "Монет нет (ждем)"
             end
         end
     end
@@ -194,5 +162,16 @@ Btn.MouseButton1Click:Connect(function()
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
         StatusText.Text = "Ожидание..."
+        -- Экстренный сброс физики
+        local char = LP.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hrp then hrp.Anchored = false end
+            if hum then hum.PlatformStand = false end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
+            end
+        end
     end
 end)
