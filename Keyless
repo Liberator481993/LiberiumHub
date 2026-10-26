@@ -7,11 +7,12 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- ========== Настройки ==========
-local TARGET_NAME = "Coin_Server" -- Ищем монеты
-local COLLECT_DISTANCE = 3.5
+local TARGET_NAME = "Coin_Server" -- Изменили на монеты MM2
+local COLLECT_DISTANCE = 1.5   
+local TARGET_TIMEOUT = 2       
 local SPEED_MIN, SPEED_MAX = 5, 24
-local Speed = 20
-local SCAN_INTERVAL = 0.3 -- Как часто ищем новые монеты
+local Speed = 16
+local SCAN_INTERVAL = 0.5
 
 -- ========== Состояние ==========
 local running = false
@@ -19,6 +20,7 @@ local Blacklist = {}
 local candidates = {}
 local lastScan = 0
 local currentTarget = nil
+local targetSince = 0
 local collecting = false
 local originalCollide = setmetatable({}, { __mode = "k" })
 
@@ -38,25 +40,17 @@ local function create(className, props, parent)
 	for k, v in pairs(props or {}) do
 		pcall(function() inst[k] = v end)
 	end
-	if parent then
-		pcall(function() inst.Parent = parent end)
-	end
+	if parent then pcall(function() inst.Parent = parent end) end
 	return inst
 end
 
 local function getHumanoid()
-	local ok, r = pcall(function()
-		local c = player.Character
-		return c and c:FindFirstChildOfClass("Humanoid")
-	end)
+	local ok, r = pcall(function() local c = player.Character; return c and c:FindFirstChildOfClass("Humanoid") end)
 	return ok and r or nil
 end
 
 local function getRoot()
-	local ok, r = pcall(function()
-		local c = player.Character
-		return c and c:FindFirstChild("HumanoidRootPart")
-	end)
+	local ok, r = pcall(function() local c = player.Character; return c and c:FindFirstChild("HumanoidRootPart") end)
 	if ok and r and r:IsA("BasePart") then return r end
 	return nil
 end
@@ -68,147 +62,84 @@ pcall(function()
 end)
 
 local gui = create("ScreenGui", { Name = "AutoCollectUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, playerGui)
-
 local frame = create("Frame", { Size = UDim2.fromOffset(260, 150), Position = UDim2.new(0, 30, 0.5, -75), BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 }, gui)
 create("UICorner", { CornerRadius = UDim.new(0, 12) }, frame)
 create("UIStroke", { Color = Theme.Accent, Thickness = 2 }, frame)
 local frameScale = create("UIScale", { Scale = 1 }, frame)
 
-local startButton = create("TextButton", { Size = UDim2.new(1, -24, 0, 38), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Accent, Text = "FARM: OFF", TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false }, frame)
+local startButton = create("TextButton", { Size = UDim2.new(1, -24, 0, 38), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Accent, Text = "Start", TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false }, frame)
 create("UICorner", { CornerRadius = UDim.new(0, 8) }, startButton)
-
 local speedLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 20), Position = UDim2.fromOffset(12, 60), BackgroundTransparency = 1, Text = "Speed: " .. Speed, TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, frame)
 local bar = create("TextButton", { Size = UDim2.new(1, -24, 0, 8), Position = UDim2.fromOffset(12, 86), BackgroundColor3 = Theme.Panel, Text = "", AutoButtonColor = false }, frame)
 create("UICorner", { CornerRadius = UDim.new(0, 4) }, bar)
-
 local fill = create("Frame", { Size = UDim2.fromScale((Speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0 }, bar)
 create("UICorner", { CornerRadius = UDim.new(0, 4) }, fill)
-
 local statusLabel = create("TextLabel", { Size = UDim2.new(1, -24, 0, 24), Position = UDim2.fromOffset(12, 108), BackgroundTransparency = 1, Text = "Status: idle", TextColor3 = Theme.Muted, Font = Enum.Font.Gotham, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, frame)
 
-local function setStatus(text)
-	pcall(function() statusLabel.Text = "Status: " .. text end)
-end
-
-local function updateScale()
-	pcall(function()
-		local cam = Workspace.CurrentCamera
-		if cam then
-			local vp = cam.ViewportSize
-			frameScale.Scale = math.clamp(math.min(vp.X / 400, vp.Y / 300), 0.6, 1.2)
-		end
-	end)
-end
+local function setStatus(text) pcall(function() statusLabel.Text = "Status: " .. text end) end
+local function updateScale() pcall(function() local cam = Workspace.CurrentCamera; if cam then frameScale.Scale = math.clamp(math.min(cam.ViewportSize.X / 400, cam.ViewportSize.Y / 300), 0.6, 1.2) end end) end
 updateScale()
 pcall(function() Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale) end)
 
--- Слайдер скорости
+-- Перетаскивание и слайдер (как у Клода)
+do
+	local dragging, activeInput, dragStart, startPos = false, nil, Vector2.zero, frame.Position
+	frame.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; activeInput = input; dragStart = Vector2.new(input.Position.X, input.Position.Y); startPos = frame.Position end end)
+	UserInputService.InputChanged:Connect(function(input) if dragging and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseMovement) then pcall(function() local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart; local s = math.max(frameScale.Scale, 0.01); frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X / s, startPos.Y.Scale, startPos.Y.Offset + d.Y / s) end) end end)
+	UserInputService.InputEnded:Connect(function(input) if dragging and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseButton1) then dragging = false; activeInput = nil end end)
+end
+
 do
 	local sliding, activeInput = false, nil
 	local function update(x)
-		local w = bar.AbsoluteSize.X
-		if w <= 0 then return end
+		local w = bar.AbsoluteSize.X; if w <= 0 then return end
 		local a = math.clamp((x - bar.AbsolutePosition.X) / w, 0, 1)
 		Speed = math.floor(SPEED_MIN + (SPEED_MAX - SPEED_MIN) * a + 0.5)
-		fill.Size = UDim2.fromScale(a, 1)
-		speedLabel.Text = "Speed: " .. Speed
-		pcall(function()
-			if alignPos then alignPos.MaxVelocity = Speed end
-		end)
+		fill.Size = UDim2.fromScale(a, 1); speedLabel.Text = "Speed: " .. Speed
+		pcall(function() if alignPos then alignPos.MaxVelocity = Speed end end)
 	end
-	bar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			sliding = true
-			activeInput = input
-			update(input.Position.X)
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseMovement) then
-			update(input.Position.X)
-		end
-	end)
-	UserInputService.InputEnded:Connect(function(input)
-		if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseButton1) then
-			sliding = false
-			activeInput = nil
-		end
-	end)
+	bar.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sliding = true; activeInput = input; update(input.Position.X) end end)
+	UserInputService.InputChanged:Connect(function(input) if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseMovement) then update(input.Position.X) end end)
+	UserInputService.InputEnded:Connect(function(input) if sliding and (input == activeInput or input.UserInputType == Enum.UserInputType.MouseButton1) then sliding = false; activeInput = nil end end)
 end
 
 -- ========== Физика ==========
 local function setNoclip(enabled)
 	pcall(function()
-		local char = player.Character
-		if not char then return end
+		local char = player.Character; if not char then return end
 		for _, d in ipairs(char:GetDescendants()) do
 			if d:IsA("BasePart") then
-				if enabled then
-					if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
-					d.CanCollide = false
-				elseif originalCollide[d] ~= nil then
-					d.CanCollide = originalCollide[d]
-				end
+				if enabled then if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end; d.CanCollide = false
+				elseif originalCollide[d] ~= nil then d.CanCollide = originalCollide[d] end
 			end
 		end
 	end)
 	if not enabled then table.clear(originalCollide) end
 end
 
-local function destroyAligns()
-	for _, obj in ipairs({ alignPos, alignOri, attachment }) do
-		pcall(function() obj:Destroy() end)
-	end
-	alignPos, alignOri, attachment = nil, nil, nil
-end
+local function destroyAligns() for _, obj in ipairs({ alignPos, alignOri, attachment }) do pcall(function() obj:Destroy() end) end; alignPos, alignOri, attachment = nil, nil, nil end
 
 local function createAligns(root)
 	destroyAligns()
 	pcall(function()
-		attachment = Instance.new("Attachment")
-		attachment.Name = "AutoCollectAttachment"
-		attachment.Parent = root
-
-		alignPos = Instance.new("AlignPosition")
-		alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
-		alignPos.Attachment0 = attachment
-		alignPos.RigidityEnabled = false
-		alignPos.MaxForce = math.huge
-		alignPos.Responsiveness = 50
-		alignPos.MaxVelocity = Speed -- ЗАЩИТА ОТ 267 ОШИБКИ
-		alignPos.Position = root.Position
-		alignPos.Parent = root
-
-		alignOri = Instance.new("AlignOrientation")
-		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		alignOri.Attachment0 = attachment
-		alignOri.RigidityEnabled = false
-		alignOri.MaxTorque = math.huge
-		alignOri.Responsiveness = 30
-		alignOri.CFrame = root.CFrame
-		alignOri.Parent = root
+		attachment = Instance.new("Attachment"); attachment.Parent = root
+		alignPos = Instance.new("AlignPosition"); alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment; alignPos.Attachment0 = attachment; alignPos.MaxForce = math.huge; alignPos.Responsiveness = 50; alignPos.MaxVelocity = Speed; alignPos.Position = root.Position; alignPos.Parent = root
+		alignOri = Instance.new("AlignOrientation"); alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment; alignOri.Attachment0 = attachment; alignOri.MaxTorque = math.huge; alignOri.Responsiveness = 30; alignOri.CFrame = root.CFrame; alignOri.Parent = root
 	end)
 end
 
 local function applyHumanoidState(active)
 	pcall(function()
-		local hum = getHumanoid()
-		if not hum then return end
-		if active then
-			hum.PlatformStand = true
-			hum:ChangeState(Enum.HumanoidStateType.Physics)
-		else
-			hum.PlatformStand = false
-			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-		end
+		local hum = getHumanoid(); if not hum then return end
+		if active then hum.PlatformStand = true; hum:ChangeState(Enum.HumanoidStateType.Physics)
+		else hum.PlatformStand = false; hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
 	end)
 end
 
--- ========== Поиск и сбор ==========
+-- ========== Поиск цели ==========
 local function rescan()
 	local list = {}
 	pcall(function()
-		-- Ищем Coin_Server по всей карте
 		for _, d in ipairs(Workspace:GetDescendants()) do
 			if d.Name == TARGET_NAME and d:IsA("BasePart") then
 				table.insert(list, d)
@@ -221,65 +152,47 @@ end
 local function findNearest(fromPos)
 	local best, bestDist = nil, math.huge
 	for _, part in ipairs(candidates) do
-		if part.Parent and not Blacklist[part] then
+		if part.Parent and part.Transparency < 1 and not Blacklist[part] then
 			local dist = (part.Position - fromPos).Magnitude
-			if dist < bestDist then
-				best, bestDist = part, dist
-			end
+			if dist < bestDist then best, bestDist = part, dist end
 		end
 	end
 	return best
 end
 
+-- ========== Сбор (ВСТАВЛЕН НАШ КОД) ==========
 local function collect(target)
 	collecting = true
 	setStatus("collecting")
 	pcall(function()
 		local root = getRoot()
-		if root and alignPos then
-			alignPos.Position = root.Position -- остановка
+		if root then
+			-- Собираем через функции экзекьютора
+			firetouchinterest(root, target, 0)
+			firetouchinterest(root, target, 1)
+			
+			-- Активируем кнопку, если есть
+			local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if prompt and prompt.Enabled then
+				fireproximityprompt(prompt)
+			end
 		end
-		
-		-- Возвращаем функции экзекьютора (сбор)
-		firetouchinterest(root, target, 0)
-		firetouchinterest(root, target, 1)
-		
-		local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
-		if prompt and prompt.Enabled then
-			fireproximityprompt(prompt)
-		end
-		
-		task.wait(0.1)
+		task.wait(0.15) -- Даем серверу время удалить монету
 	end)
 	Blacklist[target] = true
 	currentTarget = nil
 	collecting = false
 end
 
+-- ========== Старт / стоп ==========
 local function stop()
-	running = false
-	currentTarget = nil
-	collecting = false
-	destroyAligns()
-	setNoclip(false)
-	applyHumanoidState(false)
-	startButton.Text = "FARM: OFF"
-	setStatus("idle")
+	running = false; currentTarget = nil; collecting = false; destroyAligns(); setNoclip(false); applyHumanoidState(false); startButton.Text = "Start"; setStatus("idle")
 end
 
 local function start()
 	local root = getRoot()
-	if not root then
-		setStatus("no character")
-		return
-	end
-	running = true
-	table.clear(Blacklist)
-	lastScan = 0
-	createAligns(root)
-	applyHumanoidState(true)
-	startButton.Text = "FARM: ON"
-	setStatus("waiting")
+	if not root then setStatus("no character"); return end
+	running = true; table.clear(Blacklist); currentTarget = nil; lastScan = 0; createAligns(root); applyHumanoidState(true); startButton.Text = "Stop"; setStatus("waiting")
 end
 
 startButton.MouseButton1Click:Connect(function()
@@ -292,35 +205,36 @@ RunService.Heartbeat:Connect(function()
 	pcall(function()
 		local root = getRoot()
 		local hum = getHumanoid()
-		if not root or not hum then
-			setStatus("waiting for character")
-			return
-		end
+		if not root or not hum then setStatus("waiting for character"); return end
 
-		-- Восстановление после респавна
-		if not alignPos or alignPos.Parent ~= root then
-			createAligns(root)
-			applyHumanoidState(true)
-		end
-
+		if not alignPos or alignPos.Parent ~= root then createAligns(root); applyHumanoidState(true) end
 		setNoclip(true)
 
 		local now = os.clock()
-		if now - lastScan >= SCAN_INTERVAL then
-			lastScan = now
-			rescan()
-		end
+		if now - lastScan >= SCAN_INTERVAL then lastScan = now; rescan() end
 
 		local target = findNearest(root.Position)
-		currentTarget = target
+
+		if target ~= currentTarget then
+			currentTarget = target
+			targetSince = now
+		end
+
 		if not target then
 			alignPos.Position = root.Position
 			setStatus("waiting")
 			return
 		end
 
+		if now - targetSince > TARGET_TIMEOUT then
+			Blacklist[target] = true
+			currentTarget = nil
+			return
+		end
+
 		local dist = (target.Position - root.Position).Magnitude
-		if dist < COLLECT_DISTANCE then
+		if dist <= COLLECT_DISTANCE then
+			alignPos.Position = root.Position -- остановка
 			task.spawn(collect, target)
 			return
 		end
