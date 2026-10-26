@@ -1,70 +1,161 @@
+-- Liberium Hub | Full Release (Slate UI + Safe Farm)
+local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
+
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
 
 local LP = Players.LocalPlayer
-local isFarming = false
-local blacklist = {}
+local Cam = Workspace.CurrentCamera
+
+local CFG = {
+    ESP = false,
+    Noclip = false,
+    WalkSpeed = 16,
+    AutoFarm = false,
+    FarmSpeed = 12,
+    AntiAFK = false
+}
+
+-- Создаем окно Slate
+local Window = Slate:CreateWindow({ 
+    Name = "Liberium Hub", 
+    Subtitle = "MM2 Edition", 
+    Icon = "shield", 
+    Logo = true, 
+    Size = UDim2.fromOffset(550, 380), 
+    ToggleKey = Enum.KeyCode.RightShift 
+})
+
+-- Авто-масштабирование
+local uiscale = Instance.new("UIScale", Window.root)
+local function updateScale() 
+    if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end 
+end
+updateScale()
+Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
+
+-- Вкладки
+local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
+local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
+local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
+local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
+local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
+
+-- ==========================================
+-- ЛОГИКА РОЛЕЙ
+-- ==========================================
+local roles = {}
+local function updateRoles()
+    pcall(function()
+        local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+        if getData and getData:IsA("RemoteFunction") then
+            local success, data = getData:InvokeServer()
+            if success and type(data) == "table" then roles = data end
+        end
+    end)
+end
+task.spawn(function() while task.wait(1) do updateRoles() end end)
+
+local function getRoleColor(plr)
+    local rData = roles[plr.Name]
+    if rData and rData.Role then
+        local r = rData.Role
+        if r == "Murderer" or r == "Zombie" then return Color3.fromRGB(255, 50, 50) end
+        if r == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
+        if r == "Survivor" then return Color3.fromRGB(255, 165, 0) end
+    end
+    local function checkTools(container)
+        if not container then return nil end
+        for _, tool in ipairs(container:GetChildren()) do
+            if tool:IsA("Tool") then
+                local n = string.lower(tool.Name)
+                if n:find("knife") or n:find("dagger") then return Color3.fromRGB(255, 50, 50) end
+                if n:find("gun") or n:find("revolver") then return Color3.fromRGB(50, 120, 255) end
+            end
+        end
+        return nil
+    end
+    if plr.Character then local c = checkTools(plr.Character); if c then return c end end
+    if plr:FindFirstChild("Backpack") then local c = checkTools(plr:FindFirstChild("Backpack")); if c then return c end end
+    return Color3.fromRGB(50, 255, 100)
+end
+
+-- ==========================================
+-- ESP
+-- ==========================================
+RunService.RenderStepped:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character then
+            local char = p.Character
+            local ourHighlight = nil
+            local toDestroy = {}
+            
+            for _, child in ipairs(char:GetChildren()) do
+                if child:IsA("Highlight") then
+                    if child.Name == "LibESP" and not ourHighlight then
+                        ourHighlight = child
+                    else
+                        table.insert(toDestroy, child)
+                    end
+                end
+            end
+            
+            for _, hl in ipairs(toDestroy) do hl:Destroy() end
+            
+            if CFG.ESP then
+                if not ourHighlight then
+                    ourHighlight = Instance.new("Highlight")
+                    ourHighlight.Name = "LibESP"
+                    ourHighlight.OutlineTransparency = 0
+                    ourHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    ourHighlight.Parent = char
+                end
+                local c = getRoleColor(p)
+                ourHighlight.FillColor = c
+                ourHighlight.OutlineColor = c
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- MOVEMENT
+-- ==========================================
+local originalCollide = setmetatable({}, {__mode = "k"})
+RunService.Stepped:Connect(function()
+    if (CFG.Noclip or CFG.AutoFarm) and LP.Character then
+        for _, d in ipairs(LP.Character:GetDescendants()) do
+            if d:IsA("BasePart") then
+                if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
+                d.CanCollide = false
+            end
+        end
+    elseif not CFG.Noclip and not CFG.AutoFarm then
+        for p, c in pairs(originalCollide) do 
+            pcall(function() if p and p.Parent then p.CanCollide = c end end) 
+        end
+        table.clear(originalCollide)
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if LP.Character then
+        local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum.WalkSpeed ~= CFG.WalkSpeed and not CFG.AutoFarm then 
+            hum.WalkSpeed = CFG.WalkSpeed 
+        end
+    end
+end)
+
+-- ==========================================
+-- AUTO FARM (SAFE CFrame)
+-- ==========================================
 local currentTarget = nil
-local speed = 15 -- Начальная скорость (безопасная)
+local blacklist = {}
 
--- Очистка старого GUI
-pcall(function()
-    local core = game:GetService("CoreGui")
-    if core:FindFirstChild("FarmTestGui") then core.FarmTestGui:Destroy() end
-    if LP.PlayerGui:FindFirstChild("FarmTestGui") then LP.PlayerGui.FarmTestGui:Destroy() end
-end)
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "FarmTestGui"
-ScreenGui.ResetOnSpawn = false
-pcall(function()
-    if gethui then ScreenGui.Parent = gethui()
-    else ScreenGui.Parent = game:GetService("CoreGui") end
-end)
-if not ScreenGui.Parent then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
-
--- Кнопка
-local Btn = Instance.new("TextButton")
-Btn.Size = UDim2.new(0, 200, 0, 50)
-Btn.AnchorPoint = Vector2.new(0.5, 0.5)
-Btn.Position = UDim2.new(0.5, 0, 0.3, 0)
-Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-Btn.Font = Enum.Font.GothamBold
-Btn.TextSize = 18
-Btn.Text = "FARM: OFF"
-Btn.Parent = ScreenGui
-
--- Ползунок скорости
-local SliderBg = Instance.new("Frame")
-SliderBg.Size = UDim2.new(0, 300, 0, 20)
-SliderBg.AnchorPoint = Vector2.new(0.5, 0.5)
-SliderBg.Position = UDim2.new(0.5, 0, 0.3, 60)
-SliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-SliderBg.BorderSizePixel = 2
-SliderBg.BorderColor3 = Color3.fromRGB(150, 50, 255)
-SliderBg.Parent = ScreenGui
-
-local SliderFill = Instance.new("Frame")
-SliderFill.Size = UDim2.new(speed / 50, 0, 1, 0) -- Максимум 50
-SliderFill.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-SliderFill.Parent = SliderBg
-
--- Текст статуса
-local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 350, 0, 30)
-StatusText.AnchorPoint = Vector2.new(0.5, 0.5)
-StatusText.Position = UDim2.new(0.5, 0, 0.3, 90)
-StatusText.BackgroundTransparency = 0.5
-StatusText.BackgroundColor3 = Color3.fromRGB(0,0,0)
-StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
-StatusText.Font = Enum.Font.Code
-StatusText.TextSize = 14
-StatusText.Text = "Скорость: " .. speed
-StatusText.Parent = ScreenGui
-
--- Поиск монет
 local function getContainer()
     local gameW = Workspace:FindFirstChild("Game")
     if gameW and gameW:FindFirstChild("CoinContainer") then
@@ -93,7 +184,6 @@ local function findNearest()
     return closest
 end
 
--- Основной цикл (Плавное движение через CFrame)
 RunService.Heartbeat:Connect(function(dt)
     local char = LP.Character
     if not char then return end
@@ -101,30 +191,16 @@ RunService.Heartbeat:Connect(function(dt)
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return end
 
-    if isFarming then
-        -- 1. Noclip (сквозь стены)
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = false end
-        end
+    if CFG.AutoFarm then
         if not hum.PlatformStand then hum.PlatformStand = true end
+        if currentTarget and not currentTarget.Parent then currentTarget = nil end
+        if not currentTarget then currentTarget = findNearest() end
 
-        -- 2. Поиск цели
-        if currentTarget and not currentTarget.Parent then
-            currentTarget = nil
-        end
-        if not currentTarget then
-            currentTarget = findNearest()
-        end
-
-        -- 3. Движение
         if currentTarget then
             local targetPos = currentTarget.Position
             local distance = (hrp.Position - targetPos).Magnitude
 
-            StatusText.Text = "Летим к монете (" .. math.floor(distance) .. " st)"
-
             if distance < 3.5 then
-                -- Сбор
                 blacklist[currentTarget] = true
                 pcall(function()
                     firetouchinterest(hrp, currentTarget, 0)
@@ -138,62 +214,17 @@ RunService.Heartbeat:Connect(function(dt)
                 currentTarget = nil
                 task.wait(0.1)
             else
-                -- Плавно двигаемся к цели (шаг за шагом)
                 local dir = (targetPos - hrp.Position).Unit
-                local moveStep = speed * dt -- Скорость * время кадра
+                local moveStep = CFG.FarmSpeed * dt
                 if moveStep > distance then moveStep = distance end
                 hrp.CFrame = CFrame.new(hrp.Position + dir * moveStep)
             end
-        else
-            StatusText.Text = "Нет монет (ждем)"
         end
     else
-        -- Выключено
         if hum.PlatformStand then hum.PlatformStand = false end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = true end
-        end
     end
 end)
 
--- Управление ползунком
-SliderBg.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local function update(x)
-            local percent = math.clamp((x - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
-            speed = math.floor(percent * 50) + 5
-            SliderFill.Size = UDim2.new(percent, 0, 1, 0)
-            StatusText.Text = "Скорость: " .. speed
-        end
-        update(input.Position.X)
-        
-        local moveConn = game:GetService("UserInputService").InputChanged:Connect(function(i)
-            if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
-                update(i.Position.X)
-            end
-        end)
-        game:GetService("UserInputService").InputEnded:Connect(function(i)
-            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-                if moveConn then moveConn:Disconnect() end
-            end
-        end)
-    end
-end)
-
--- Включение/выключение
-Btn.MouseButton1Click:Connect(function()
-    isFarming = not isFarming
-    if isFarming then
-        Btn.Text = "FARM: ON"
-        Btn.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
-    else
-        Btn.Text = "FARM: OFF"
-        Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-        StatusText.Text = "Скорость: " .. speed
-    end
-end)
-
--- Очистка черного списка
 task.spawn(function()
     while task.wait(5) do
         for obj in pairs(blacklist) do
@@ -201,3 +232,39 @@ task.spawn(function()
         end
     end
 end)
+
+-- ==========================================
+-- ANTI-AFK
+-- ==========================================
+LP.Idled:Connect(function()
+    if CFG.AntiAFK then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
+
+-- ==========================================
+-- ПРИВЯЗКА UI
+-- ==========================================
+local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
+secCombat:Toggle({ Name = "Silent Aim (в разработке)", Default = false, Callback = function(v) end })
+secCombat:Toggle({ Name = "Aimbot (в разработке)", Default = false, Callback = function(v) end })
+
+local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
+secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
+
+local secMovement = TabMovement:CreateSection({ Name = "Player Physics" })
+secMovement:Toggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
+secMovement:Slider({ Name = "WalkSpeed", Min = 16, Max = 150, Default = 16, Callback = function(v) CFG.WalkSpeed = v end })
+
+local secFarm = TabFarm:CreateSection({ Name = "Automation" })
+secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) 
+    CFG.AutoFarm = v
+    currentTarget = nil
+end })
+secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 12, Callback = function(v) CFG.FarmSpeed = v end })
+
+local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
+secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
+
+Slate:Notify({ Title = "Liberium Hub", Description = "Успешно загружен!", Icon = "check", Tone = "Success", Duration = 5 })
