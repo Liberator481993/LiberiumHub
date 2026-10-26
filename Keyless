@@ -1,4 +1,4 @@
--- Liberium Hub | Full Release (Slate UI + Safe Farm)
+-- Liberium Hub | Slate UI + Safe Farm (No Kick)
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -10,16 +10,9 @@ local VirtualUser = game:GetService("VirtualUser")
 local LP = Players.LocalPlayer
 local Cam = Workspace.CurrentCamera
 
-local CFG = {
-    ESP = false,
-    Noclip = false,
-    WalkSpeed = 16,
-    AutoFarm = false,
-    FarmSpeed = 12,
-    AntiAFK = false
-}
+local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 15, AntiAFK = false }
 
--- Создаем окно Slate
+-- Окно Slate (то самое, с щитом)
 local Window = Slate:CreateWindow({ 
     Name = "Liberium Hub", 
     Subtitle = "MM2 Edition", 
@@ -29,7 +22,6 @@ local Window = Slate:CreateWindow({
     ToggleKey = Enum.KeyCode.RightShift 
 })
 
--- Авто-масштабирование
 local uiscale = Instance.new("UIScale", Window.root)
 local function updateScale() 
     if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end 
@@ -37,7 +29,6 @@ end
 updateScale()
 Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
--- Вкладки
 local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
 local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
@@ -45,7 +36,7 @@ local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- ЛОГИКА РОЛЕЙ
+-- РОЛИ
 -- ==========================================
 local roles = {}
 local function updateRoles()
@@ -151,24 +142,17 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (SAFE CFrame)
+-- AUTO FARM (БЕЗОПАСНЫЙ CFrame - БЕЗ КИКОВ)
 -- ==========================================
 local currentTarget = nil
 local blacklist = {}
-
-local function getContainer()
-    local gameW = Workspace:FindFirstChild("Game")
-    if gameW and gameW:FindFirstChild("CoinContainer") then
-        return gameW.CoinContainer
-    end
-    return Workspace:FindFirstChild("CoinContainer", true)
-end
 
 local function findNearest()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
-    local container = getContainer()
+    
+    local container = Workspace:FindFirstChild("CoinContainer", true)
     if not container then return nil end
     
     local closest, minDist = nil, math.huge
@@ -193,8 +177,14 @@ RunService.Heartbeat:Connect(function(dt)
 
     if CFG.AutoFarm then
         if not hum.PlatformStand then hum.PlatformStand = true end
-        if currentTarget and not currentTarget.Parent then currentTarget = nil end
-        if not currentTarget then currentTarget = findNearest() end
+        
+        if currentTarget and not currentTarget.Parent then
+            currentTarget = nil
+        end
+
+        if not currentTarget then
+            currentTarget = findNearest()
+        end
 
         if currentTarget then
             local targetPos = currentTarget.Position
@@ -212,8 +202,9 @@ RunService.Heartbeat:Connect(function(dt)
                     end
                 end
                 currentTarget = nil
-                task.wait(0.1)
+                task.wait(0.05) -- Микро пауза, чтобы сервер удалил монету
             else
+                -- Плавное движение мелкими шагами (обходит античит 267)
                 local dir = (targetPos - hrp.Position).Unit
                 local moveStep = CFG.FarmSpeed * dt
                 if moveStep > distance then moveStep = distance end
@@ -246,10 +237,6 @@ end)
 -- ==========================================
 -- ПРИВЯЗКА UI
 -- ==========================================
-local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
-secCombat:Toggle({ Name = "Silent Aim (в разработке)", Default = false, Callback = function(v) end })
-secCombat:Toggle({ Name = "Aimbot (в разработке)", Default = false, Callback = function(v) end })
-
 local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
 secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
@@ -262,9 +249,9 @@ secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = functio
     CFG.AutoFarm = v
     currentTarget = nil
 end })
-secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 12, Callback = function(v) CFG.FarmSpeed = v end })
+secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 15, Callback = function(v) CFG.FarmSpeed = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Успешно загружен!", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Загружено успешно!", Icon = "check", Tone = "Success", Duration = 5 })
