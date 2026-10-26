@@ -1,12 +1,15 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
 local LP = Players.LocalPlayer
 local isFarming = false
 local blacklist = {}
 local currentTarget = nil
+local bv = nil
+local bg = nil
 
--- Очистка старого GUI
+-- Очистка старого мусора
 pcall(function()
     local core = game:GetService("CoreGui")
     if core:FindFirstChild("FarmTestGui") then core.FarmTestGui:Destroy() end
@@ -34,60 +37,36 @@ Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
 local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 450, 0, 100)
+StatusText.Size = UDim2.new(0, 350, 0, 40)
 StatusText.AnchorPoint = Vector2.new(0.5, 0.5)
-StatusText.Position = UDim2.new(0.5, 0, 0.4, 70)
-StatusText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-StatusText.BackgroundTransparency = 0.3
+StatusText.Position = UDim2.new(0.5, 0, 0.4, 40)
+StatusText.BackgroundColor3 = Color3.fromRGB(0,0,0)
+StatusText.BackgroundTransparency = 0.4
 StatusText.TextColor3 = Color3.fromRGB(0, 255, 0)
 StatusText.Font = Enum.Font.Code
-StatusText.TextSize = 12
+StatusText.TextSize = 14
 StatusText.Text = "Ожидание..."
-StatusText.TextWrapped = true
-StatusText.TextYAlignment = Enum.TextYAlignment.Top
 StatusText.Parent = ScreenGui
 
-local function getContainer()
-    return Workspace:FindFirstChild("CoinContainer", true)
-end
-
+-- УМНЫЙ ПОИСК (Ищем только маленькие объекты)
 local function findNearest()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
     local closest, minDist = nil, math.huge
-    local debugNames = {}
-
-    -- 1. Сначала ищем Coin_Server (монеты), как ты и скидывал
-    local container = getContainer()
-    if container then
-        for _, coin in ipairs(container:GetChildren()) do
-            if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] and coin.Transparency < 1 then
-                local dist = (coin.Position - hrp.Position).Magnitude
-                if dist < minDist then
-                    minDist = dist
-                    closest = coin
-                end
-            end
-        end
-    end
-
-    -- 2. Если монет нет, ищем конфеты (все подряд в радиусе 50 стадов)
-    if not closest then
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if (obj:IsA("BasePart") or obj:IsA("Model")) and not blacklist[obj] then
-                local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-                local dist = (pos - hrp.Position).Magnitude
-                
-                if dist < 50 then -- Ищем только вблизи
-                    local name = string.lower(obj.Name)
-                    -- Проверяем, что это не часть персонажа и не стена
-                    if not obj:IsDescendantOf(char) and (name:find("candy") or name:find("sweet") or name:find("halloween") or name:find("bag") or name:find("coin")) then
-                        if dist < minDist then
-                            minDist = dist
-                            closest = obj
-                        end
+    
+    -- Ищем в Workspace и в CoinContainer
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not blacklist[obj] then
+            local name = string.lower(obj.Name)
+            -- Проверяем, что это конфета/монета и она маленькая (не зона)
+            if (name:find("coin") or name:find("candy") or name:find("sweet")) then
+                if obj.Size.Magnitude < 10 then -- Игнорируем гигантские зоны
+                    local dist = (obj.Position - hrp.Position).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        closest = obj
                     end
                 end
             end
@@ -96,33 +75,53 @@ local function findNearest()
     return closest
 end
 
--- Основной цикл
-task.spawn(function()
-    while task.wait(0.1) do
-        if isFarming then
-            local char = LP.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            
-            if not hrp or not hum or hum.Health <= 0 then
-                StatusText.Text = "Мертв..."
-                continue
-            end
+-- Основной цикл (Плавный полет через физику)
+RunService.Heartbeat:Connect(function()
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
 
-            if currentTarget and not currentTarget.Parent then
-                currentTarget = nil
-            end
+    if isFarming then
+        -- Noclip (сквозь стены)
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+        if not hum.PlatformStand then hum.PlatformStand = true end
 
-            if not currentTarget then
-                currentTarget = findNearest()
-            end
+        -- Создаем физику
+        if not bv or bv.Parent ~= hrp then
+            if bv then bv:Destroy() end
+            if bg then bg:Destroy() end
+            bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            bv.P = 1250
+            bv.Parent = hrp
+            bg = Instance.new("BodyGyro")
+            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+            bg.P = 1000
+            bg.Parent = hrp
+        end
 
-            if currentTarget then
-                -- ПОКАЗЫВАЕМ ИМЯ ЦЕЛИ
-                StatusText.Text = "Цель найдена:\n" .. currentTarget.Name .. "\n(Класс: " .. currentTarget.ClassName .. ")"
-                
-                local targetPos = currentTarget:IsA("Model") and currentTarget:GetPivot().Position or currentTarget.Position
-                hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 2.5, 0))
+        if currentTarget and not currentTarget.Parent then
+            currentTarget = nil
+        end
+
+        if not currentTarget then
+            currentTarget = findNearest()
+        end
+
+        if currentTarget then
+            local targetPos = currentTarget.Position
+            local distance = (hrp.Position - targetPos).Magnitude
+
+            StatusText.Text = "Летим: " .. currentTarget.Name .. " (" .. math.floor(distance) .. " st)"
+
+            if distance < 3.5 then
+                -- Долетели, собираем
+                bv.Velocity = Vector3.zero
+                blacklist[currentTarget] = true
                 
                 pcall(function()
                     firetouchinterest(hrp, currentTarget, 0)
@@ -134,11 +133,34 @@ task.spawn(function()
                     end
                 end
                 
-                blacklist[currentTarget] = true
                 currentTarget = nil
+                task.wait(0.1)
             else
-                StatusText.Text = "Ничего не найдено рядом (Ждем)"
+                -- Летим
+                local dir = (targetPos - hrp.Position).Unit
+                bv.Velocity = dir * 70 -- Скорость 70 (безопасно для античита)
+                bg.CFrame = CFrame.new(hrp.Position, targetPos)
             end
+        else
+            bv.Velocity = Vector3.zero
+            StatusText.Text = "Ничего не найдено рядом"
+        end
+    else
+        -- Выключено
+        if bv then bv:Destroy(); bv = nil end
+        if bg then bg:Destroy(); bg = nil end
+        if hum.PlatformStand then hum.PlatformStand = false end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
+        end
+    end
+end)
+
+-- Очистка черного списка
+task.spawn(function()
+    while task.wait(5) do
+        for obj in pairs(blacklist) do
+            if not obj.Parent then blacklist[obj] = nil end
         end
     end
 end)
@@ -152,13 +174,5 @@ Btn.MouseButton1Click:Connect(function()
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
         StatusText.Text = "Ожидание..."
-    end
-end)
-
-task.spawn(function()
-    while task.wait(5) do
-        for obj in pairs(blacklist) do
-            if not obj.Parent then blacklist[obj] = nil end
-        end
     end
 end)
