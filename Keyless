@@ -1,21 +1,39 @@
--- Liberium Hub | Ultimate Edition (Slate UI + AlignPosition Farm)
+-- Liberium Hub | Anti-Kick + No Run Animation Umedov loh
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 
 local LP = Players.LocalPlayer
 local Cam = Workspace.CurrentCamera
 
-local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 20, AntiAFK = false }
+local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 15, AntiAFK = false }
 
--- Создаем окно Slate (с щитом)
+-- ==========================================
+-- 1. ANTI-KICK
+-- ==========================================
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    if method == "Kick" or method == "kick" then
+        return
+    end
+    return oldNamecall(self, ...)
+end)
+setreadonly(mt, true)
+
+-- ==========================================
+-- 2. UI
+-- ==========================================
 local Window = Slate:CreateWindow({ 
     Name = "Liberium Hub", 
-    Subtitle = "MM2 Edition", 
+    Subtitle = "MM2 Edition | No-Anim Farm", 
     Icon = "shield", 
     Logo = true, 
     Size = UDim2.fromOffset(550, 380), 
@@ -29,14 +47,13 @@ end
 updateScale()
 Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
-local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
 local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
 local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- РОЛИ И ESP
+-- 3. РОЛИ И ESP
 -- ==========================================
 local roles = {}
 task.spawn(function()
@@ -68,7 +85,6 @@ RunService.RenderStepped:Connect(function()
             local char = p.Character
             local ourHighlight = nil
             local toDestroy = {}
-            
             for _, child in ipairs(char:GetChildren()) do
                 if child:IsA("Highlight") then
                     if child.Name == "LibESP" and not ourHighlight then
@@ -97,7 +113,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ==========================================
--- MOVEMENT & NOCLIP
+-- 4. MOVEMENT
 -- ==========================================
 local originalCollide = setmetatable({}, {__mode = "k"})
 RunService.Stepped:Connect(function()
@@ -126,39 +142,11 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (ALIGN POSITION - ИДЕАЛЬНЫЙ ПОЛЕТ)
+-- 5. AUTO FARM (БЕЗ АНИМАЦИИ БЕГА)
 -- ==========================================
 local currentTarget = nil
 local blacklist = {}
-local alignPos = nil
-local alignOri = nil
-
-local function setupPhysics(hrp)
-    if alignPos then alignPos:Destroy() end
-    if alignOri then alignOri:Destroy() end
-    
-    local att = hrp:FindFirstChild("RootAttachment") or Instance.new("Attachment", hrp)
-    
-    alignPos = Instance.new("AlignPosition")
-    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
-    alignPos.Attachment0 = att
-    alignPos.MaxForce = math.huge
-    alignPos.Responsiveness = 100
-    alignPos.Position = hrp.Position
-    alignPos.Parent = hrp
-    
-    alignOri = Instance.new("AlignOrientation")
-    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    alignOri.Attachment0 = att
-    alignOri.MaxTorque = math.huge
-    alignOri.Responsiveness = 100
-    alignOri.Parent = hrp
-end
-
-local function destroyPhysics()
-    if alignPos then alignPos:Destroy(); alignPos = nil end
-    if alignOri then alignOri:Destroy(); alignOri = nil end
-end
+local isMoving = false
 
 local function findNearest()
     local char = LP.Character
@@ -181,58 +169,62 @@ local function findNearest()
     return closest
 end
 
-RunService.Heartbeat:Connect(function()
+local function flyToAndCollect(coin)
     local char = LP.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
+    if not hrp or not hum or hum.Health <= 0 then return end
 
-    if CFG.AutoFarm then
-        -- Включаем физику
-        if not alignPos or alignPos.Parent ~= hrp then
-            setupPhysics(hrp)
+    isMoving = true
+    blacklist[coin] = true
+    
+    -- 1. Отключаем анимации и физику бега
+    hrp.Anchored = true
+    hum.PlatformStand = true
+    hum:ChangeState(Enum.HumanoidStateType.Physics) -- Убирает анимацию бега
+
+    -- 2. Плавно летим
+    local targetPos = coin.Position + Vector3.new(0, 2, 0)
+    local distance = (hrp.Position - targetPos).Magnitude
+    local travelTime = math.clamp(distance / CFG.FarmSpeed, 0.1, 0.5)
+    
+    local tween = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+    tween:Play()
+    tween.Completed:Wait()
+
+    -- 3. Собираем
+    pcall(function()
+        firetouchinterest(hrp, coin, 0)
+        firetouchinterest(hrp, coin, 1)
+    end)
+    for _, prompt in ipairs(coin:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            pcall(function() fireproximityprompt(prompt) end)
         end
-        
-        -- ОГРАНИЧЕНИЕ СКОРОСТИ (Чтобы не кикало 267)
-        alignPos.MaxVelocity = CFG.FarmSpeed 
+    end
 
-        if currentTarget and not currentTarget.Parent then
-            currentTarget = nil
-        end
+    task.wait(0.2) -- Ждем удаления
 
-        if not currentTarget then
-            currentTarget = findNearest()
-        end
+    -- 4. Возвращаем физику и анимации
+    hrp.Anchored = false
+    hum.PlatformStand = false
+    hum:ChangeState(Enum.HumanoidStateType.GettingUp) -- Возвращает анимацию бега
+    isMoving = false
+end
 
-        if currentTarget then
-            local targetPos = currentTarget.Position
-            local distance = (hrp.Position - targetPos).Magnitude
-
-            if distance < 3.5 then
-                blacklist[currentTarget] = true
-                pcall(function()
-                    firetouchinterest(hrp, currentTarget, 0)
-                    firetouchinterest(hrp, currentTarget, 1)
-                end)
-                for _, prompt in ipairs(currentTarget:GetDescendants()) do
-                    if prompt:IsA("ProximityPrompt") then
-                        pcall(function() fireproximityprompt(prompt) end)
-                    end
-                end
-                currentTarget = nil
-                task.wait(0.1)
-            else
-                -- Тянем к цели (безопасно, без CFrame)
-                alignPos.Position = targetPos + Vector3.new(0, 2, 0)
-                alignOri.CFrame = CFrame.new(hrp.Position, targetPos)
+-- Главный цикл
+task.spawn(function()
+    while task.wait(0.1) do
+        if CFG.AutoFarm and not isMoving then
+            local char = LP.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not char or not hum or hum.Health <= 0 then continue end
+            local coin = findNearest()
+            if coin then
+                flyToAndCollect(coin)
             end
-        else
-            -- Если цели нет, держим на месте (не падаем)
-            alignPos.Position = hrp.Position
         end
-    else
-        if alignPos then destroyPhysics() end
     end
 end)
 
@@ -245,7 +237,7 @@ task.spawn(function()
 end)
 
 -- ==========================================
--- ANTI-AFK
+-- 6. ANTI-AFK
 -- ==========================================
 LP.Idled:Connect(function()
     if CFG.AntiAFK then
@@ -255,11 +247,8 @@ LP.Idled:Connect(function()
 end)
 
 -- ==========================================
--- ПРИВЯЗКА UI
+-- 7. ПРИВЯЗКА UI
 -- ==========================================
-local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
-secCombat:Toggle({ Name = "Silent Aim (в разработке)", Default = false, Callback = function(v) end })
-
 local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
 secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
@@ -271,11 +260,19 @@ local secFarm = TabFarm:CreateSection({ Name = "Automation" })
 secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) 
     CFG.AutoFarm = v
     currentTarget = nil
-    if not v then destroyPhysics() end
+    local char = LP.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not v then
+            if hrp then hrp.Anchored = false end
+            if hum then hum.PlatformStand = false; hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+        end
+    end
 end })
-secFarm:Slider({ Name = "Farm Speed (Max 24)", Min = 5, Max = 24, Default = 20, Callback = function(v) CFG.FarmSpeed = v end })
+secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 15, Callback = function(v) CFG.FarmSpeed = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Загружено! AlignPosition Engine Ready.", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Анимация бега убрана. Летаем как призраки!", Icon = "check", Tone = "Success", Duration = 5 })
