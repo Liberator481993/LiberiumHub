@@ -1,4 +1,4 @@
--- Liberium Hub | Slate UI + Anti-Gravity Farm (No Fall)
+-- Liberium Hub | Ultimate Edition (Slate UI + AlignPosition Farm)
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -10,9 +10,9 @@ local VirtualUser = game:GetService("VirtualUser")
 local LP = Players.LocalPlayer
 local Cam = Workspace.CurrentCamera
 
-local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 15, AntiAFK = false }
+local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 20, AntiAFK = false }
 
--- Окно Slate (с щитом)
+-- Создаем окно Slate (с щитом)
 local Window = Slate:CreateWindow({ 
     Name = "Liberium Hub", 
     Subtitle = "MM2 Edition", 
@@ -29,25 +29,27 @@ end
 updateScale()
 Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
+local TabCombat = Window:CreateTab({ Name = "Combat", Icon = "crosshair" })
 local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabMovement = Window:CreateTab({ Name = "Movement", Icon = "move" })
 local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- РОЛИ
+-- РОЛИ И ESP
 -- ==========================================
 local roles = {}
-local function updateRoles()
-    pcall(function()
-        local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-        if getData and getData:IsA("RemoteFunction") then
-            local success, data = getData:InvokeServer()
-            if success and type(data) == "table" then roles = data end
-        end
-    end)
-end
-task.spawn(function() while task.wait(1) do updateRoles() end end)
+task.spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+            if getData and getData:IsA("RemoteFunction") then
+                local success, data = getData:InvokeServer()
+                if success and type(data) == "table" then roles = data end
+            end
+        end)
+    end
+end)
 
 local function getRoleColor(plr)
     local rData = roles[plr.Name]
@@ -60,9 +62,6 @@ local function getRoleColor(plr)
     return Color3.fromRGB(50, 255, 100)
 end
 
--- ==========================================
--- ESP
--- ==========================================
 RunService.RenderStepped:Connect(function()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP and p.Character then
@@ -98,7 +97,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ==========================================
--- MOVEMENT
+-- MOVEMENT & NOCLIP
 -- ==========================================
 local originalCollide = setmetatable({}, {__mode = "k"})
 RunService.Stepped:Connect(function()
@@ -127,10 +126,39 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (ANTI-GRAVITY)
+-- AUTO FARM (ALIGN POSITION - ИДЕАЛЬНЫЙ ПОЛЕТ)
 -- ==========================================
 local currentTarget = nil
 local blacklist = {}
+local alignPos = nil
+local alignOri = nil
+
+local function setupPhysics(hrp)
+    if alignPos then alignPos:Destroy() end
+    if alignOri then alignOri:Destroy() end
+    
+    local att = hrp:FindFirstChild("RootAttachment") or Instance.new("Attachment", hrp)
+    
+    alignPos = Instance.new("AlignPosition")
+    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+    alignPos.Attachment0 = att
+    alignPos.MaxForce = math.huge
+    alignPos.Responsiveness = 100
+    alignPos.Position = hrp.Position
+    alignPos.Parent = hrp
+    
+    alignOri = Instance.new("AlignOrientation")
+    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    alignOri.Attachment0 = att
+    alignOri.MaxTorque = math.huge
+    alignOri.Responsiveness = 100
+    alignOri.Parent = hrp
+end
+
+local function destroyPhysics()
+    if alignPos then alignPos:Destroy(); alignPos = nil end
+    if alignOri then alignOri:Destroy(); alignOri = nil end
+end
 
 local function findNearest()
     local char = LP.Character
@@ -153,7 +181,7 @@ local function findNearest()
     return closest
 end
 
-RunService.Heartbeat:Connect(function(dt)
+RunService.Heartbeat:Connect(function()
     local char = LP.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -161,10 +189,14 @@ RunService.Heartbeat:Connect(function(dt)
     if not hrp or not hum then return end
 
     if CFG.AutoFarm then
-        -- Отключаем гравитацию (якорим персонажа, чтобы он не упал под пол)
-        hrp.Anchored = true
-        hum.PlatformStand = true
+        -- Включаем физику
+        if not alignPos or alignPos.Parent ~= hrp then
+            setupPhysics(hrp)
+        end
         
+        -- ОГРАНИЧЕНИЕ СКОРОСТИ (Чтобы не кикало 267)
+        alignPos.MaxVelocity = CFG.FarmSpeed 
+
         if currentTarget and not currentTarget.Parent then
             currentTarget = nil
         end
@@ -189,19 +221,18 @@ RunService.Heartbeat:Connect(function(dt)
                     end
                 end
                 currentTarget = nil
-                task.wait(0.05)
+                task.wait(0.1)
             else
-                -- Двигаемся к цели (безопасно, т.к. персонаж привязан и не упадет)
-                local dir = (targetPos - hrp.Position).Unit
-                local moveStep = CFG.FarmSpeed * dt
-                if moveStep > distance then moveStep = distance end
-                hrp.CFrame = CFrame.new(hrp.Position + dir * moveStep)
+                -- Тянем к цели (безопасно, без CFrame)
+                alignPos.Position = targetPos + Vector3.new(0, 2, 0)
+                alignOri.CFrame = CFrame.new(hrp.Position, targetPos)
             end
+        else
+            -- Если цели нет, держим на месте (не падаем)
+            alignPos.Position = hrp.Position
         end
     else
-        -- Возвращаем всё обратно при выключении
-        hrp.Anchored = false
-        if hum.PlatformStand then hum.PlatformStand = false end
+        if alignPos then destroyPhysics() end
     end
 end)
 
@@ -226,6 +257,9 @@ end)
 -- ==========================================
 -- ПРИВЯЗКА UI
 -- ==========================================
+local secCombat = TabCombat:CreateSection({ Name = "Player Targeting" })
+secCombat:Toggle({ Name = "Silent Aim (в разработке)", Default = false, Callback = function(v) end })
+
 local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
 secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
@@ -237,15 +271,11 @@ local secFarm = TabFarm:CreateSection({ Name = "Automation" })
 secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) 
     CFG.AutoFarm = v
     currentTarget = nil
-    local char = LP.Character
-    if char then
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp and not v then hrp.Anchored = false end
-    end
+    if not v then destroyPhysics() end
 end })
-secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 1, Max = 24, Default = 15, Callback = function(v) CFG.FarmSpeed = v end })
+secFarm:Slider({ Name = "Farm Speed (Max 24)", Min = 5, Max = 24, Default = 20, Callback = function(v) CFG.FarmSpeed = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Загружено. Проваливания больше не будет!", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Загружено! AlignPosition Engine Ready.", Icon = "check", Tone = "Success", Duration = 5 })
