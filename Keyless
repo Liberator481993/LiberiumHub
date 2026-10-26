@@ -1,11 +1,12 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 local LP = Players.LocalPlayer
 local isFarming = false
 local blacklist = {}
 
--- Удаляем старое окно
+-- Удаляем старое окно, чтобы ничего не накладывалось
 local oldGui = LP.PlayerGui:FindFirstChild("FarmTestGui")
 if oldGui then oldGui:Destroy() end
 
@@ -25,7 +26,7 @@ Btn.Text = "FARM: OFF"
 Btn.Parent = ScreenGui
 
 local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 300, 0, 40)
+StatusText.Size = UDim2.new(0, 350, 0, 40)
 StatusText.AnchorPoint = Vector2.new(0.5, 0.5)
 StatusText.Position = UDim2.new(0.5, 0, 0.4, 60)
 StatusText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -40,38 +41,32 @@ local function getContainer()
     return Workspace:FindFirstChild("CoinContainer", true)
 end
 
-local function getClosestCoin()
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-
-    local container = getContainer()
-    if not container then return nil end
-
-    local closest, minDist = nil, math.huge
-    for _, coin in ipairs(container:GetChildren()) do
-        if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] then
-            local dist = (coin.Position - hrp.Position).Magnitude
-            if dist < minDist then
-                minDist = dist
-                closest = coin
-            end
-        end
-    end
-    return closest, minDist
-end
-
-local function teleportAndCollect(coin)
+local function moveToAndCollect(coin)
     local char = LP.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return end
 
+    -- Добавляем в черный список, чтобы не лететь к ней снова
     blacklist[coin] = true
 
-    -- Телепорт на 3 стада выше монеты
-    char:PivotTo(CFrame.new(coin.Position + Vector3.new(0, 3, 0)))
+    -- 1. Отключаем физику, чтобы не трясло
+    hrp.Anchored = true
     
+    -- 2. Вычисляем безопасную скорость полета
+    local targetPos = coin.Position + Vector3.new(0, 3, 0) -- Летим на 3 стада выше
+    local distance = (hrp.Position - targetPos).Magnitude
+    
+    -- Скорость 120 стадов в секунду (безопасно для античита)
+    local travelTime = math.clamp(distance / 120, 0.1, 0.8) 
+    
+    -- 3. Плавно летим (Tween)
+    local tween = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+    tween:Play()
+    tween.Completed:Wait()
+
+    -- 4. Собираем монету
     pcall(function()
         firetouchinterest(hrp, coin, 0)
         firetouchinterest(hrp, coin, 1)
@@ -82,47 +77,61 @@ local function teleportAndCollect(coin)
             pcall(function() fireproximityprompt(prompt) end)
         end
     end
+
+    -- 5. Ждем, пока сервер удалит монету (максимум 0.5 сек)
+    local timeout = 0
+    while coin.Parent and timeout < 0.5 do
+        task.wait(0.05)
+        timeout += 0.05
+    end
+
+    -- 6. Возвращаем физику и ждем, чтобы персонаж приземлился
+    hrp.Anchored = false
+    task.wait(0.1) -- Небольшая пауза перед следующей монетой, чтобы убрать рывки
 end
 
--- Главный цикл (пошаговый, без резких прыжков)
+-- Главный цикл
 task.spawn(function()
     while task.wait(0.1) do
         if isFarming then
             local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             
             if not char or not hum or hum.Health <= 0 then
-                StatusText.Text = "Мертв..."
+                StatusText.Text = "Вы мертвы или персонаж не загружен..."
                 continue
             end
 
-            local coin, dist = getClosestCoin()
-            if coin then
-                StatusText.Text = "Летим к монете (" .. math.floor(dist) .. " st)"
-                teleportAndCollect(coin)
+            local container = getContainer()
+            if container then
+                local closest, minDist = nil, math.huge
                 
-                -- Ждем, пока сервер удалит монету
-                local timeout = 0
-                while coin.Parent and timeout < 0.4 do
-                    task.wait(0.05)
-                    timeout += 0.05
+                -- Ищем ближайшую монету, которой нет в черном списке
+                for _, coin in ipairs(container:GetChildren()) do
+                    if coin.Name == "Coin_Server" and coin:IsA("BasePart") and not blacklist[coin] then
+                        local dist = (coin.Position - hrp.Position).Magnitude
+                        if dist < minDist then
+                            minDist = dist
+                            closest = coin
+                        end
+                    end
                 end
-                
-                -- Если монета не удалилась, скипаем
-                if coin.Parent then
-                    blacklist[coin] = true
+
+                if closest then
+                    StatusText.Text = "Летим к монете (" .. math.floor(minDist) .. " st)"
+                    moveToAndCollect(closest)
+                else
+                    StatusText.Text = "Монет нет (ждем спавн)"
                 end
-                
-                -- Пауза чтобы античит не спалил
-                task.wait(0.15)
             else
-                StatusText.Text = "Все монеты собраны (ждем)"
+                StatusText.Text = "Папка CoinContainer не найдена"
             end
         end
     end
 end)
 
--- Очистка черного списка
+-- Очистка черного списка от удаленных монет
 task.spawn(function()
     while task.wait(5) do
         for coin in pairs(blacklist) do
@@ -142,5 +151,11 @@ Btn.MouseButton1Click:Connect(function()
         Btn.Text = "FARM: OFF"
         Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
         StatusText.Text = "Ожидание..."
+        -- Если выключили в полете, возвращаем физику
+        local char = LP.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Anchored = false end
+        end
     end
 end)
