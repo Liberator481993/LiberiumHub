@@ -1,4 +1,4 @@
--- Liberium Hub | v15 | Farm fixes + ESP fixes
+-- Liberium Hub | v17 | State Machine Teardown + ESP Fix
 local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
@@ -50,7 +50,6 @@ local okWin, Window = pcall(function()
 end)
 if not okWin or not Window or not Window.root then showErr("CreateWindow: "..tostring(Window)) return end
 
--- Масштабирование
 pcall(function()
     local uiscale = Instance.new("UIScale", Window.root)
     local function updateScale() 
@@ -61,7 +60,6 @@ pcall(function()
     workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 end)
 
--- ============== СКАНЕР МЕТОДОВ ==============
 local function findMethod(obj, keyword)
     local mt = getmetatable(obj)
     if mt and mt.__index then
@@ -108,15 +106,17 @@ local okAll, allErr = pcall(function()
 
     local collectedCount = 0
     local Blacklist = setmetatable({}, { __mode = "k" })
-    local currentChar = nil
     local originalCollide = setmetatable({}, { __mode = "k" })
     local roles = {}
+    local canFarmNow = false
+    
+    -- Переменная сессии из кода Клода
+    local currentSession = nil 
 
     local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
     local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
     local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
-    -- Роли (обновляем чаще для точного ESP)
     task.spawn(function()
         while task.wait(0.5) do
             pcall(function()
@@ -140,11 +140,10 @@ local okAll, allErr = pcall(function()
         return Color3.fromRGB(50, 255, 100)
     end
 
-    -- ЖЕСТКАЯ ПРОВЕРКА (лобби, смерть, живой ли персонаж)
     local function canCollect()
-        local c = currentChar
-        if not c or not c.root or not c.root.Parent then return false end
-        if not c.humanoid or c.humanoid.Health <= 0 then return false end
+        if not canFarmNow then return false end
+        local s = currentSession
+        if not s or s.destroyed or s.humanoid.Health <= 0 then return false end
         
         local myData = roles[player.Name]
         if myData then
@@ -153,14 +152,13 @@ local okAll, allErr = pcall(function()
             if not r or r == "Spectator" or r == "Lobby" then return false end
         end
 
-        -- Если конфет на карте нет (лобби), не летим
         local container = Workspace:FindFirstChild("CoinContainer", true)
         if not container or #container:GetChildren() == 0 then return false end
         
         return true
     end
 
-    -- ESP (Обновляем цвета и убираем с трупов)
+    -- ESP Фикс
     task.spawn(function()
         while task.wait(0.3) do
             if CFG.ESP then
@@ -173,10 +171,17 @@ local okAll, allErr = pcall(function()
                         if isDead then
                             if hl then hl:Destroy() end
                         else
-                            hl = hl or Instance.new("Highlight")
-                            hl.Name = "LibESP" hl.OutlineTransparency = 0
-                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = p.Character
-                            local c = getRoleColor(p) hl.FillColor = c hl.OutlineColor = c
+                            if not hl then
+                                hl = Instance.new("Highlight")
+                                hl.Name = "LibESP"
+                                hl.Parent = p.Character
+                            end
+                            hl.Adornee = p.Character
+                            hl.OutlineTransparency = 0
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            local c = getRoleColor(p) 
+                            hl.FillColor = c 
+                            hl.OutlineColor = c
                         end
                     end
                 end
@@ -191,29 +196,102 @@ local okAll, allErr = pcall(function()
         end
     end)
 
-    -- Физика
+    -- ================= ФИЗИКА (ОТ КЛОДА) =================
+    local function releaseForces(s)
+        s.bv.MaxForce = Vector3.zero
+        s.bv.Velocity = Vector3.zero
+        s.bg.MaxTorque = Vector3.zero
+    end
+
+    local function resetHumanoid(s)
+        local hum = s.humanoid
+        if not hum.Parent then return end
+        hum.PlatformStand = s.origPlatformStand
+        hum.AutoRotate = s.origAutoRotate
+        if hum.Health > 0 and s.root.Parent then
+            local _, yaw = s.root.CFrame:ToOrientation()
+            s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0)
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end
+
+    local function teardown(s)
+        if not s or s.destroyed then return end
+        s.destroyed = true
+        
+        for _, conn in s.conns do conn:Disconnect() end
+        table.clear(s.conns)
+        
+        releaseForces(s)
+        
+        if s.root.Parent then
+            s.root.AssemblyLinearVelocity = Vector3.zero
+            s.root.AssemblyAngularVelocity = Vector3.zero
+        end
+        
+        resetHumanoid(s)
+        s.bv:Destroy()
+        s.bg:Destroy()
+        
+        if currentSession == s then currentSession = nil end
+    end
+
     local function bindCharacter(character)
-        currentChar = nil
+        if currentSession then teardown(currentSession) end
+        canFarmNow = false
+        collectedCount = 0 
+        table.clear(Blacklist)
+
         local root = character:WaitForChild("HumanoidRootPart", 10)
         local humanoid = character:WaitForChild("Humanoid", 10)
         if not (root and humanoid) or player.Character ~= character then return end
-        collectedCount = 0 table.clear(Blacklist)
-        pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
-        pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
-        local oldBv = root:FindFirstChildOfClass("BodyVelocity")
-        local oldBg = root:FindFirstChildOfClass("BodyGyro")
-        if oldBv then oldBv:Destroy() end
-        if oldBg then oldBg:Destroy() end
-        local bv = Instance.new("BodyVelocity") bv.MaxForce = Vector3.zero bv.Velocity = Vector3.zero bv.P = 3000 bv.Parent = root
-        local bg = Instance.new("BodyGyro") bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root
-        currentChar = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg }
+
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.zero
+        bv.Velocity = Vector3.zero
+        bv.P = 3000
+        bv.Parent = root
+
+        local bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.zero
+        bg.P = 6000
+        bg.D = 500
+        bg.CFrame = root.CFrame
+        bg.Parent = root
+
+        local s = {
+            character = character,
+            root = root,
+            humanoid = humanoid,
+            bv = bv,
+            bg = bg,
+            conns = {},
+            destroyed = false,
+            origPlatformStand = humanoid.PlatformStand,
+            origAutoRotate = humanoid.AutoRotate,
+        }
+        currentSession = s
+
+        table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end))
+        table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then teardown(s) end
+        end))
+
+        if humanoid.Health <= 0 then teardown(s) end
+
+        -- Ждем 3 секунды перед фармом (фикс лобби)
+        task.wait(3)
+        canFarmNow = true
     end
 
     player.CharacterAdded:Connect(bindCharacter)
+    player.CharacterRemoving:Connect(function(character)
+        if currentSession and currentSession.character == character then teardown(currentSession) end
+    end)
     if player.Character then task.spawn(bindCharacter, player.Character) end
 
     RunService.Stepped:Connect(function()
-        if (CFG.Noclip or CFG.AutoFarm) and player.Character then
+        if (CFG.Noclip or CFG.AutoFarm) and player.Character and currentSession and not currentSession.destroyed then
             for _, d in ipairs(player.Character:GetDescendants()) do
                 if d:IsA("BasePart") then
                     if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
@@ -225,6 +303,55 @@ local okAll, allErr = pcall(function()
             table.clear(originalCollide)
         end
     end)
+
+    local function flyTo(target)
+        local s = currentSession
+        if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end
+
+        local arrived = false
+        local startTime = os.clock()
+
+        local ok, err = pcall(function()
+            s.humanoid.AutoRotate = false
+            s.humanoid.PlatformStand = true
+
+            local f = s.root.AssemblyMass * CFG.ForcePerMass
+            s.bv.MaxForce = Vector3.new(f, f, f)
+            s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
+
+            while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
+                RunService.Heartbeat:Wait()
+                if s.destroyed then break end
+                
+                if not target:IsDescendantOf(Workspace) or os.clock() - startTime > 4.0 then Blacklist[target] = true break end
+                if not canCollect() then break end
+
+                local pos = s.root.Position
+                local offset = target.Position - pos
+                local dist = offset.Magnitude
+                
+                if dist <= 3 then
+                    arrived = true
+                    break
+                end
+
+                s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
+                local flat = Vector3.new(offset.X, 0, offset.Z)
+                if flat.Magnitude > 0.5 then
+                    s.bg.CFrame = CFrame.lookAt(pos, pos + flat)
+                end
+            end
+        end)
+        if not ok then warn("flyTo error:", err) end
+
+        if not s.destroyed then
+            releaseForces(s)
+            s.root.AssemblyLinearVelocity = Vector3.zero
+            s.root.AssemblyAngularVelocity = Vector3.zero
+            resetHumanoid(s)
+        end
+        return arrived
+    end
 
     -- Поиск конфет
     local COIN_PRIMARY = "Coin_Server"
@@ -285,10 +412,11 @@ local okAll, allErr = pcall(function()
     end
 
     local function nearestPart()
-        if not currentChar then return nil end
+        local s = currentSession
+        if not s or s.destroyed then return nil end
         refreshCoinCache()
         local best, bestDist = nil, math.huge
-        local pos = currentChar.root.Position
+        local pos = s.root.Position
         for _, c in ipairs(coinCache) do
             if c and c.Parent and not Blacklist[c] then
                 local d = (c.Position - pos).Magnitude
@@ -298,46 +426,12 @@ local okAll, allErr = pcall(function()
         return best
     end
 
-    local function flyTo(target)
-        local c = currentChar
-        if not c or not canCollect() or not target or not target.Parent then return false end
-        local origAR, origPS = c.humanoid.AutoRotate, c.humanoid.PlatformStand
-        local arrived, startTime = false, os.clock()
-        local ok, err = pcall(function()
-            c.humanoid.AutoRotate = false c.humanoid.PlatformStand = true
-            local mass = math.max(1, c.root.AssemblyMass)
-            local f = mass * CFG.ForcePerMass
-            c.bv.MaxForce = Vector3.new(f, f, f) c.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
-            while c.humanoid.Health > 0 and c.root.Parent do
-                RunService.Heartbeat:Wait()
-                if not target.Parent or not target:IsDescendantOf(Workspace) or os.clock() - startTime > 4.0 then Blacklist[target] = true break end
-                if not canCollect() then break end
-                local offset = target.Position - c.root.Position
-                local dist = offset.Magnitude
-                if dist <= 3 then arrived = true break end
-                c.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
-                local flat = Vector3.new(offset.X, 0, offset.Z)
-                if flat.Magnitude > 0.5 then c.bg.CFrame = CFrame.lookAt(c.root.Position, c.root.Position + flat) end
-            end
-        end)
-        if not ok then warn("[Liberium flyTo]", err) end
-        c.bv.MaxForce = Vector3.zero c.bv.Velocity = Vector3.zero c.bg.MaxTorque = Vector3.zero
-        if c.root.Parent then
-            c.root.AssemblyLinearVelocity = Vector3.zero c.root.AssemblyAngularVelocity = Vector3.zero
-            local _, yaw = c.root.CFrame:ToOrientation() c.root.CFrame = CFrame.new(c.root.Position) * CFrame.Angles(0, yaw, 0)
-        end
-        if c.humanoid.Parent and c.humanoid.Health > 0 then
-            c.humanoid.AutoRotate = origAR c.humanoid.PlatformStand = origPS c.humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        return arrived
-    end
-
     local function collectTarget(target)
-        local c = currentChar
-        if not c or not target.Parent then return end
+        local s = currentSession
+        if not s or s.destroyed or not target.Parent then return end
         Blacklist[target] = true collectedCount += 1
         pcall(function()
-            if typeof(firetouchinterest) == "function" then firetouchinterest(c.root, target, 0) firetouchinterest(c.root, target, 1) end
+            if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end
             local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
             if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
         end)
@@ -346,7 +440,7 @@ local okAll, allErr = pcall(function()
     local function collectSession()
         while CFG.AutoFarm and canCollect() do
             if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
-                if currentChar and currentChar.humanoid then currentChar.humanoid.Health = 0 end
+                if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end
                 break
             end
             local target = nearestPart()
@@ -366,7 +460,6 @@ local okAll, allErr = pcall(function()
         if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
     end)
 
-    -- ============== НАПОЛНЕНИЕ UI ==============
     local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
     addElement(secVisuals, TabVisuals, Window, { Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end }, "toggle")
 
