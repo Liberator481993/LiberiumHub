@@ -1,4 +1,4 @@
--- Liberium Hub | v28 | Noclip Fix + Phantom Coins Fix + Custom Icons
+-- Liberium Hub | v29 | Evade Loop + Strong Noclip
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -9,7 +9,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
 -- ==========================================
--- БИБЛИОТЕКА (LIBERIUM CYBER STYLE)
+-- БИБЛИОТЕКА (UI)
 -- ==========================================
 local PulseHub = (function()
     local C = {
@@ -22,12 +22,7 @@ local PulseHub = (function()
     local HEADER_H, SIDEBAR_W = 44, 160
     local FONT, FONT_BOLD = Enum.Font.Gotham, Enum.Font.GothamBold
 
-    local function create(class, props, parent)
-        local inst = Instance.new(class)
-        for k, v in pairs(props) do inst[k] = v end
-        if parent then inst.Parent = parent end
-        return inst
-    end
+    local function create(class, props, parent) local inst = Instance.new(class) for k, v in pairs(props) do inst[k] = v end if parent then inst.Parent = parent end return inst end
     local function corner(inst, radius) return create("UICorner", { CornerRadius = UDim.new(0, radius) }, inst) end
     local function stroke(inst, color) return create("UIStroke", { Color = color or C.Stroke, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, inst) end
     local function tween(inst, props, t) pcall(function() TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play() end) end
@@ -47,10 +42,8 @@ local PulseHub = (function()
         local gui = create("ScreenGui", { Name = "PulseHub", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
         self.Gui = gui
 
-        -- ===== ПЛАВАЮЩАЯ КНОПКА =====
         local floatBtn = create("ImageButton", { Name = "Open", Image = "rbxassetid://93999324301796", ImageColor3 = Color3.new(1,1,1), ScaleType = Enum.ScaleType.Crop, BackgroundColor3 = C.Background, AutoButtonColor = false, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 16, 0.5, 0), Size = UDim2.fromOffset(56, 56), Visible = false }, gui)
-        corner(floatBtn, 28)
-        local fs = stroke(floatBtn, C.Accent) fs.Thickness = 2
+        corner(floatBtn, 28) local fs = stroke(floatBtn, C.Accent) fs.Thickness = 2
         local fallbackTxt = create("TextLabel", { Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, Text = "LIB", Font = FONT_BOLD, TextSize = 16, TextColor3 = C.Accent, ZIndex = 0 }, floatBtn)
         
         local fDrag, fStart, fPos = false, nil, nil
@@ -58,7 +51,6 @@ local PulseHub = (function()
         UIS.InputChanged:Connect(function(i) if fDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then local d = i.Position - fStart floatBtn.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y) end end)
         UIS.InputEnded:Connect(function(i) if isPress(i) then fDrag = false end end)
 
-        -- ===== ОКНО =====
         local main = create("Frame", { Name = "Main", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(WIDTH, HEIGHT), BackgroundColor3 = C.Background, BorderSizePixel = 0, ClipsDescendants = true }, gui)
         corner(main, 12) stroke(main) self.Main = main
 
@@ -112,19 +104,16 @@ local PulseHub = (function()
         local bar = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.new(0, 4, 0.6, 0), BackgroundColor3 = C.Accent, BackgroundTransparency = 1, BorderSizePixel = 0 }, btn)
         corner(bar, 2)
         
-        -- КАСТОМНЫЕ ГЕОМЕТРИЧЕСКИЕ ИКОНКИ ВМЕСТО ЭМОДЗИ
         local iconHolder = create("Frame", { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(20, 20), BackgroundTransparency = 1 }, btn)
         if iconType == "eye" then
             local c = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1 }, iconHolder)
-            corner(c, 8) stroke(c, C.Text)
-            create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(6, 6), BackgroundColor3 = C.Text }, c)
+            corner(c, 8) stroke(c, C.Text) create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(6, 6), BackgroundColor3 = C.Text }, c)
         elseif iconType == "coins" then
             local s = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = C.Text, Rotation = 45 }, iconHolder)
             corner(s, 3)
         elseif iconType == "settings" then
             local c = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1 }, iconHolder)
-            corner(c, 8) stroke(c, C.Text)
-            create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(4, 4), BackgroundColor3 = C.Text }, c)
+            corner(c, 8) stroke(c, C.Text) create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(4, 4), BackgroundColor3 = C.Text }, c)
         end
 
         local label = create("TextLabel", { Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -50, 1, 0), BackgroundTransparency = 1, Text = name, Font = FONT_BOLD, TextSize = 14, TextColor3 = C.Muted, TextXAlignment = Enum.TextXAlignment.Left }, btn)
@@ -196,7 +185,7 @@ local TabMisc = Window:AddTab("Misc", "settings")
 -- ==========================================
 -- ЛОГИКА
 -- ==========================================
-local CFG = { MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false, AvoidRadius = 15 }
+local CFG = { MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false, AvoidRadius = 20 }
 local collectedCount = 0
 local Blacklist = setmetatable({}, { __mode = "k" })
 local originalCollide = setmetatable({}, { __mode = "k" })
@@ -222,8 +211,13 @@ local function getPlayerRole(plr)
     if rData and rData.Role then return rData.Role end
     local char = plr.Character
     if char then
-        if char:FindFirstChild("Knife") then return "Murderer" end
-        if char:FindFirstChild("Gun") then return "Sheriff" end
+        if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end
+        if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end
+    end
+    local bp = plr:FindFirstChild("Backpack")
+    if bp then
+        if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end
+        if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end
     end
     return "Innocent"
 end
@@ -248,7 +242,6 @@ local function canCollect()
     return true
 end
 
--- ESP ФИКС (Чуть менее прозрачный)
 task.spawn(function()
     while task.wait(0.2) do
         if CFG.ESP then
@@ -301,7 +294,7 @@ local function teardown(s)
     table.clear(s.conns) releaseForces(s)
     if s.root.Parent then s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero end
     resetHumanoid(s) s.bv:Destroy() s.bg:Destroy()
-    -- Восстанавливаем коллизии после полета
+    -- Восстановление коллизий
     for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
     table.clear(originalCollide)
     if currentSession == s then currentSession = nil end
@@ -326,7 +319,7 @@ player.CharacterAdded:Connect(bindCharacter)
 player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end)
 if player.Character then task.spawn(bindCharacter, player.Character) end
 
--- НОКЛИП ТОЛЬКО ВО ВРЕМЯ ПОЛЕТА (больше не влияет на лобби)
+-- ЖЕСТКИЙ НОКЛИП (Принудительно ломает коллизии, даже если сервер возвращает их)
 local function setNoclip(char, state)
     if not char then return end
     for _, d in ipairs(char:GetDescendants()) do
@@ -348,7 +341,7 @@ local function flyTo(target)
     local arrived = false local startTime = os.clock()
     local ok, err = pcall(function()
         s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true
-        setNoclip(s.character, true) -- ВКЛ НОКЛИП
+        setNoclip(s.character, true)
         local f = s.root.AssemblyMass * CFG.ForcePerMass
         s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
         
@@ -356,12 +349,19 @@ local function flyTo(target)
             RunService.Heartbeat:Wait()
             if s.destroyed then break end
             
+            -- ПРИНУДИТЕЛЬНЫЙ НОКЛИП КАЖДЫЙ КАДР (если вдруг сервер включил обратно)
+            s.root.CanCollide = false
+            
+            -- УМНОЕ УКЛОНЕНИЕ (Evade)
             local mPos, mDist = getClosestMurderer(s.root.Position)
             if mPos and mDist < CFG.AvoidRadius then
-                s.bv.Velocity = (s.root.Position - mPos).Unit * (CFG.MaxSpeed * 1.5) task.wait(0.3)
+                Blacklist[target] = true -- Бросаем эту монету, она слишком опасна
+                local escapeDir = (s.root.Position - mPos).Unit
+                s.bv.Velocity = escapeDir * (CFG.MaxSpeed * 1.5)
+                task.wait(0.2) -- Даем время отлететь подальше
             else
+                -- Обычный полет
                 local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude
-                -- Увеличили дистанцию сбора до 5, чтобы точно зацепить хитбокс
                 if dist <= 5 then arrived = true break end
                 s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
                 local flat = Vector3.new(offset.X, 0, offset.Z)
@@ -437,8 +437,8 @@ local function collectTarget(target)
     pcall(function()
         if typeof(firetouchinterest) == "function" then 
             firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1)
-            task.wait(0.05) -- Даем время серверу обработать
-            firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) -- Повторный пинг
+            task.wait(0.05)
+            firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1)
         end
         local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
         if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
@@ -455,7 +455,6 @@ local function collectSession()
         if not target then break end
         if flyTo(target) then 
             collectTarget(target) 
-            -- ПРОВЕРКА НА ФАНТОМ: Если через 0.2 сек конфета всё ещё висит, значит её нет на сервере
             task.wait(0.2)
             if target and target.Parent then Blacklist[target] = true end
         else 
@@ -487,7 +486,7 @@ end)
 secFarm:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end)
 secFarm:AddToggle("Auto Reset (Full Bag)", false, function(v) CFG.AutoReset = v end)
 secFarm:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end)
-secFarm:AddSlider("Avoid Murderer Radius", 0, 30, 15, function(v) CFG.AvoidRadius = v end)
+secFarm:AddSlider("Avoid Murderer Radius", 0, 30, 20, function(v) CFG.AvoidRadius = v end)
 
 local secMisc = TabMisc:AddSection("Miscellaneous")
 secMisc:AddToggle("Anti-AFK", false, function(v) CFG.AntiAFK = v end)
