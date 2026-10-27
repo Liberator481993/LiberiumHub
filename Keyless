@@ -1,4 +1,4 @@
--- Liberium Hub | v30 | Fling Murderer + Return to Original Position
+-- Liberium Hub | v31 | Anti-Fling + Auto-Fling Fix
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -294,30 +294,30 @@ local function getClosestMurderer(pos)
 end
 
 -- ==========================================
--- ФУНКЦИЯ ФЛИНГА
+-- ФУНКЦИЯ ФЛИНГА (С АНКОРОМ)
 -- ==========================================
 local function FlingMurderer()
     local s = currentSession
     if not s or s.destroyed or s.humanoid.Health <= 0 then return end
-    local myRoot = s.root
-    local oldCFrame = myRoot.CFrame -- Запоминаем нашу позицию
-    local oldVel = myRoot.AssemblyLinearVelocity
     
-    -- Ищем маньяка
+    local myRoot = s.root
     local mRoot = getClosestMurderer(myRoot.Position)
     if not mRoot then return end
-    
-    -- 1. Телепортируемся к нему
-    myRoot.CFrame = mRoot.CFrame
-    myRoot.AssemblyLinearVelocity = Vector3.zero
-    
-    -- 2. Выдаем ему ебейшую скорость вращения и полета
+
+    -- 1. Запоминаем нашу позицию и ставим на анкор
+    local oldCFrame = myRoot.CFrame
+    local oldAnchored = myRoot.Anchored
+    myRoot.Anchored = true -- ФИКС: Теперь физика нас не выкинет за карту
+
     pcall(function()
         if setnetworkowner then pcall(setnetworkowner, mRoot, player) end
         
+        -- 2. Телепортируемся к маньяку и флингаем его
+        myRoot.CFrame = mRoot.CFrame
+        
         local spin = Instance.new("BodyAngularVelocity")
         spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5)
-        spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) -- 1e9 чтобы не крашило мобилки вместо math.huge
+        spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
         spin.Parent = mRoot
         
         local push = Instance.new("BodyVelocity")
@@ -325,30 +325,29 @@ local function FlingMurderer()
         push.MaxForce = Vector3.new(1e9, 1e9, 1e9)
         push.Parent = mRoot
         
-        task.wait(0.1) -- Ждем пока физика сработает
+        task.wait(0.1)
         
         spin:Destroy()
         push:Destroy()
     end)
     
-    -- 3. Возвращаемся обратно на то же место
-    task.wait(0.1)
+    -- 3. Возвращаемся на исходную и снимаем анкор
     myRoot.CFrame = oldCFrame
-    myRoot.AssemblyLinearVelocity = oldVel
+    myRoot.Anchored = oldAnchored
     
-    -- Останавливаем наши силы, чтобы не улететь
+    -- Останавливаем наши силы
     if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end
     if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
 end
 
--- Авто-флинг (если включен в меню)
+-- Авто-флинг (Радиус увеличен до 50)
 task.spawn(function()
     while task.wait(0.5) do
         if CFG.AutoFling and currentSession and not currentSession.destroyed then
             local mRoot, mDist = getClosestMurderer(currentSession.root.Position)
-            if mRoot and mDist < 15 then
+            if mRoot and mDist < 50 then
                 FlingMurderer()
-                task.wait(1) -- Пауза чтобы не спамить
+                task.wait(2) -- Кулдаун 2 секунды
             end
         end
     end
