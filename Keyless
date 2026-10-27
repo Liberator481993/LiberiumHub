@@ -1,4 +1,4 @@
--- Liberium Hub | Cross-Platform Stable v2
+-- Liberium Hub | Cross-Platform Stable v4
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -15,15 +15,16 @@ local Cam = Workspace.CurrentCamera
 local CFG = {
     MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
     MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false,
-    AvoidRadius = 5,
+    AvoidRadius = 5, Debug = false,
 }
 
--- shared state
 local collectedCount = 0
 local Blacklist = setmetatable({}, { __mode = "k" })
 local currentChar = nil
 local originalCollide = setmetatable({}, { __mode = "k" })
 local roles = {}
+
+local function D(...) if CFG.Debug then print("[Liberium]", ...) end
 
 -- UI
 local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Stable", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
@@ -63,31 +64,19 @@ local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- РОЛИ
+-- РОЛИ (только ESP)
 -- ==========================================
 task.spawn(function()
     while task.wait(1) do
         pcall(function()
             local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
             if getData and getData:IsA("RemoteFunction") then
-                local success, data = getData:InvokeServer()
-                if success and type(data) == "table" then roles = data end
+                local ok, data = pcall(function() return getData:InvokeServer() end)
+                if ok and type(data) == "table" then roles = data end
             end
         end)
     end
 end)
-
-local function canCollect()
-    local char = player.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-    local myData = roles[player.Name]
-    if not myData then return false end
-    if myData.Dead then return false end
-    local r = myData.Role
-    if not r or r == "Spectator" or r == "Lobby" then return false end
-    return true
-end
 
 local function getRoleColor(plr)
     local rData = roles[plr.Name]
@@ -98,6 +87,13 @@ local function getRoleColor(plr)
         if r == "Survivor" then return Color3.fromRGB(255, 165, 0) end
     end
     return Color3.fromRGB(50, 255, 100)
+end
+
+local function canCollect()
+    local c = currentChar
+    if not c or not c.root or not c.root.Parent then return false end
+    if not c.humanoid or c.humanoid.Health <= 0 then return false end
+    return true
 end
 
 -- ESP
@@ -136,11 +132,9 @@ local function bindCharacter(character)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if not (root and humanoid) or player.Character ~= character then return end
 
-    -- новый раунд = новые конфеты; сбрасываем чтобы AutoReset не триггерился повторно
     collectedCount = 0
     table.clear(Blacklist)
 
-    -- PulseHub не сможет сбить с ног
     pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
     pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
 
@@ -163,6 +157,7 @@ local function bindCharacter(character)
     bg.Parent = root
 
     currentChar = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg }
+    D("bindCharacter ok", character.Name)
 end
 
 player.CharacterAdded:Connect(bindCharacter)
@@ -183,6 +178,103 @@ RunService.Stepped:Connect(function()
 end)
 
 -- ==========================================
+-- ПОИСК КОНФЕТ
+-- ==========================================
+local COIN_PRIMARY = "Coin_Server"
+local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true }
+
+local coinCache = {}
+local coinCacheTime = 0
+local coinContainer = nil
+
+local function findCoinContainer()
+    return Workspace:FindFirstChild("CoinContainer", true)
+        or Workspace:FindFirstChild("Coins", true)
+        or Workspace:FindFirstChild("CoinFolder", true)
+end
+
+local function isCoinName(name)
+    if name == COIN_PRIMARY then return true end
+    if COIN_FALLBACK[name] then return true end
+    if name == "CoinVisual" then return false end
+    local n = string.lower(name)
+    if string.find(n, "coin", 1, true) then return true end
+    if string.find(n, "candy", 1, true) then return true end
+    if string.find(n, "sweet", 1, true) then return true end
+    return false
+end
+
+local function isCoinAlive(c, container)
+    if not c or not c.Parent then return false end
+    if not c:IsDescendantOf(Workspace) then return false end
+    if container and not c:IsDescendantOf(container) then return false end
+    local vis = c:FindFirstChild("CoinVisual")
+    if vis and vis:IsA("BasePart") and vis.Transparency >= 0.99 then return false end
+    return true
+end
+
+local function refreshCoinCache()
+    local t = os.clock()
+    if t - coinCacheTime < 1 then return end
+    coinCacheTime = t
+    coinCache = {}
+
+    coinContainer = findCoinContainer()
+
+    if coinContainer then
+        for _, c in ipairs(coinContainer:GetChildren()) do
+            if c:IsA("BasePart") and isCoinName(c.Name) then
+                if not Blacklist[c] and isCoinAlive(c, coinContainer) then
+                    coinCache[#coinCache+1] = c
+                elseif not isCoinAlive(c, coinContainer) then
+                    Blacklist[c] = true
+                end
+            end
+        end
+    end
+
+    if #coinCache == 0 then
+        for _, d in ipairs(Workspace:GetDescendants()) do
+            if d:IsA("BasePart") and isCoinName(d.Name) and not Blacklist[d] and isCoinAlive(d, nil) then
+                coinCache[#coinCache+1] = d
+            end
+        end
+    end
+
+    D("coinCache:", #coinCache, "container:", coinContainer and coinContainer:GetFullName() or "NONE")
+end
+
+local function isCoinGuarded(pos)
+    local r = CFG.AvoidRadius
+    if r <= 0 then return false end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+            if pRoot and (pRoot.Position - pos).Magnitude < r then return true end
+        end
+    end
+    return false
+end
+
+local function nearestPart()
+    if not currentChar then return nil end
+    refreshCoinCache()
+    local best, bestDist = nil, math.huge
+    local pos = currentChar.root.Position
+    for _, c in ipairs(coinCache) do
+        if c and c.Parent and not Blacklist[c] then
+            local d = (c.Position - pos).Magnitude
+            if d < bestDist and not isCoinGuarded(c.Position) then
+                best, bestDist = c, d
+            end
+        else
+            Blacklist[c] = true
+        end
+    end
+    return best
+end
+
+-- ==========================================
 -- ПОЛЕТ
 -- ==========================================
 local function flyTo(target)
@@ -193,7 +285,7 @@ local function flyTo(target)
     local origPS = c.humanoid.PlatformStand
     local arrived = false
     local startTime = os.clock()
-    local MAX_FLIGHT = 4.0  -- fallback таймаут: недосягаемая / под-картой цель
+    local MAX_FLIGHT = 4.0
 
     local ok, err = pcall(function()
         c.humanoid.AutoRotate = false
@@ -206,17 +298,12 @@ local function flyTo(target)
         while c.humanoid.Health > 0 and c.root.Parent do
             RunService.Heartbeat:Wait()
 
-            -- фантомная конфета: сервер уже удалил, клиент ещё держит ref
             if not target.Parent or not target:IsDescendantOf(Workspace) then
-                Blacklist[target] = true
-                break
+                Blacklist[target] = true; break
             end
-
             if os.clock() - startTime > MAX_FLIGHT then
-                Blacklist[target] = true
-                break
+                Blacklist[target] = true; break
             end
-
             if not canCollect() then break end
 
             local offset = target.Position - c.root.Position
@@ -232,7 +319,7 @@ local function flyTo(target)
             end
         end
     end)
-    if not ok then warn("[Liberium flyTo error]:", err) end
+    if not ok then warn("[Liberium flyTo]", err) end
 
     c.bv.MaxForce = Vector3.zero
     c.bv.Velocity = Vector3.zero
@@ -254,37 +341,6 @@ end
 -- ==========================================
 -- СБОР
 -- ==========================================
--- PulseHub kill-touch / murderer на точке — скипаем конфету
-local function isCoinGuarded(pos)
-    local r = CFG.AvoidRadius
-    if r <= 0 then return false end
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-            if pRoot and (pRoot.Position - pos).Magnitude < r then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local function nearestPart()
-    local folder = Workspace:FindFirstChild("CoinContainer", true)
-    if not (folder and currentChar) then return nil end
-    local best, bestDist = nil, math.huge
-    local pos = currentChar.root.Position
-    for _, child in folder:GetChildren() do
-        if child.Name == "Coin_Server" and child:IsA("BasePart") and not Blacklist[child] then
-            local d = (child.Position - pos).Magnitude
-            if d < bestDist and not isCoinGuarded(child.Position) then
-                best, bestDist = child, d
-            end
-        end
-    end
-    return best
-end
-
 local function collectTarget(target)
     local c = currentChar
     if not c or not target.Parent then return end
@@ -300,25 +356,30 @@ local function collectTarget(target)
             fireproximityprompt(prompt)
         end
     end)
+    D("collected:", target:GetFullName(), "total=", collectedCount)
 end
 
 local function collectSession()
+    D("session start")
     while CFG.AutoFarm and canCollect() do
         if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
-            if currentChar and currentChar.humanoid then
-                currentChar.humanoid.Health = 0
-            end
+            if currentChar and currentChar.humanoid then currentChar.humanoid.Health = 0 end
             break
         end
         local target = nearestPart()
-        if not target then break end
+        if not target then
+            D("no target, break")
+            break
+        end
+        D("target:", target:GetFullName())
         if flyTo(target) then
             collectTarget(target)
             task.wait(0.1)
         else
-            break
+            D("flyTo failed", target:GetFullName())
         end
     end
+    D("session end total=", collectedCount)
 end
 
 -- ==========================================
@@ -349,6 +410,7 @@ secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = functio
     if v then
         collectedCount = 0
         table.clear(Blacklist)
+        coinCacheTime = 0
     end
 end })
 secFarm:Slider({ Name = "Farm Speed (10-24)", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
@@ -359,5 +421,6 @@ secFarm:Slider({ Name = "Avoid Players radius (0=off)", Min = 0, Max = 10, Defau
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 secMisc:Toggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
+secMisc:Toggle({ Name = "Debug (console)", Default = false, Callback = function(v) CFG.Debug = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "v2: phantom-coins + PulseHub avoidance", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "v4: Coin_Server primary, CoinVisual liveness", Icon = "check", Tone = "Success", Duration = 5 })
