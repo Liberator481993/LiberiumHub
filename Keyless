@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v35 | Premium UI + Real Logic
+-- LIBERIUM HUB | v36 | Fixed Size (PulseHub style) + Real Logic
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -26,10 +26,9 @@ local roles = {}
 local canFarmNow = false
 local currentSession = nil 
 local lastHealth = 100
-local SelectedPlayerToFling = nil
 
 -- ==========================================
--- БИБЛИОТЕКА UI (ОТ CHATGPT)
+-- БИБЛИОТЕКА UI
 -- ==========================================
 local Library = {}
 Library.__index = Library
@@ -62,20 +61,19 @@ function Library.new(options)
     self.Backdrop = create("Frame", { Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.48, BorderSizePixel = 0 }, self.Gui)
     pcall(function() local oldBlur = Lighting:FindFirstChild("LiberiumUIBlur") if oldBlur then oldBlur:Destroy() end self.Blur = create("BlurEffect", { Name = "LiberiumUIBlur", Size = 7, Enabled = true }, Lighting) end)
 
-    -- КНОПКА ОТКРЫТИЯ С ТВОЕЙ КАРТИНКОЙ
-    self.OpenButton = create("ImageButton", { Name = "OpenWindow", Position = UDim2.new(0, 14, 0.5, -26), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Theme.Panel, Image = "rbxassetid://93999324301796", ScaleType = Enum.ScaleType.Crop, Visible = false, AutoButtonColor = false }, self.Gui)
+    self.OpenButton = create("ImageButton", { Name = "OpenWindow", Position = UDim2.new(0, 80, 0.5, -28), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Theme.Panel, Image = "rbxassetid://93999324301796", ScaleType = Enum.ScaleType.Crop, Visible = false, AutoButtonColor = false }, self.Gui)
     addCorner(self.OpenButton, 28) addStroke(self.OpenButton, Theme.Green, 0.25, 1.4)
     
-    -- Таскание плавающей кнопки
     local fDrag, fStart, fPos = false, nil, nil
     self.OpenButton.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag, fStart, fPos = true, i.Position, self.OpenButton.Position end end)
     UserInputService.InputChanged:Connect(function(i) if fDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then local d = i.Position - fStart self.OpenButton.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y) end end)
     UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag = false end end)
 
-    self.Main = create("Frame", { Name = "MainWindow", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.88, 0.82), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.04, BorderSizePixel = 0, ClipsDescendants = true }, self.Gui)
+    -- ОКНО ФИКСИРОВАННОГО РАЗМЕРА (PULSE STYLE)
+    self.Main = create("Frame", { Name = "MainWindow", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(580, 380), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.04, BorderSizePixel = 0, ClipsDescendants = true }, self.Gui)
     addCorner(self.Main, 18) self.MainStroke = addStroke(self.Main, Theme.Green, 0.5, 1.2) addGradient(self.Main, Color3.fromRGB(17, 24, 19), Theme.Background, 35)
-    self.Scale = create("UIScale", { Scale = 1 }, self.Main) create("UISizeConstraint", { MinSize = Vector2.new(310, 360), MaxSize = Vector2.new(1050, 760) }, self.Main)
-
+    self.Scale = create("UIScale", { Scale = 1 }, self.Main)
+    
     self.Header = create("Frame", { Name = "Header", Size = UDim2.new(1, 0, 0, 70), BackgroundColor3 = Theme.Panel, BackgroundTransparency = 0.18, BorderSizePixel = 0 }, self.Main)
     addGradient(self.Header, Color3.fromRGB(27, 31, 29), Theme.Panel, 90)
     local emblem = create("Frame", { Position = UDim2.new(0, 16, 0, 12), Size = UDim2.fromOffset(44, 44), BackgroundColor3 = Color3.fromRGB(20, 35, 25), BorderSizePixel = 0 }, self.Header)
@@ -118,18 +116,26 @@ function Library.new(options)
     self.HeaderSearch:GetPropertyChangedSignal("Text"):Connect(function() self:FilterTabs(self.HeaderSearch.Text) end)
     self.SideSearch:GetPropertyChangedSignal("Text"):Connect(function() self:FilterTabs(self.SideSearch.Text) end)
 
+    -- ЖЕСТКИЙ ФИКС РАЗМЕРА ПОД ТЕЛЕФОН
     local function responsive()
         local camera = workspace.CurrentCamera if not camera then return end
-        local viewport = camera.ViewportSize local width, height = viewport.X, viewport.Y
-        local maxW, maxH = math.floor(width * 0.92), math.floor(height * 0.92)
-        self.Main.Size = UDim2.fromOffset(math.max(310, math.min(960, maxW)), math.max(360, math.min(720, maxH)))
-        if width < 620 then
+        local viewport = camera.ViewportSize
+        local width, height = viewport.X, viewport.Y
+        
+        -- Базовый размер окна всегда 580x380
+        -- Считаем, насколько его нужно уменьшить, чтобы влезло с отступами
+        local scaleX = (width * 0.90) / 580
+        local scaleY = (height * 0.80) / 380
+        self.Scale.Scale = math.min(scaleX, scaleY, 1.2) 
+        
+        if width < 700 then
+            -- Мобильная раскладка (сворачиваем сайдбар в иконки)
             self.Sidebar.Position = UDim2.new(0, 7, 0, 8) self.Sidebar.Size = UDim2.new(0, 61, 1, -16) self.SideSearch.Visible = false
             self.Nav.Position = UDim2.new(0, 5, 0, 9) self.Nav.Size = UDim2.new(1, -10, 1, -18)
             self.Content.Position = UDim2.new(0, 76, 0, 8) self.Content.Size = UDim2.new(1, -84, 1, -16)
             self.HeaderSearch.Visible = false self.TitleLabel.Size = UDim2.new(1, -125, 0, 24) self.TitleLabel.TextSize = 14 self.Subtitle.Visible = false
-            self.Body.Position = UDim2.new(0, 0, 0, 71) self.Body.Size = UDim2.new(1, 0, 1, -71)
         else
+            -- ПК раскладка
             self.Sidebar.Position = UDim2.new(0, 12, 0, 12) self.Sidebar.Size = UDim2.new(0, 165, 1, -24) self.SideSearch.Visible = true
             self.Nav.Position = UDim2.new(0, 8, 0, 55) self.Nav.Size = UDim2.new(1, -16, 1, -66)
             self.Content.Position = UDim2.new(0, 189, 0, 12) self.Content.Size = UDim2.new(1, -201, 1, -24)
@@ -141,23 +147,11 @@ function Library.new(options)
     return setmetatable(self, Window)
 end
 
-function Window:FilterTabs(query)
-    query = string.lower(query or "")
-    for _, tab in ipairs(self.Tabs) do
-        local match = query == "" or string.find(string.lower(tab.Name), query, 1, true) ~= nil or string.find(string.lower(tab.Icon), query, 1, true) ~= nil
-        tab.Button.Visible = match
-    end
-end
+function Window:FilterTabs(query) query = string.lower(query or "") for _, tab in ipairs(self.Tabs) do local match = query == "" or string.find(string.lower(tab.Name), query, 1, true) ~= nil or string.find(string.lower(tab.Icon), query, 1, true) ~= nil tab.Button.Visible = match end end
 function Window:ClearContent() for _, child in ipairs(self.Content:GetChildren()) do if child:IsA("GuiObject") and child ~= self.ContentLayout then child:Destroy() end end end
 function Window:SelectTab(tab)
-    if not tab then return end
-    self.ActiveTab = tab
-    for _, item in ipairs(self.Tabs) do
-        local selected = item == tab
-        makeTween(item.Button, 0.16, { BackgroundColor3 = selected and Color3.fromRGB(23, 48, 29) or Theme.Panel })
-        item.Accent.BackgroundTransparency = selected and 0 or 1
-        item.Label.TextColor3 = selected and Theme.Green or Theme.Muted
-    end
+    if not tab then return end self.ActiveTab = tab
+    for _, item in ipairs(self.Tabs) do local selected = item == tab makeTween(item.Button, 0.16, { BackgroundColor3 = selected and Color3.fromRGB(23, 48, 29) or Theme.Panel }) item.Accent.BackgroundTransparency = selected and 0 or 1 item.Label.TextColor3 = selected and Theme.Green or Theme.Muted end
     self:ClearContent()
     for _, section in ipairs(tab.Sections) do section:Render(self.Content) end
     for _, playerList in ipairs(tab.PlayerLists) do playerList:Render(self.Content) end
@@ -167,12 +161,9 @@ function Window:AddTab(name, icon)
     local tab = setmetatable({ Window = self, Name = name, Icon = icon or "◈", Sections = {}, PlayerLists = {} }, Tab)
     local button = makeButton(self.Nav, "", UDim2.new(1, 0, 0, 42), Theme.Panel, Theme.Text)
     button.Name = name .. "Tab" button.LayoutOrder = #self.Tabs + 1 addCorner(button, 10)
-    local accent = create("Frame", { Name = "Accent", Position = UDim2.new(0, 0, 0, 8), Size = UDim2.new(0, 3, 1, -16), BackgroundColor3 = Theme.Green, BackgroundTransparency = 1, BorderSizePixel = 0 }, button)
-    addCorner(accent, 3)
-    local iconLabel = makeLabel(button, tab.Icon, 17, Theme.Muted, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
-    iconLabel.Position = UDim2.new(0, 4, 0, 0) iconLabel.Size = UDim2.new(0, 32, 1, 0)
-    local textLabel = makeLabel(button, name, 11, Theme.Muted, Enum.Font.GothamSemibold)
-    textLabel.Name = "TabLabel" textLabel.Position = UDim2.new(0, 38, 0, 0) textLabel.Size = UDim2.new(1, -44, 1, 0)
+    local accent = create("Frame", { Name = "Accent", Position = UDim2.new(0, 0, 0, 8), Size = UDim2.new(0, 3, 1, -16), BackgroundColor3 = Theme.Green, BackgroundTransparency = 1, BorderSizePixel = 0 }, button) addCorner(accent, 3)
+    local iconLabel = makeLabel(button, tab.Icon, 17, Theme.Muted, Enum.Font.GothamBold, Enum.TextXAlignment.Center) iconLabel.Position = UDim2.new(0, 4, 0, 0) iconLabel.Size = UDim2.new(0, 32, 1, 0)
+    local textLabel = makeLabel(button, name, 11, Theme.Muted, Enum.Font.GothamSemibold) textLabel.Name = "TabLabel" textLabel.Position = UDim2.new(0, 38, 0, 0) textLabel.Size = UDim2.new(1, -44, 1, 0)
     tab.Button, tab.Accent, tab.Label = button, accent, textLabel
     button.Activated:Connect(function() self:SelectTab(tab) end)
     connectHover(button, Theme.Panel, Theme.CardHover)
@@ -182,8 +173,7 @@ function Window:AddTab(name, icon)
     return tab
 end
 function Window:Close()
-    if self.Closed then return end
-    self.Closed = true
+    if self.Closed then return end self.Closed = true
     makeTween(self.Main, 0.2, { BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0.53, 10) })
     makeTween(self.Backdrop, 0.2, { BackgroundTransparency = 1 })
     task.delay(0.21, function() self.Main.Visible = false self.Backdrop.Visible = false self.OpenButton.Visible = true if self.Blur then self.Blur.Enabled = false end end)
@@ -197,24 +187,9 @@ function Window:Open()
 end
 function Tab:AddSection(name) local section = setmetatable({ Tab = self, Name = name, Items = {} }, Section) table.insert(self.Sections, section) if self.Window.ActiveTab == self then self.Window:SelectTab(self) end return section end
 function Tab:AddPlayerList(name) local list = setmetatable({ Tab = self, Name = name or "Players", Players = {}, Search = "", SelectedPlayer = nil }, PlayerList) table.insert(self.PlayerLists, list) if self.Window.ActiveTab == self then self.Window:SelectTab(self) end return list end
-function Section:AddToggle(name, defaultState, callback)
-    local item = { Type = "Toggle", Name = name, Value = defaultState == true, Callback = callback }
-    table.insert(self.Items, item)
-    if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end
-    return item
-end
-function Section:AddSlider(name, minimum, maximum, defaultValue, callback)
-    local item = { Type = "Slider", Name = name, Min = minimum, Max = maximum, Value = math.clamp(defaultValue or minimum, minimum, maximum), Callback = callback }
-    table.insert(self.Items, item)
-    if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end
-    return item
-end
-function Section:AddButton(name, callback)
-    local item = { Type = "Button", Name = name, Callback = callback }
-    table.insert(self.Items, item)
-    if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end
-    return item
-end
+function Section:AddToggle(name, defaultState, callback) local item = { Type = "Toggle", Name = name, Value = defaultState == true, Callback = callback } table.insert(self.Items, item) if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end return item end
+function Section:AddSlider(name, minimum, maximum, defaultValue, callback) local item = { Type = "Slider", Name = name, Min = minimum, Max = maximum, Value = math.clamp(defaultValue or minimum, minimum, maximum), Callback = callback } table.insert(self.Items, item) if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end return item end
+function Section:AddButton(name, callback) local item = { Type = "Button", Name = name, Callback = callback } table.insert(self.Items, item) if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end return item end
 
 function Section:Render(parent)
     local container = create("Frame", { Name = self.Name .. "Section", Size = UDim2.new(1, 0, 0, 50), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.16, BorderSizePixel = 0 }, parent)
@@ -230,11 +205,9 @@ function Section:Render(parent)
             local switch = makeButton(row, "", UDim2.fromOffset(42, 23), item.Value and Theme.Green or Color3.fromRGB(60, 64, 61), Theme.Text)
             switch.Name = "Switch" switch.AnchorPoint = Vector2.new(1, 0.5) switch.Position = UDim2.new(1, -2, 0.5, 0) addCorner(switch, 20)
             local switchStroke = addStroke(switch, item.Value and Theme.Green or Theme.Line, 0.25, 1)
-            local thumb = create("Frame", { Name = "Thumb", Position = item.Value and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Theme.White, BorderSizePixel = 0 }, switch)
-            addCorner(thumb, 20)
+            local thumb = create("Frame", { Name = "Thumb", Position = item.Value and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Theme.White, BorderSizePixel = 0 }, switch) addCorner(thumb, 20)
             switch.Activated:Connect(function()
-                item.Value = not item.Value
-                makeTween(switch, 0.16, { BackgroundColor3 = item.Value and Theme.Green or Color3.fromRGB(60, 64, 61) })
+                item.Value = not item.Value makeTween(switch, 0.16, { BackgroundColor3 = item.Value and Theme.Green or Color3.fromRGB(60, 64, 61) })
                 makeTween(switchStroke, 0.16, { Color = item.Value and Theme.Green or Theme.Line })
                 makeTween(thumb, 0.16, { Position = item.Value and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8) })
                 if item.Callback then task.spawn(item.Callback, item.Value) end
@@ -243,176 +216,84 @@ function Section:Render(parent)
             local row = create("Frame", { Name = item.Name, Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, LayoutOrder = index }, container)
             local titleLabel = makeLabel(row, item.Name, 12, Theme.Text, Enum.Font.GothamSemibold) titleLabel.Position = UDim2.new(0, 0, 0, 0) titleLabel.Size = UDim2.new(0.75, 0, 0, 22)
             local valueLabel = makeLabel(row, tostring(item.Value), 11, Theme.Green, Enum.Font.GothamBold, Enum.TextXAlignment.Right) valueLabel.Position = UDim2.new(0.75, 0, 0, 0) valueLabel.Size = UDim2.new(0.25, 0, 0, 22)
-            local track = create("Frame", { Name = "Track", Position = UDim2.new(0, 0, 0, 38), Size = UDim2.new(1, -2, 0, 4), BackgroundColor3 = Color3.fromRGB(61, 67, 63), BorderSizePixel = 0 }, row)
-            addCorner(track, 5)
+            local track = create("Frame", { Name = "Track", Position = UDim2.new(0, 0, 0, 38), Size = UDim2.new(1, -2, 0, 4), BackgroundColor3 = Color3.fromRGB(61, 67, 63), BorderSizePixel = 0 }, row) addCorner(track, 5)
             local percent = (item.Value - item.Min) / (item.Max - item.Min)
             local fill = create("Frame", { Size = UDim2.new(percent, 0, 1, 0), BackgroundColor3 = Theme.Green, BorderSizePixel = 0 }, track) addCorner(fill, 5)
-            local thumb = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(percent, 0, 0.5, 0), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Theme.White, BorderSizePixel = 0 }, track)
-            addCorner(thumb, 20) addStroke(thumb, Theme.Green, 0.35, 1)
+            local thumb = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(percent, 0, 0.5, 0), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Theme.White, BorderSizePixel = 0 }, track) addCorner(thumb, 20) addStroke(thumb, Theme.Green, 0.35, 1)
             local hit = makeButton(track, "", UDim2.new(1, 0, 0, 28), Theme.Panel, Theme.Text) hit.Position = UDim2.new(0, 0, 0.5, -14) hit.BackgroundTransparency = 1 hit.ZIndex = 4
             local dragging = false
             local function setFromX(x)
                 local p = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-                local value = math.floor(item.Min + (item.Max - item.Min) * p + 0.5)
-                item.Value = value valueLabel.Text = tostring(value)
-                makeTween(fill, 0.05, { Size = UDim2.new(p, 0, 1, 0) }, Enum.EasingStyle.Linear)
-                makeTween(thumb, 0.05, { Position = UDim2.new(p, 0, 0.5, 0) }, Enum.EasingStyle.Linear)
+                local value = math.floor(item.Min + (item.Max - item.Min) * p + 0.5) item.Value = value valueLabel.Text = tostring(value)
+                makeTween(fill, 0.05, { Size = UDim2.new(p, 0, 1, 0) }, Enum.EasingStyle.Linear) makeTween(thumb, 0.05, { Position = UDim2.new(p, 0, 0.5, 0) }, Enum.EasingStyle.Linear)
                 if item.Callback then task.spawn(item.Callback, value) end
             end
             hit.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true setFromX(input.Position.X) end end)
             UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then setFromX(input.Position.X) end end)
             UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end)
         elseif item.Type == "Button" then
-            local btn = makeButton(container, item.Name, UDim2.new(1, 0, 0, 36), Theme.Panel, Theme.Text)
-            btn.LayoutOrder = index addCorner(btn, 8)
-            btn.Activated:Connect(function()
-                makeTween(btn, 0.1, { BackgroundColor3 = Theme.GreenDark })
-                task.delay(0.15, function() makeTween(btn, 0.2, { BackgroundColor3 = Theme.Panel }) end)
-                if item.Callback then task.spawn(item.Callback) end
-            end)
+            local btn = makeButton(container, item.Name, UDim2.new(1, 0, 0, 36), Theme.Panel, Theme.Text) btn.LayoutOrder = index addCorner(btn, 8)
+            btn.Activated:Connect(function() makeTween(btn, 0.1, { BackgroundColor3 = Theme.GreenDark }) task.delay(0.15, function() makeTween(btn, 0.2, { BackgroundColor3 = Theme.Panel }) end) if item.Callback then task.spawn(item.Callback) end end)
         end
     end
 end
 
 function PlayerList:UpdatePlayers() self.Players = Players:GetPlayers() if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end end
 function PlayerList:Render(parent)
-    local container = create("Frame", { Name = self.Name:gsub("%s+", "") .. "PlayerList", Size = UDim2.new(1, 0, 0, 220), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.16, BorderSizePixel = 0 }, parent)
-    addCorner(container, 13) addStroke(container, Theme.Line, 0.48, 1)
+    local container = create("Frame", { Name = self.Name:gsub("%s+", "") .. "PlayerList", Size = UDim2.new(1, 0, 0, 220), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.16, BorderSizePixel = 0 }, parent) addCorner(container, 13) addStroke(container, Theme.Line, 0.48, 1)
     create("UIPadding", { PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, container)
     create("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, container)
     local title = makeLabel(container, string.upper(self.Name), 9, Theme.Muted, Enum.Font.GothamBold) title.Size = UDim2.new(1, 0, 0, 18) title.LayoutOrder = 0
-    local search = create("TextBox", { PlaceholderText = "Search players...", Text = self.Search, ClearTextOnFocus = false, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Panel, TextColor3 = Theme.Text, PlaceholderColor3 = Theme.Muted, TextSize = 11, Font = Enum.Font.Gotham, BorderSizePixel = 0, LayoutOrder = 1 }, container)
-    addCorner(search, 9)
-    local rows = create("Frame", { Name = "Rows", Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 2 }, container)
-    create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, rows)
+    local search = create("TextBox", { PlaceholderText = "Search players...", Text = self.Search, ClearTextOnFocus = false, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Panel, TextColor3 = Theme.Text, PlaceholderColor3 = Theme.Muted, TextSize = 11, Font = Enum.Font.Gotham, BorderSizePixel = 0, LayoutOrder = 1 }, container) addCorner(search, 9)
+    local rows = create("Frame", { Name = "Rows", Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 2 }, container) create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, rows)
     local function populate(query)
-        self.Search = query or ""
-        for _, child in ipairs(rows:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+        self.Search = query or "" for _, child in ipairs(rows:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
         local count = 0
         for _, player in ipairs(self.Players) do
             if string.find(string.lower(player.Name), string.lower(self.Search), 1, true) or string.find(string.lower(player.DisplayName), string.lower(self.Search), 1, true) then
                 count += 1
-                local row = create("Frame", { Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, LayoutOrder = count }, rows)
-                addCorner(row, 10)
-                local avatar = create("ImageLabel", { Position = UDim2.new(0, 7, 0.5, -17), Size = UDim2.fromOffset(34, 34), BackgroundColor3 = Theme.Card, Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=48&h=48", BorderSizePixel = 0 }, row)
-                addCorner(avatar, 18)
+                local row = create("Frame", { Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, LayoutOrder = count }, rows) addCorner(row, 10)
+                local avatar = create("ImageLabel", { Position = UDim2.new(0, 7, 0.5, -17), Size = UDim2.fromOffset(34, 34), BackgroundColor3 = Theme.Card, Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=48&h=48", BorderSizePixel = 0 }, row) addCorner(avatar, 18)
                 local username = makeLabel(row, player.DisplayName, 11, Theme.Text, Enum.Font.GothamSemibold) username.Position = UDim2.new(0, 49, 0, 6) username.Size = UDim2.new(1, -120, 0, 18)
                 local handle = makeLabel(row, "@" .. player.Name, 9, Theme.Muted, Enum.Font.Gotham) handle.Position = UDim2.new(0, 49, 0, 24) handle.Size = UDim2.new(1, -120, 0, 15)
-                local action = makeButton(row, "SELECT", UDim2.fromOffset(58, 27), Color3.fromRGB(21, 53, 30), Theme.Green) action.Position = UDim2.new(1, -65, 0.5, -13) action.TextSize = 8
-                addCorner(action, 8)
+                local action = makeButton(row, "SELECT", UDim2.fromOffset(58, 27), Color3.fromRGB(21, 53, 30), Theme.Green) action.Position = UDim2.new(1, -65, 0.5, -13) action.TextSize = 8 addCorner(action, 8)
                 action.Activated:Connect(function()
-                    self.SelectedPlayer = player
-                    SelectedPlayerToFling = player -- Привязка к глобальной переменной
-                    action.Text = "TARGETED"
-                    action.TextColor3 = Theme.White
-                    makeTween(action, 0.14, { BackgroundColor3 = Theme.GreenDark })
+                    self.SelectedPlayer = player action.Text = "TARGETED" action.TextColor3 = Theme.White makeTween(action, 0.14, { BackgroundColor3 = Theme.GreenDark })
                 end)
             end
         end
         if count == 0 then local empty = makeLabel(rows, "No players found", 10, Theme.Muted, Enum.Font.Gotham) empty.Size = UDim2.new(1, 0, 0, 32) empty.LayoutOrder = 1 end
     end
-    search:GetPropertyChangedSignal("Text"):Connect(function() populate(search.Text) end)
-    populate(self.Search)
+    search:GetPropertyChangedSignal("Text"):Connect(function() populate(search.Text) end) populate(self.Search)
 end
 
 -- ==========================================
 -- ЛОГИКА (ФАРМ / ФЛИНГ / ESP)
 -- ==========================================
-task.spawn(function()
-    while task.wait(0.5) do
-        pcall(function()
-            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-            if getData and getData:IsA("RemoteFunction") then
-                local ok, data = pcall(function() return getData:InvokeServer() end)
-                if ok and type(data) == "table" then roles = data end
-            end
-        end)
-    end
-end)
-
-local function getPlayerRole(plr)
-    local rData = roles[plr.Name]
-    if rData and rData.Role then return rData.Role end
-    local char = plr.Character
-    if char then
-        if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end
-        if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end
-    end
-    local bp = plr:FindFirstChild("Backpack")
-    if bp then
-        if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end
-        if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end
-    end
-    return "Innocent"
-end
-
-local function getRoleColor(plr)
-    local role = getPlayerRole(plr)
-    if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end
-    if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
-    return Color3.fromRGB(50, 255, 100)
-end
-
-local function canCollect()
-    if not canFarmNow then return false end
-    local s = currentSession
-    if not s or s.destroyed or s.humanoid.Health <= 0 then return false end
-    local myData = roles[LocalPlayer.Name]
-    if not myData or myData.Dead then return false end 
-    local r = myData.Role
-    if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end
-    local container = Workspace:FindFirstChild("CoinContainer", true)
-    if not container or #container:GetChildren() == 0 then return false end
-    return true
-end
-
+task.spawn(function() while task.wait(0.5) do pcall(function() local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) if getData and getData:IsA("RemoteFunction") then local ok, data = pcall(function() return getData:InvokeServer() end) if ok and type(data) == "table" then roles = data end end end) end end)
+local function getPlayerRole(plr) local rData = roles[plr.Name] if rData and rData.Role then return rData.Role end local char = plr.Character if char then if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end end local bp = plr:FindFirstChild("Backpack") if bp then if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end end return "Innocent" end
+local function getRoleColor(plr) local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end return Color3.fromRGB(50, 255, 100) end
+local function canCollect() if not canFarmNow then return false end local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 then return false end local myData = roles[LocalPlayer.Name] if not myData or myData.Dead then return false end local r = myData.Role if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end local container = Workspace:FindFirstChild("CoinContainer", true) if not container or #container:GetChildren() == 0 then return false end return true end
 task.spawn(function()
     while task.wait(0.2) do
         if CFG.ESP then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character then
-                    local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight")
-                    hl.Name = "LibESP" hl.Parent = p.Character
-                    local hum = p.Character:FindFirstChildOfClass("Humanoid")
-                    local isDead = (not hum or hum.Health <= 0) or (roles[p.Name] and roles[p.Name].Dead)
+                    local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight") hl.Name = "LibESP" hl.Parent = p.Character
+                    local hum = p.Character:FindFirstChildOfClass("Humanoid") local isDead = (not hum or hum.Health <= 0) or (roles[p.Name] and roles[p.Name].Dead)
                     if isDead then hl.FillTransparency = 1 hl.OutlineTransparency = 1
-                    else
-                        hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.FillTransparency = 0.8 hl.OutlineTransparency = 0.1
-                        local c = getRoleColor(p) hl.FillColor = c hl.OutlineColor = c
-                    end
+                    else hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.FillTransparency = 0.8 hl.OutlineTransparency = 0.1 local c = getRoleColor(p) hl.FillColor = c hl.OutlineColor = c end
                 end
             end
         else
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.Character then local hl = p.Character:FindFirstChild("LibESP") if hl then hl:Destroy() end end
-            end
+            for _, p in ipairs(Players:GetPlayers()) do if p.Character then local hl = p.Character:FindFirstChild("LibESP") if hl then hl:Destroy() end end end
         end
     end
 end)
-
-local function getClosestMurderer(pos)
-    local closestRoot, closestDist = nil, math.huge
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local role = getPlayerRole(plr)
-            if role == "Murderer" or role == "Zombie" then
-                local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-                if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end
-            end
-        end
-    end
-    return closestRoot, closestDist
-end
-
+local function getClosestMurderer(pos) local closestRoot, closestDist = nil, math.huge for _, plr in ipairs(Players:GetPlayers()) do if plr ~= LocalPlayer and plr.Character then local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then local pRoot = plr.Character:FindFirstChild("HumanoidRootPart") if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end end end end return closestRoot, closestDist end
 local function FlingTarget(targetRoot)
-    local s = currentSession
-    if not s or s.destroyed or s.humanoid.Health <= 0 or not targetRoot then return end
-    local myRoot = s.root
-    local oldCFrame = myRoot.CFrame
-    local oldAnchored = myRoot.Anchored
-    myRoot.Anchored = true
-
+    local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not targetRoot then return end
+    local myRoot = s.root local oldCFrame = myRoot.CFrame local oldAnchored = myRoot.Anchored myRoot.Anchored = true
     pcall(function()
         if setnetworkowner then pcall(setnetworkowner, targetRoot, LocalPlayer) end
         myRoot.CFrame = targetRoot.CFrame
@@ -420,103 +301,49 @@ local function FlingTarget(targetRoot)
         local push = Instance.new("BodyVelocity") push.Velocity = Vector3.new(1e5, 1e5, 1e5) push.MaxForce = Vector3.new(1e9, 1e9, 1e9) push.Parent = targetRoot
         task.wait(0.1) spin:Destroy() push:Destroy()
     end)
-    
-    myRoot.CFrame = oldCFrame
-    myRoot.Anchored = oldAnchored
-    
-    if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end
-    if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
+    myRoot.CFrame = oldCFrame myRoot.Anchored = oldAnchored
+    if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
 end
-
--- Авто-флинг (если включен, ищет ближайшего маньяка)
-task.spawn(function()
-    while task.wait(0.5) do
-        if CFG.AutoFling and currentSession and not currentSession.destroyed then
-            local mRoot, mDist = getClosestMurderer(currentSession.root.Position)
-            if mRoot and mDist < 50 then
-                FlingTarget(mRoot)
-                task.wait(2)
-            end
-        end
-    end
-end)
-
+task.spawn(function() while task.wait(0.5) do if CFG.AutoFling and currentSession and not currentSession.destroyed then local mRoot, mDist = getClosestMurderer(currentSession.root.Position) if mRoot and mDist < 50 then FlingTarget(mRoot) task.wait(2) end end end end)
 local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
-local function resetHumanoid(s)
-    local hum = s.humanoid if not hum.Parent then return end
-    hum.PlatformStand = s.origPlatformStand hum.AutoRotate = s.origAutoRotate
-    if hum.Health > 0 and s.root.Parent then local _, yaw = s.root.CFrame:ToOrientation() s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0) hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
-end
+local function resetHumanoid(s) local hum = s.humanoid if not hum.Parent then return end hum.PlatformStand = s.origPlatformStand hum.AutoRotate = s.origAutoRotate if hum.Health > 0 and s.root.Parent then local _, yaw = s.root.CFrame:ToOrientation() s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0) hum:ChangeState(Enum.HumanoidStateType.GettingUp) end end
 local function teardown(s)
-    if not s or s.destroyed then return end
-    s.destroyed = true
-    for _, conn in s.conns do conn:Disconnect() end
-    table.clear(s.conns) releaseForces(s)
+    if not s or s.destroyed then return end s.destroyed = true
+    for _, conn in s.conns do conn:Disconnect() end table.clear(s.conns) releaseForces(s)
     if s.root.Parent then s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero end
     resetHumanoid(s) s.bv:Destroy() s.bg:Destroy()
-    for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
-    table.clear(originalCollide)
+    for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end table.clear(originalCollide)
     if currentSession == s then currentSession = nil end
 end
-
 local function bindCharacter(character)
-    if currentSession then teardown(currentSession) end
-    canFarmNow = false collectedCount = 0 table.clear(Blacklist) lastHealth = 100
+    if currentSession then teardown(currentSession) end canFarmNow = false collectedCount = 0 table.clear(Blacklist) lastHealth = 100
     local root = character:WaitForChild("HumanoidRootPart", 10) local humanoid = character:WaitForChild("Humanoid", 10)
     if not (root and humanoid) or LocalPlayer.Character ~= character then return end
     local bv = Instance.new("BodyVelocity") bv.MaxForce = Vector3.zero bv.Velocity = Vector3.zero bv.P = 3000 bv.Parent = root
     local bg = Instance.new("BodyGyro") bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root
     local s = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg, conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate, target = nil }
     currentSession = s
-    table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end))
-    table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
-    if humanoid.Health <= 0 then teardown(s) end
-    task.wait(3) canFarmNow = true
+    table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end)) table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
+    if humanoid.Health <= 0 then teardown(s) end task.wait(3) canFarmNow = true
 end
-
-LocalPlayer.CharacterAdded:Connect(bindCharacter)
-LocalPlayer.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end)
-if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
-
-local function setNoclip(char, state)
-    if not char then return end
-    for _, d in ipairs(char:GetDescendants()) do
-        if d:IsA("BasePart") then
-            if state then
-                if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
-                d.CanCollide = false
-            else
-                if originalCollide[d] ~= nil then d.CanCollide = originalCollide[d] originalCollide[d] = nil end
-            end
-        end
-    end
-end
-
+LocalPlayer.CharacterAdded:Connect(bindCharacter) LocalPlayer.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
+local function setNoclip(char, state) if not char then return end for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then if state then if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end d.CanCollide = false else if originalCollide[d] ~= nil then d.CanCollide = originalCollide[d] originalCollide[d] = nil end end end end end
 local function flyTo(target)
-    local s = currentSession
-    if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end
-    s.target = target
+    local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end s.target = target
     local arrived = false local startTime = os.clock()
     local ok, err = pcall(function()
-        s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true
-        setNoclip(s.character, true)
-        local f = s.root.AssemblyMass * CFG.ForcePerMass
-        s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
+        s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true setNoclip(s.character, true)
+        local f = s.root.AssemblyMass * CFG.ForcePerMass s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
-            RunService.Heartbeat:Wait()
-            if s.destroyed then break end
-            s.root.CanCollide = false
+            RunService.Heartbeat:Wait() if s.destroyed then break end s.root.CanCollide = false
             local mRoot, mDist = getClosestMurderer(s.root.Position)
             if mRoot and mDist < CFG.AvoidRadius then
-                Blacklist[target] = true 
-                local escapeDir = (s.root.Position - mRoot.Position).Unit
-                s.bv.Velocity = escapeDir * (CFG.MaxSpeed * 1.5) task.wait(0.2)
+                Blacklist[target] = true local escapeDir = (s.root.Position - mRoot.Position).Unit s.bv.Velocity = escapeDir * (CFG.MaxSpeed * 1.5) task.wait(0.2)
             else
                 local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude
                 if dist <= 5 then arrived = true break end
                 s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
-                local flat = Vector3.new(offset.X, 0, offset.Z)
-                if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
+                local flat = Vector3.new(offset.X, 0, offset.Z) if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
             end
             if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end
             if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end
@@ -527,48 +354,14 @@ local function flyTo(target)
     if not s.destroyed then releaseForces(s) s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero setNoclip(s.character, false) resetHumanoid(s) end
     s.target = nil return arrived
 end
-
-local COIN_PRIMARY = "Coin_Server"
-local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true }
-local coinCache, coinCacheTime, coinContainer = {}, 0, nil
+local COIN_PRIMARY = "Coin_Server" local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true } local coinCache, coinCacheTime, coinContainer = {}, 0, nil
 local function findCoinContainer() return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true) end
 local function isCoinName(name) if name == COIN_PRIMARY then return true end if COIN_FALLBACK[name] then return true end if name == "CoinVisual" then return false end local n = string.lower(name) return string.find(n, "coin", 1, true) ~= nil or string.find(n, "candy", 1, true) ~= nil or string.find(n, "sweet", 1, true) ~= nil end
 local function isCoinAlive(c, container) if not c or not c.Parent or not c:IsDescendantOf(Workspace) then return false end if container and not c:IsDescendantOf(container) then return false end local vis = c:FindFirstChild("CoinVisual") if vis and vis:IsA("BasePart") and vis.Transparency >= 0.99 then return false end return true end
-local function refreshCoinCache()
-    local t = os.clock() if t - coinCacheTime < 1 then return end
-    coinCacheTime = t coinCache = {} coinContainer = findCoinContainer()
-    if coinContainer then for _, c in ipairs(coinContainer:GetChildren()) do if c:IsA("BasePart") and isCoinName(c.Name) then if not Blacklist[c] and isCoinAlive(c, coinContainer) then coinCache[#coinCache+1] = c elseif not isCoinAlive(c, coinContainer) then Blacklist[c] = true end end end end
-    if #coinCache == 0 then for _, d in ipairs(Workspace:GetDescendants()) do if d:IsA("BasePart") and isCoinName(d.Name) and not Blacklist[d] and isCoinAlive(d, nil) then coinCache[#coinCache+1] = d end end end
-end
-local function nearestPart()
-    local s = currentSession if not s or s.destroyed then return nil end
-    refreshCoinCache() local best, bestDist = nil, math.huge local pos = s.root.Position
-    for _, c in ipairs(coinCache) do
-        if c and c.Parent and not Blacklist[c] then
-            local d = (c.Position - pos).Magnitude
-            local _, mDist = getClosestMurderer(c.Position)
-            if d < bestDist and (not mDist or mDist > CFG.AvoidRadius) then best, bestDist = c, d end
-        else Blacklist[c] = true end
-    end
-    return best
-end
-local function collectTarget(target)
-    local s = currentSession if not s or s.destroyed or not target.Parent then return end
-    Blacklist[target] = true collectedCount += 1
-    pcall(function()
-        if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) task.wait(0.05) firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end
-        local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
-    end)
-end
-local function collectSession()
-    while CFG.AutoFarm and canCollect() do
-        if CFG.AutoReset and collectedCount >= CFG.MaxCoins then if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end break end
-        local target = nearestPart()
-        if not target then break end
-        if flyTo(target) then collectTarget(target) task.wait(0.2) if target and target.Parent then Blacklist[target] = true end else task.wait(0.1) end
-    end
-end
+local function refreshCoinCache() local t = os.clock() if t - coinCacheTime < 1 then return end coinCacheTime = t coinCache = {} coinContainer = findCoinContainer() if coinContainer then for _, c in ipairs(coinContainer:GetChildren()) do if c:IsA("BasePart") and isCoinName(c.Name) then if not Blacklist[c] and isCoinAlive(c, coinContainer) then coinCache[#coinCache+1] = c elseif not isCoinAlive(c, coinContainer) then Blacklist[c] = true end end end end if #coinCache == 0 then for _, d in ipairs(Workspace:GetDescendants()) do if d:IsA("BasePart") and isCoinName(d.Name) and not Blacklist[d] and isCoinAlive(d, nil) then coinCache[#coinCache+1] = d end end end end
+local function nearestPart() local s = currentSession if not s or s.destroyed then return nil end refreshCoinCache() local best, bestDist = nil, math.huge local pos = s.root.Position for _, c in ipairs(coinCache) do if c and c.Parent and not Blacklist[c] then local d = (c.Position - pos).Magnitude local _, mDist = getClosestMurderer(c.Position) if d < bestDist and (not mDist or mDist > CFG.AvoidRadius) then best, bestDist = c, d end else Blacklist[c] = true end end return best end
+local function collectTarget(target) local s = currentSession if not s or s.destroyed or not target.Parent then return end Blacklist[target] = true collectedCount += 1 pcall(function() if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) task.wait(0.05) firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true) if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end end) end
+local function collectSession() while CFG.AutoFarm and canCollect() do if CFG.AutoReset and collectedCount >= CFG.MaxCoins then if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end break end local target = nearestPart() if not target then break end if flyTo(target) then collectTarget(target) task.wait(0.2) if target and target.Parent then Blacklist[target] = true end else task.wait(0.1) end end end
 task.spawn(function() while true do if CFG.AutoFarm and canCollect() then collectSession() end task.wait(1) end end)
 LocalPlayer.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end end)
 
@@ -581,20 +374,14 @@ local WindowInstance = Library.new({ Title = "LIBERIUM HUB" })
 local CombatTab = WindowInstance:AddTab("Combat", "⚔️")
 local MurderSection = CombatTab:AddSection("MURDERER CONTROL")
 MurderSection:AddToggle("Auto Fling Murderer", false, function(state) CFG.AutoFling = state end)
-MurderSection:AddButton("Manual Fling (Closest)", function()
-    local mRoot = getClosestMurderer(currentSession.root.Position)
-    if mRoot then FlingTarget(mRoot) end
-end)
+MurderSection:AddButton("Manual Fling (Closest)", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end)
 local PlayerListInstance = CombatTab:AddPlayerList("Kill Player")
 PlayerListInstance:UpdatePlayers()
 
 -- Farm Tab
 local FarmTab = WindowInstance:AddTab("Farm", "💰")
 local AutoFarmSec = FarmTab:AddSection("AUTOMATION")
-AutoFarmSec:AddToggle("Auto Farm Coins", false, function(state) 
-    CFG.AutoFarm = state
-    if state then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
-end)
+AutoFarmSec:AddToggle("Auto Farm Coins", false, function(state) CFG.AutoFarm = state if state then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end)
 AutoFarmSec:AddSlider("Farm Speed", 10, 24, 20, function(val) CFG.MaxSpeed = val end)
 
 local FarmLimits = FarmTab:AddSection("LIMITS")
