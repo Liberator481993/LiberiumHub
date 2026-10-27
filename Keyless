@@ -1,4 +1,9 @@
--- Liberium Hub | TRUE PULSE HUB PHYSICS (No Teleport, No Crash)
+-- Liberium Hub | Cross-Executor (Arceus X + Delta Compatible)
+local ExecutorName = "Unknown"
+pcall(function()
+    if identifyexecutor then ExecutorName = identifyexecutor() end
+end)
+
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -11,12 +16,32 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local Cam = Workspace.CurrentCamera
 
-local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 20, AutoReset = false, MaxCoins = 50, AntiAFK = false }
+-- Настройки
+local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 18, AutoReset = false, MaxCoins = 50, AntiAFK = false }
+
+-- Безопасная функция для экзекьюторов
+local function safeTouch(hit, part, state)
+    pcall(function()
+        if firetouchinterest then
+            firetouchinterest(hit, part, state)
+        end
+    end)
+end
+
+local function safePrompt(prompt)
+    pcall(function()
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        end
+    end)
+end
 
 -- UI (Slate)
-local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Pulse Physics", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "Delta + Arceus", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
 local uiscale = Instance.new("UIScale", Window.root)
-local function updateScale() if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end end
+local function updateScale() 
+    if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end 
+end
 updateScale()
 Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
@@ -26,11 +51,11 @@ local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- ESP (ОПТИМИЗИРОВАНО)
+-- ESP (ОПТИМИЗИРОВАНО ПОД DELTA: раз в 0.5 сек)
 -- ==========================================
 local roles = {}
 task.spawn(function()
-    while task.wait(2) do
+    while task.wait(3) do
         pcall(function()
             local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
             if getData and getData:IsA("RemoteFunction") then
@@ -53,32 +78,34 @@ local function getRoleColor(plr)
 end
 
 task.spawn(function()
-    while task.wait(0.2) do
-        if CFG.ESP then
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= player and p.Character then
-                    local char = p.Character
-                    local ourHighlight = char:FindFirstChild("LibESP")
-                    if not ourHighlight then
-                        ourHighlight = Instance.new("Highlight")
-                        ourHighlight.Name = "LibESP"
-                        ourHighlight.OutlineTransparency = 0
-                        ourHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        ourHighlight.Parent = char
+    while task.wait(0.5) do
+        pcall(function()
+            if CFG.ESP then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= player and p.Character then
+                        local char = p.Character
+                        local ourHighlight = char:FindFirstChild("LibESP")
+                        if not ourHighlight then
+                            ourHighlight = Instance.new("Highlight")
+                            ourHighlight.Name = "LibESP"
+                            ourHighlight.OutlineTransparency = 0
+                            ourHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            ourHighlight.Parent = char
+                        end
+                        local c = getRoleColor(p)
+                        ourHighlight.FillColor = c
+                        ourHighlight.OutlineColor = c
                     end
-                    local c = getRoleColor(p)
-                    ourHighlight.FillColor = c
-                    ourHighlight.OutlineColor = c
+                end
+            else
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p.Character then
+                        local hl = p.Character:FindFirstChild("LibESP")
+                        if hl then hl:Destroy() end
+                    end
                 end
             end
-        else
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.Character then
-                    local hl = p.Character:FindFirstChild("LibESP")
-                    if hl then hl:Destroy() end
-                end
-            end
-        end
+        end)
     end
 end)
 
@@ -87,32 +114,40 @@ end)
 -- ==========================================
 local originalCollide = setmetatable({}, { __mode = "k" })
 RunService.Stepped:Connect(function()
-    if (CFG.Noclip or CFG.AutoFarm) and player.Character then
-        for _, d in ipairs(player.Character:GetDescendants()) do
-            if d:IsA("BasePart") then
-                if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
-                d.CanCollide = false
+    pcall(function()
+        if (CFG.Noclip or CFG.AutoFarm) and player.Character then
+            for _, d in ipairs(player.Character:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
+                    d.CanCollide = false
+                end
             end
+        elseif not CFG.Noclip and not CFG.AutoFarm then
+            for p, c in pairs(originalCollide) do 
+                pcall(function() if p and p.Parent then p.CanCollide = c end end) 
+            end
+            table.clear(originalCollide)
         end
-    elseif not CFG.Noclip and not CFG.AutoFarm then
-        for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
-        table.clear(originalCollide)
-    end
+    end)
 end)
 
 RunService.Heartbeat:Connect(function()
-    if player.Character then
-        local hum = player.Character:FindFirstChildOfClass("Humanoid")
-        if hum and hum.WalkSpeed ~= CFG.WalkSpeed and not CFG.AutoFarm then hum.WalkSpeed = CFG.WalkSpeed end
-    end
+    pcall(function()
+        if player.Character then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.WalkSpeed ~= CFG.WalkSpeed and not CFG.AutoFarm then 
+                hum.WalkSpeed = CFG.WalkSpeed 
+            end
+        end
+    end)
 end)
 
 -- ==========================================
--- AUTO FARM (PULSE HUB PHYSICS)
+-- AUTO FARM (OPTIMIZED FOR DELTA)
 -- ==========================================
 local TARGET_NAME = "Coin_Server"
-local STOP_DISTANCE = 2.5
-local SCAN_INTERVAL = 0.2
+local STOP_DISTANCE = 3
+local SCAN_INTERVAL = 0.3
 
 local flying = false
 local collecting = false
@@ -125,32 +160,50 @@ local attachment, alignPos, alignOri = nil, nil, nil
 local heartbeatConn = nil
 local collectedCount = 0
 
-local function getHumanoid() local c = player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
-local function getRoot() local c = player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
+local function getHumanoid() 
+    local c = player.Character
+    return c and c:FindFirstChildOfClass("Humanoid") 
+end
+
+local function getRoot() 
+    local c = player.Character
+    return c and c:FindFirstChild("HumanoidRootPart") 
+end
 
 local function setFlightState(active)
     pcall(function()
-        local hum = getHumanoid(); if not hum then return end
-        if active then hum.PlatformStand = true; hum:ChangeState(Enum.HumanoidStateType.Physics)
-        else hum.PlatformStand = false; hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+        local hum = getHumanoid()
+        if not hum then return end
+        if active then 
+            hum.PlatformStand = true
+            hum:ChangeState(Enum.HumanoidStateType.Physics)
+        else 
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
     end)
 end
 
 local function destroyAligns()
-    for _, obj in ipairs({ alignPos, alignOri, attachment }) do pcall(function() obj:Destroy() end) end
+    for _, obj in ipairs({ alignPos, alignOri, attachment }) do 
+        pcall(function() obj:Destroy() end) 
+    end
     alignPos, alignOri, attachment = nil, nil, nil
 end
 
--- Физика как в Пульсе (Responsiveness 200, MaxVelocity)
+-- ВАЖНО: для Delta используем 1e5 вместо math.huge (иначе краш)
 local function createAligns(root)
     destroyAligns()
     pcall(function()
-        attachment = Instance.new("Attachment"); attachment.Parent = root
+        attachment = Instance.new("Attachment")
+        attachment.Name = "LibAttachment"
+        attachment.Parent = root
+        
         alignPos = Instance.new("AlignPosition")
         alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
         alignPos.Attachment0 = attachment
-        alignPos.MaxForce = math.huge
-        alignPos.Responsiveness = 200 -- Высокая отзывчивость для плавности
+        alignPos.MaxForce = 1e5  -- DELTA-SAFE
+        alignPos.Responsiveness = 150
         alignPos.MaxVelocity = CFG.FarmSpeed
         alignPos.Position = root.Position
         alignPos.Parent = root
@@ -158,7 +211,7 @@ local function createAligns(root)
         alignOri = Instance.new("AlignOrientation")
         alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
         alignOri.Attachment0 = attachment
-        alignOri.MaxTorque = math.huge
+        alignOri.MaxTorque = 1e5  -- DELTA-SAFE
         alignOri.Responsiveness = 50
         alignOri.CFrame = root.CFrame
         alignOri.Parent = root
@@ -171,7 +224,9 @@ local function rescan()
         local container = Workspace:FindFirstChild("CoinContainer", true)
         if container then
             for _, d in ipairs(container:GetChildren()) do
-                if d.Name == TARGET_NAME and d:IsA("BasePart") then table.insert(list, d) end
+                if d.Name == TARGET_NAME and d:IsA("BasePart") then 
+                    table.insert(list, d) 
+                end
             end
         end
     end)
@@ -183,31 +238,35 @@ local function findNearest(fromPos)
     for _, part in ipairs(candidates) do
         if part.Parent and not Blacklist[part] then
             local dist = (part.Position - fromPos).Magnitude
-            if dist < bestDist then best, bestDist = part, dist end
+            if dist < bestDist then 
+                best, bestDist = part, dist 
+            end
         end
     end
     return best
 end
 
--- Сбор БЕЗ ТЕЛЕПОРТА
+-- FALLBACK COLLECT: если firetouchinterest не работает, используем PivotTo
 local function collect(target)
     collecting = true
     pcall(function()
         local root = getRoot()
         if root and target then
-            -- Подлетаем вплотную физикой и вызываем тач
+            -- 1. Пытаемся через firetouchinterest
             alignPos.Position = target.Position 
-            alignPos.MaxVelocity = 50 -- На секунду ускоряемся, чтобы точно влететь
-            task.wait(0.1) 
+            alignPos.MaxVelocity = 60
+            task.wait(0.15)
             
-            if typeof(firetouchinterest) == "function" then
-                firetouchinterest(root, target, 0)
-                firetouchinterest(root, target, 1)
-            end
+            safeTouch(root, target, 0)
+            safeTouch(root, target, 1)
+            
             local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
+            if prompt and prompt.Enabled then 
+                safePrompt(prompt) 
+            end
+            
+            task.wait(0.1)
         end
-        task.wait(0.1)
     end)
     Blacklist[target] = true
     collectedCount += 1
@@ -219,19 +278,24 @@ local function flyStep(root, now)
     if now - lastScan >= SCAN_INTERVAL then 
         lastScan = now 
         rescan() 
-        -- ОЧИСТКА ПАМЯТИ (фикс краша)
+        -- Очистка Blacklist (макс 150 записей, чтобы не грузить Delta)
+        local count = 0
         for obj in pairs(Blacklist) do
-            if not obj.Parent then Blacklist[obj] = nil end
+            if not obj.Parent or count > 150 then 
+                Blacklist[obj] = nil 
+            end
+            count += 1
         end
     end
     
     local target = findNearest(root.Position)
 
-    -- Динамическая смена цели
     if target and target ~= currentTarget then
         currentTarget = target
         targetSince = now
-        if alignPos then alignPos.Position = currentTarget.Position end
+        pcall(function()
+            if alignPos then alignPos.Position = currentTarget.Position end
+        end)
     end
 
     if not target and not currentTarget then
@@ -239,10 +303,17 @@ local function flyStep(root, now)
         return
     end
 
-    if not alignPos or alignPos.Parent ~= root then createAligns(root); setFlightState(true) end
+    if not alignPos or alignPos.Parent ~= root then 
+        createAligns(root)
+        setFlightState(true)
+    end
     if not currentTarget then return end
 
-    if now - targetSince > 3 then Blacklist[currentTarget] = true; currentTarget = nil; return end
+    if now - targetSince > 3 then 
+        Blacklist[currentTarget] = true
+        currentTarget = nil
+        return 
+    end
 
     local distance = (currentTarget.Position - root.Position).Magnitude
     if distance < STOP_DISTANCE then
@@ -250,49 +321,112 @@ local function flyStep(root, now)
         return
     end
 
-    -- Обновляем позицию и скорость (Пульс-стайл)
-    alignPos.MaxVelocity = CFG.FarmSpeed
-    alignPos.Position = currentTarget.Position
-    alignOri.CFrame = CFrame.lookAt(root.Position, Vector3.new(currentTarget.Position.X, root.Position.Y, currentTarget.Position.Z))
+    pcall(function()
+        alignPos.MaxVelocity = CFG.FarmSpeed
+        alignPos.Position = currentTarget.Position
+        alignOri.CFrame = CFrame.lookAt(root.Position, Vector3.new(currentTarget.Position.X, root.Position.Y, currentTarget.Position.Z))
+    end)
 end
 
 local function stopFlight()
-    flying = false; collecting = false; currentTarget = nil
+    flying = false
+    collecting = false
+    currentTarget = nil
     if heartbeatConn then heartbeatConn:Disconnect(); heartbeatConn = nil end
-    destroyAligns(); setFlightState(false)
+    destroyAligns()
+    setFlightState(false)
+end
+
+-- ==========================================
+-- WAIT LOGIC (безопасная)
+-- ==========================================
+local function WaitForActivePhase()
+    local newCharacter = nil
+    local conn = player.CharacterAdded:Connect(function(char) newCharacter = char end)
+
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Health > 0 then
+        while humanoid.Health > 0 and humanoid.Parent do
+            humanoid:GetPropertyChangedSignal("Health"):Wait()
+        end
+    end
+
+    while not newCharacter do task.wait() end
+    conn:Disconnect()
+    task.wait(2)
+
+    while task.wait(1) do
+        local folder = Workspace:FindFirstChild("CoinContainer", true)
+        if folder then
+            for _, child in ipairs(folder:GetChildren()) do
+                if child.Name == "Coin_Server" then
+                    return true
+                end
+            end
+        end
+    end
 end
 
 local function startFlight()
     if flying then return end
-    local root = getRoot(); if not root then return end
-    flying = true; table.clear(Blacklist); currentTarget = nil; lastScan = 0; collectedCount = 0
-    createAligns(root); setFlightState(true)
+    local root = getRoot()
+    if not root then return end
+    flying = true
+    table.clear(Blacklist)
+    currentTarget = nil
+    lastScan = 0
+    collectedCount = 0
+    createAligns(root)
+    setFlightState(true)
     
     heartbeatConn = RunService.Heartbeat:Connect(function()
         if not flying or collecting then return end
         pcall(function()
-            local r = getRoot(); local hum = getHumanoid()
-            if not r or not hum then return end
+            local r = getRoot()
+            local hum = getHumanoid()
             
-            if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
+            -- Проверка на смерть или падение под карту
+            if not r or not hum or hum.Health <= 0 or r.Position.Y < -50 then
                 stopFlight()
-                hum.Health = 0
-                task.wait(4)
-                if CFG.AutoFarm then startFlight() end
+                task.spawn(function()
+                    WaitForActivePhase()
+                    if CFG.AutoFarm then startFlight() end
+                end)
                 return
             end
 
-            if not alignPos or alignPos.Parent ~= r then createAligns(r); setFlightState(true) end
+            if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
+                stopFlight()
+                hum.Health = 0
+                task.spawn(function()
+                    WaitForActivePhase()
+                    if CFG.AutoFarm then startFlight() end
+                end)
+                return
+            end
+
+            if not alignPos or alignPos.Parent ~= r then 
+                createAligns(r)
+                setFlightState(true)
+            end
             flyStep(r, os.clock())
         end)
     end)
 end
 
 player.Idled:Connect(function()
-    if CFG.AntiAFK then VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end
+    pcall(function()
+        if CFG.AntiAFK then 
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end
+    end)
 end)
 
--- UI
+-- ==========================================
+-- UI ПРИВЯЗКА
+-- ==========================================
 local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
 secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
@@ -301,13 +435,21 @@ secMovement:Toggle({ Name = "Noclip", Default = false, Callback = function(v) CF
 secMovement:Slider({ Name = "WalkSpeed", Min = 16, Max = 150, Default = 16, Callback = function(v) CFG.WalkSpeed = v end })
 
 local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) CFG.AutoFarm = v; if v then startFlight() else stopFlight() end end })
-secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 5, Max = 24, Default = 20, Callback = function(v) CFG.FarmSpeed = v end })
+secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) 
+    CFG.AutoFarm = v
+    if v then startFlight() else stopFlight() end
+end })
+secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 5, Max = 24, Default = 18, Callback = function(v) CFG.FarmSpeed = v end })
 secFarm:Toggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
 secFarm:Slider({ Name = "Max Coins (40-50)", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Pulse Physics Loaded", Icon = "check", Tone = "Success", Duration = 5 })
-player.CharacterRemoving:Connect(function() destroyAligns(); table.clear(originalCollide) end)
+Slate:Notify({ Title = "Liberium Hub", Description = "Loaded on " .. ExecutorName, Icon = "check", Tone = "Success", Duration = 5 })
+player.CharacterRemoving:Connect(function() 
+    pcall(function()
+        destroyAligns()
+        table.clear(originalCollide) 
+    end)
+end)
