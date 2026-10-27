@@ -1,4 +1,4 @@
--- Liberium Hub | Cross-Platform Stable
+-- Liberium Hub | Cross-Platform Stable v2
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -14,13 +14,20 @@ local Cam = Workspace.CurrentCamera
 
 local CFG = {
     MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
-    MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false
+    MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false,
+    AvoidRadius = 5,
 }
+
+-- shared state
+local collectedCount = 0
+local Blacklist = setmetatable({}, { __mode = "k" })
+local currentChar = nil
+local originalCollide = setmetatable({}, { __mode = "k" })
+local roles = {}
 
 -- UI
 local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Stable", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
 
--- Перетаскивание
 task.spawn(function()
     task.wait(0.5)
     pcall(function()
@@ -58,7 +65,6 @@ local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 -- ==========================================
 -- РОЛИ
 -- ==========================================
-local roles = {}
 task.spawn(function()
     while task.wait(1) do
         pcall(function()
@@ -71,16 +77,13 @@ task.spawn(function()
     end
 end)
 
--- Простая проверка: живы ли мы и не в лобби
 local function canCollect()
     local char = player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return false end
-    
     local myData = roles[player.Name]
     if not myData then return false end
     if myData.Dead then return false end
-    
     local r = myData.Role
     if not r or r == "Spectator" or r == "Lobby" then return false end
     return true
@@ -127,14 +130,19 @@ end)
 -- ==========================================
 -- ФИЗИКА
 -- ==========================================
-local currentChar = nil
-local originalCollide = setmetatable({}, { __mode = "k" })
-
 local function bindCharacter(character)
     currentChar = nil
     local root = character:WaitForChild("HumanoidRootPart", 10)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if not (root and humanoid) or player.Character ~= character then return end
+
+    -- новый раунд = новые конфеты; сбрасываем чтобы AutoReset не триггерился повторно
+    collectedCount = 0
+    table.clear(Blacklist)
+
+    -- PulseHub не сможет сбить с ног
+    pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
+    pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
 
     local oldBv = root:FindFirstChildOfClass("BodyVelocity")
     local oldBg = root:FindFirstChildOfClass("BodyGyro")
@@ -175,15 +183,17 @@ RunService.Stepped:Connect(function()
 end)
 
 -- ==========================================
--- ПОЛЕТ (БЕЗ ЛИШНИХ ПРОВЕРОК)
+-- ПОЛЕТ
 -- ==========================================
 local function flyTo(target)
     local c = currentChar
-    if not c or not canCollect() then return false end
+    if not c or not canCollect() or not target or not target.Parent then return false end
 
-    local origPS = c.humanoid.PlatformStand
     local origAR = c.humanoid.AutoRotate
+    local origPS = c.humanoid.PlatformStand
     local arrived = false
+    local startTime = os.clock()
+    local MAX_FLIGHT = 4.0  -- fallback таймаут: недосягаемая / под-картой цель
 
     local ok, err = pcall(function()
         c.humanoid.AutoRotate = false
@@ -193,10 +203,22 @@ local function flyTo(target)
         c.bv.MaxForce = Vector3.new(f, f, f)
         c.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
 
-        while c.humanoid.Health > 0 and c.root.Parent and target.Parent do
+        while c.humanoid.Health > 0 and c.root.Parent do
             RunService.Heartbeat:Wait()
+
+            -- фантомная конфета: сервер уже удалил, клиент ещё держит ref
+            if not target.Parent or not target:IsDescendantOf(Workspace) then
+                Blacklist[target] = true
+                break
+            end
+
+            if os.clock() - startTime > MAX_FLIGHT then
+                Blacklist[target] = true
+                break
+            end
+
             if not canCollect() then break end
-            
+
             local offset = target.Position - c.root.Position
             local dist = offset.Magnitude
             if dist <= 3 then arrived = true; break end
@@ -230,10 +252,22 @@ local function flyTo(target)
 end
 
 -- ==========================================
--- СБОР (УБРАЛ ПРОВЕРКУ COINVISUAL)
+-- СБОР
 -- ==========================================
-local collectedCount = 0
-local Blacklist = {}
+-- PulseHub kill-touch / murderer на точке — скипаем конфету
+local function isCoinGuarded(pos)
+    local r = CFG.AvoidRadius
+    if r <= 0 then return false end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+            if pRoot and (pRoot.Position - pos).Magnitude < r then
+                return true
+            end
+        end
+    end
+    return false
+end
 
 local function nearestPart()
     local folder = Workspace:FindFirstChild("CoinContainer", true)
@@ -243,7 +277,9 @@ local function nearestPart()
     for _, child in folder:GetChildren() do
         if child.Name == "Coin_Server" and child:IsA("BasePart") and not Blacklist[child] then
             local d = (child.Position - pos).Magnitude
-            if d < bestDist then best, bestDist = child, d end
+            if d < bestDist and not isCoinGuarded(child.Position) then
+                best, bestDist = child, d
+            end
         end
     end
     return best
@@ -286,21 +322,15 @@ local function collectSession()
 end
 
 -- ==========================================
--- ГЛАВНЫЙ ЦИКЛ (БЕЗ ЛОЖНЫХ ОЖИДАНИЙ)
+-- ГЛАВНЫЙ ЦИКЛ
 -- ==========================================
 task.spawn(function()
     while true do
-        if CFG.AutoFarm then
-            if canCollect() then
-                collectSession()
-                if collectedCount >= CFG.MaxCoins then
-                    collectedCount = 0
-                    table.clear(Blacklist)
-                end
-            end
+        if CFG.AutoFarm and canCollect() then
+            collectSession()
         end
         task.wait(1)
-    end)
+    end
 end)
 
 player.Idled:Connect(function()
@@ -314,7 +344,7 @@ local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
 secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
 local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v) 
+secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
     CFG.AutoFarm = v
     if v then
         collectedCount = 0
@@ -324,8 +354,10 @@ end })
 secFarm:Slider({ Name = "Farm Speed (10-24)", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
 secFarm:Toggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
 secFarm:Slider({ Name = "Max Coins (40-50)", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
+secFarm:Slider({ Name = "Avoid Players radius (0=off)", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
+secMisc:Toggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Fixed: CoinVisual check removed", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "v2: phantom-coins + PulseHub avoidance", Icon = "check", Tone = "Success", Duration = 5 })
