@@ -1,183 +1,272 @@
--- Liberium Hub | v20 | MobileUILib + State Machine
+-- Liberium Hub | v24 | PulseHub UI + Ultimate Logic
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
-local UserInputService = game:GetService("UserInputService")
+local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
 -- ==========================================
--- БИБЛИОТЕКА UI (ОТ КЛОДА)
+-- БИБЛИОТЕКА PULSEHUB (ВШИТА)
 -- ==========================================
-local Library = (function()
-    local Theme = {
-        Background = Color3.fromHex("#121212"), Header = Color3.fromHex("#0D0D0D"),
-        Sidebar = Color3.fromHex("#161616"), Section = Color3.fromHex("#1E1E1E"),
-        Border = Color3.fromHex("#2C2C2C"), TabActive = Color3.fromHex("#2A2A2A"),
-        Accent = Color3.fromHex("#4A90E2"), Text = Color3.fromHex("#FFFFFF"),
-        TextDim = Color3.fromHex("#9A9A9A"), SwitchOff = Color3.fromHex("#3A3A3C"),
-        Danger = Color3.fromHex("#E25555"),
+local PulseHub = (function()
+    local C = {
+        Background = Color3.fromHex("0F0F0F"), Sidebar = Color3.fromHex("151515"),
+        Section = Color3.fromHex("1C1C1C"), Input = Color3.fromHex("1C1C1C"),
+        Button = Color3.fromHex("262626"), Stroke = Color3.fromHex("2A2A2A"),
+        Track = Color3.fromHex("3A3A3A"), ToggleOff = Color3.fromHex("3A3A3A"),
+        Accent = Color3.fromHex("3B82F6"), Discord = Color3.fromHex("5865F2"),
+        White = Color3.fromRGB(255, 255, 255), Text = Color3.fromRGB(235, 235, 235), Muted = Color3.fromRGB(140, 140, 140),
     }
-    local BASE_W, BASE_H = 560, 340
-    local HEADER_H, SIDEBAR_W, TOUCH_H = 44, 140, 48
-    local TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local WIDTH, HEIGHT = 600, 380
+    local HEADER_H, SIDEBAR_W = 44, 160
+    local FONT, FONT_BOLD = Enum.Font.Gotham, Enum.Font.GothamBold
 
-    local function create(class, props, children)
+    local function create(class, props, parent)
         local inst = Instance.new(class)
-        local parent = props.Parent
-        props.Parent = nil
         for k, v in pairs(props) do inst[k] = v end
-        if children then for _, child in ipairs(children) do child.Parent = inst end end
-        inst.Parent = parent
+        if parent then inst.Parent = parent end
         return inst
     end
-    local function tween(inst, goal, info) TweenService:Create(inst, info or TWEEN, goal):Play() end
-    local function corner(r) return create("UICorner", { CornerRadius = UDim.new(0, r) }) end
-    local function padding(p) return create("UIPadding", { PaddingTop = UDim.new(0, p), PaddingBottom = UDim.new(0, p), PaddingLeft = UDim.new(0, p), PaddingRight = UDim.new(0, p) }) end
-    local function formatNumber(n) return tostring(math.floor(n * 10000 + 0.5) / 10000) end
+    local function corner(inst, radius) return create("UICorner", { CornerRadius = UDim.new(0, radius) }, inst) end
+    local function stroke(inst, color) return create("UIStroke", { Color = color or C.Stroke, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, inst) end
+    local function tween(inst, props, t) pcall(function() TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play() end) end
+    local function safeCall(fn, ...) if typeof(fn) == "function" then pcall(fn, ...) end end
+    local function isPress(input) return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch end
+    local function matches(name, query) return query == "" or string.find(string.lower(name), query, 1, true) ~= nil end
 
-    local Library, Window, Tab, Section = {}, {}, {}, {}
+    local Window, Tab, Section, PulseHubClass = {}, {}, {}, {}
     Window.__index, Tab.__index, Section.__index = Window, Tab, Section
 
-    function Library.new(title, parent)
+    function PulseHubClass.new(opts)
+        opts = opts or {}
         local self = setmetatable({}, Window)
-        self._conns, self.Tabs, self.ActiveTab = {}, {}, nil
-        local gui = create("ScreenGui", { Name = "MobileUILib", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = parent or player:WaitForChild("PlayerGui") })
-        self.Gui = gui
-        local main = create("Frame", { Name = "Main", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(BASE_W, BASE_H), BackgroundColor3 = Theme.Background, BorderSizePixel = 0, ClipsDescendants = true, Parent = gui }, { corner(12), create("UIStroke", { Color = Theme.Border, Thickness = 1 }) })
-        self.Main = main
+        self.Tabs, self.Sections, self.Connections = {}, {}, {}
+        self.Query, self.Selected, self.Opts = "", nil, opts
 
-        local uiScale = create("UIScale", { Parent = main })
+        local gui = create("ScreenGui", { Name = "PulseHub", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
+        self.Gui = gui
+
+        local main = create("Frame", { Name = "Main", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(WIDTH, HEIGHT), BackgroundColor3 = C.Background, BorderSizePixel = 0, ClipsDescendants = true }, gui)
+        corner(main, 10) stroke(main) self.Main = main
+
+        local uiScale = create("UIScale", {}, main)
         local function updateScale()
             local cam = workspace.CurrentCamera
-            if cam then local vp = cam.ViewportSize; uiScale.Scale = math.max(math.min(vp.X * 0.92 / BASE_W, vp.Y * 0.88 / BASE_H, 1.25), 0.4) end
+            local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+            uiScale.Scale = math.clamp(math.min(vp.X * 0.94 / WIDTH, vp.Y * 0.94 / HEIGHT), 0.5, 1)
         end
         updateScale()
-        if workspace.CurrentCamera then table.insert(self._conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
+        if workspace.CurrentCamera then table.insert(self.Connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
 
-        local header = create("Frame", { Size = UDim2.new(1, 0, 0, HEADER_H), BackgroundColor3 = Theme.Header, BorderSizePixel = 0, Parent = main })
-        create("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -72, 1, 0), Font = Enum.Font.GothamBold, Text = title or "Window", TextColor3 = Theme.Text, TextSize = 18, TextXAlignment = Enum.TextXAlignment.Left, Parent = header })
-        
-        local closeBtn = create("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0), Size = UDim2.fromOffset(36, 36), BackgroundColor3 = Theme.Section, AutoButtonColor = false, Font = Enum.Font.GothamBold, Text = "X", TextColor3 = Theme.TextDim, TextSize = 16, Parent = header }, { corner(8) })
-        table.insert(self._conns, closeBtn.Activated:Connect(function() self:Destroy() end))
+        local header = create("Frame", { Name = "Header", Size = UDim2.new(1, 0, 0, HEADER_H), BackgroundColor3 = C.Background, BorderSizePixel = 0 }, main)
+        create("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.Stroke, BorderSizePixel = 0 }, header)
+        create("TextLabel", { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0, 150, 1, 0), BackgroundTransparency = 1, Text = opts.Title or "PulseHub", Font = FONT_BOLD, TextSize = 16, TextColor3 = C.White, TextXAlignment = Enum.TextXAlignment.Left }, header)
 
-        local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
-        table.insert(self._conns, header.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; dragInput = input; dragStart = input.Position; startPos = main.Position end
-        end))
-        table.insert(self._conns, UserInputService.InputChanged:Connect(function(input)
+        local right = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 330, 0, 32), BackgroundTransparency = 1 }, header)
+        create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, right)
+
+        local headerSearch = create("TextBox", { LayoutOrder = 1, Size = UDim2.new(0, 150, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, Text = "", PlaceholderText = "Search", PlaceholderColor3 = C.Muted, TextColor3 = C.Text, Font = FONT, TextSize = 13, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left }, right)
+        corner(headerSearch, 6) stroke(headerSearch)
+        create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, headerSearch)
+
+        local discordBtn = create("TextButton", { LayoutOrder = 2, Size = UDim2.new(0, 84, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, AutoButtonColor = false, Text = "Discord", Font = FONT_BOLD, TextSize = 13, TextColor3 = C.Discord }, right)
+        corner(discordBtn, 6) stroke(discordBtn)
+
+        local closeBtn = create("TextButton", { LayoutOrder = 3, Size = UDim2.new(0, 32, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, AutoButtonColor = false, Text = "✕", Font = FONT_BOLD, TextSize = 14, TextColor3 = C.Muted }, right)
+        corner(closeBtn, 6) stroke(closeBtn)
+
+        local dragging, dragInput, startInput, startPos = false, nil, nil, nil
+        header.InputBegan:Connect(function(input)
+            if isPress(input) then
+                dragging, dragInput = true, input
+                startInput, startPos = input.Position, main.Position
+                input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+            end
+        end)
+        table.insert(self.Connections, UIS.InputChanged:Connect(function(input)
             if dragging and (input == dragInput or input.UserInputType == Enum.UserInputType.MouseMovement) then
-                local d = input.Position - dragStart
+                local d = (input.Position - startInput) / uiScale.Scale
                 main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
             end
         end))
-        table.insert(self._conns, UserInputService.InputEnded:Connect(function(input)
-            if dragging and (input == dragInput or input.UserInputType == Enum.UserInputType.MouseButton1) then dragging = false end
+
+        local sidebar = create("Frame", { Name = "Sidebar", Position = UDim2.fromOffset(0, HEADER_H), Size = UDim2.new(0, SIDEBAR_W, 1, -HEADER_H), BackgroundColor3 = C.Sidebar, BorderSizePixel = 0 }, main)
+        local sideSearch = create("TextBox", { Position = UDim2.fromOffset(10, 10), Size = UDim2.new(1, -20, 0, 32), BackgroundColor3 = C.Section, BorderSizePixel = 0, Text = "", PlaceholderText = "🔍 Search tabs", PlaceholderColor3 = C.Muted, TextColor3 = C.Text, Font = FONT, TextSize = 13, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left }, sidebar)
+        corner(sideSearch, 6) stroke(sideSearch)
+        create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, sideSearch)
+
+        local tabList = create("ScrollingFrame", { Position = UDim2.fromOffset(0, 52), Size = UDim2.new(1, 0, 1, -52), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y }, sidebar)
+        create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4) }, tabList)
+        create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2) }, tabList)
+        self.TabList = tabList
+
+        self.Content = create("Frame", { Name = "Content", Position = UDim2.fromOffset(SIDEBAR_W, HEADER_H), Size = UDim2.new(1, -SIDEBAR_W, 1, -HEADER_H), BackgroundTransparency = 1 }, main)
+
+        sideSearch:GetPropertyChangedSignal("Text"):Connect(function()
+            local q = string.lower(sideSearch.Text)
+            for _, tab in ipairs(self.Tabs) do tab.Button.Visible = matches(tab.Name, q) end
+        end)
+        headerSearch:GetPropertyChangedSignal("Text"):Connect(function()
+            self.Query = string.lower(headerSearch.Text)
+            self:_applyFilter()
+        end)
+
+        local openBtn = create("TextButton", { Name = "Open", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 16, 0.5, 0), Size = UDim2.fromOffset(46, 46), BackgroundColor3 = C.Background, BorderSizePixel = 0, AutoButtonColor = false, Text = "P", Font = FONT_BOLD, TextSize = 20, TextColor3 = C.White, Visible = false }, gui)
+        corner(openBtn, 23) stroke(openBtn, C.Accent)
+        self.OpenButton = openBtn
+
+        closeBtn.Activated:Connect(function() self:SetVisible(false) end)
+        openBtn.Activated:Connect(function() self:SetVisible(true) end)
+        table.insert(self.Connections, UIS.InputBegan:Connect(function(input, processed)
+            if not processed and input.KeyCode == (opts.ToggleKey or Enum.KeyCode.RightShift) then self:SetVisible(not main.Visible) end
         end))
 
-        self.Sidebar = create("ScrollingFrame", { Position = UDim2.fromOffset(0, HEADER_H), Size = UDim2.new(0, SIDEBAR_W, 1, -HEADER_H), BackgroundColor3 = Theme.Sidebar, BorderSizePixel = 0, ScrollBarThickness = 0, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y, Parent = main }, { padding(8), create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }) })
-        create("Frame", { Position = UDim2.fromOffset(SIDEBAR_W, HEADER_H), Size = UDim2.new(0, 1, 1, -HEADER_H), BackgroundColor3 = Theme.Border, BorderSizePixel = 0, Parent = main })
-        self.Content = create("Frame", { Position = UDim2.fromOffset(SIDEBAR_W + 1, HEADER_H), Size = UDim2.new(1, -(SIDEBAR_W + 1), 1, -HEADER_H), BackgroundTransparency = 1, Parent = main })
+        discordBtn.Activated:Connect(function()
+            if opts.DiscordInvite and typeof(setclipboard) == "function" then safeCall(setclipboard, opts.DiscordInvite) end
+            discordBtn.Text = "Copied!"
+            task.delay(1.2, function() if discordBtn.Parent then discordBtn.Text = "Discord" end end)
+        end)
         return self
     end
 
-    function Window:CreateTab(name)
-        local tab = setmetatable({}, Tab)
-        tab.Window, tab.Name, tab._sections = self, name, 0
-        local button = create("TextButton", { Size = UDim2.new(1, 0, 0, TOUCH_H), BackgroundColor3 = Theme.TabActive, BackgroundTransparency = 1, AutoButtonColor = false, Text = "", LayoutOrder = #self.Tabs + 1, Parent = self.Sidebar }, { corner(8) })
-        local indicator = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 4, 0.5, 0), Size = UDim2.fromOffset(3, 0), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = button }, { corner(2) })
-        local label = create("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -20, 1, 0), Font = Enum.Font.GothamMedium, Text = name, TextColor3 = Theme.TextDim, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = button })
-        local page = create("ScrollingFrame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Border, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y, Visible = false, Parent = self.Content }, { padding(10), create("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }) })
-        tab.Button, tab.Indicator, tab.Label, tab.Page = button, indicator, label, page
-        
-        table.insert(self._conns, button.Activated:Connect(function() self:_select(tab) end))
+    function Window:SetVisible(state) self.Main.Visible = state; self.OpenButton.Visible = not state end
+    function Window:Destroy() for _, c in ipairs(self.Connections) do c:Disconnect() end self.Gui:Destroy() end
+    function Window:_applyFilter()
+        local q = self.Query
+        for _, section in ipairs(self.Sections) do
+            local sectionHit = matches(section.Title, q)
+            local any = false
+            for _, el in ipairs(section.Elements) do
+                local show = sectionHit or matches(el.Name, q)
+                el.Frame.Visible = show any = any or show
+            end
+            section.Frame.Visible = any or q == ""
+        end
+    end
+
+    function Window:AddTab(name, icon)
+        local tab = setmetatable({ Name = name, Window = self, Sections = {}, _order = 0 }, Tab)
+        local btn = create("TextButton", { LayoutOrder = #self.Tabs + 1, Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = C.Section, BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false, Text = "" }, self.TabList)
+        corner(btn, 6)
+        local bar = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.new(0, 4, 0.6, 0), BackgroundColor3 = C.Accent, BackgroundTransparency = 1, BorderSizePixel = 0 }, btn)
+        corner(bar, 2)
+        create("TextLabel", { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0, 24, 1, 0), BackgroundTransparency = 1, Text = icon or "•", Font = FONT, TextSize = 16, TextColor3 = C.White }, btn)
+        local label = create("TextLabel", { Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -50, 1, 0), BackgroundTransparency = 1, Text = name, Font = FONT_BOLD, TextSize = 14, TextColor3 = C.Muted, TextXAlignment = Enum.TextXAlignment.Left }, btn)
+        local page = create("ScrollingFrame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.Track, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y, Visible = false }, self.Content)
+        create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 10) }, page)
+        create("UIPadding", { PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 12), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, page)
+        tab.Button, tab.Bar, tab.Label, tab.Page = btn, bar, label, page
         table.insert(self.Tabs, tab)
-        if not self.ActiveTab then self:_select(tab, true) end
+        btn.Activated:Connect(function() self:SelectTab(tab) end)
+        if not self.Selected then self:SelectTab(tab) end
         return tab
     end
 
-    function Window:_select(tab, instant)
-        local info = instant and TweenInfo.new(0) or TWEEN
-        for _, t in ipairs(self.Tabs) do
-            local active = (t == tab)
-            t.Page.Visible = active
-            tween(t.Button, { BackgroundTransparency = active and 0 or 1 }, info)
-            tween(t.Label, { TextColor3 = active and Theme.Text or Theme.TextDim }, info)
-            tween(t.Indicator, { Size = UDim2.fromOffset(3, active and 22 or 0) }, info)
+    function Window:SelectTab(target)
+        self.Selected = target
+        for _, tab in ipairs(self.Tabs) do
+            local on = (tab == target)
+            tab.Page.Visible = on
+            tween(tab.Bar, { BackgroundTransparency = on and 0 or 1 })
+            tween(tab.Button, { BackgroundTransparency = on and 0 or 1 })
+            tween(tab.Label, { TextColor3 = on and C.White or C.Muted })
         end
-        self.ActiveTab = tab
     end
 
-    function Window:Destroy()
-        for _, c in ipairs(self._conns) do c:Disconnect() end
-        self.Gui:Destroy()
-    end
-
-    function Tab:CreateSection(name)
-        local section = setmetatable({}, Section)
-        section.Window, section.Page, section._order = self.Window, self.Page, 0
-        self._sections += 1
-        local frame = create("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Section, BorderSizePixel = 0, LayoutOrder = self._sections, Parent = self.Page }, { corner(10), create("UIStroke", { Color = Theme.Border, Thickness = 1, Transparency = 0.3 }), padding(10), create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }) })
-        create("TextLabel", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, Text = string.upper(name), TextColor3 = Theme.Accent, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 0, Parent = frame })
-        section.Frame = frame
+    function Tab:AddSection(title)
+        local win = self.Window
+        self._order += 1
+        local frame = create("Frame", { LayoutOrder = self._order, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.Section, BorderSizePixel = 0 }, self.Page)
+        corner(frame, 8)
+        create("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, frame)
+        create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, frame)
+        create("TextLabel", { LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, Text = string.upper(title), Font = FONT_BOLD, TextSize = 12, TextColor3 = C.Muted, TextXAlignment = Enum.TextXAlignment.Left }, frame)
+        local section = setmetatable({ Title = title, Frame = frame, Page = self.Page, Elements = {}, _order = 0 }, Section)
+        table.insert(win.Sections, section)
         return section
     end
 
-    function Section:_nextOrder() self._order += 1; return self._order end
-
-    function Section:AddToggle(opts)
-        local state = opts.Default == true
-        local row = create("TextButton", { Size = UDim2.new(1, 0, 0, TOUCH_H), BackgroundTransparency = 1, AutoButtonColor = false, Text = "", LayoutOrder = self:_nextOrder(), Parent = self.Frame })
-        create("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, -66, 1, 0), Font = Enum.Font.GothamMedium, Text = opts.Name or "Toggle", TextColor3 = Theme.Text, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = row })
-        local switch = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(52, 30), BackgroundColor3 = state and Theme.Accent or Theme.SwitchOff, BorderSizePixel = 0, Parent = row }, { corner(15) })
-        local thumb = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = state and UDim2.new(1, -27, 0.5, 0) or UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(24, 24), BackgroundColor3 = Theme.Text, BorderSizePixel = 0, Parent = switch }, { corner(12) })
-        
-        local function render(anim)
-            local info = anim and TWEEN or TweenInfo.new(0)
-            tween(thumb, { Position = state and UDim2.new(1, -27, 0.5, 0) or UDim2.new(0, 3, 0.5, 0) }, info)
-            tween(switch, { BackgroundColor3 = state and Theme.Accent or Theme.SwitchOff }, info)
-        end
-        table.insert(self.Window._conns, row.Activated:Connect(function() state = not state; render(true); pcall(opts.Callback, state) end))
+    function Section:_row(name, height)
+        self._order += 1
+        local row = create("Frame", { LayoutOrder = self._order, Size = UDim2.new(1, 0, 0, height), BackgroundTransparency = 1 }, self.Frame)
+        table.insert(self.Elements, { Name = name, Frame = row })
+        return row
     end
 
-    function Section:AddSlider(opts)
-        local min, max = opts.Min or 0, opts.Max or 100
-        local inc = opts.Increment or 1
-        local value = math.clamp(opts.Default or min, min, max)
-        local row = create("Frame", { Size = UDim2.new(1, 0, 0, 66), BackgroundTransparency = 1, LayoutOrder = self:_nextOrder(), Parent = self.Frame })
-        create("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, -70, 0, 26), Font = Enum.Font.GothamMedium, Text = opts.Name or "Slider", TextColor3 = Theme.Text, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
-        local valueLabel = create("TextLabel", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.fromOffset(64, 26), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, Text = formatNumber(value), TextColor3 = Theme.Accent, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Right, Parent = row })
-        local hit = create("Frame", { Position = UDim2.fromOffset(0, 28), Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Active = true, Parent = row })
-        local track = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 12, 0.5, 0), Size = UDim2.new(1, -24, 0, 6), BackgroundColor3 = Theme.SwitchOff, BorderSizePixel = 0, Parent = hit }, { corner(3) })
-        local alpha0 = (value - min) / (max - min)
-        local fill = create("Frame", { Size = UDim2.new(alpha0, 0, 1, 0), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track }, { corner(3) })
-        local thumb = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(alpha0, 0, 0.5, 0), Size = UDim2.fromOffset(22, 22), BackgroundColor3 = Theme.Text, BorderSizePixel = 0, Parent = track }, { corner(11) })
-        
-        local function apply(v, silent)
-            v = math.clamp(math.floor((v - min) / inc + 0.5) * inc + min, min, max)
-            local a = (max == min) and 0 or (v - min) / (max - min)
-            value = v
-            fill.Size = UDim2.new(a, 0, 1, 0)
+    function Section:AddToggle(name, default, callback)
+        local row = self:_row(name, 36)
+        local state = default == true
+        create("TextLabel", { Size = UDim2.new(1, -52, 1, 0), BackgroundTransparency = 1, Text = name, Font = FONT, TextSize = 14, TextColor3 = C.Text, TextXAlignment = Enum.TextXAlignment.Left }, row)
+        local pill = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(40, 20), BackgroundColor3 = state and C.Accent or C.ToggleOff, BorderSizePixel = 0 }, row)
+        corner(pill, 10)
+        local knob = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = state and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = C.White, BorderSizePixel = 0 }, pill)
+        corner(knob, 8)
+        local hit = create("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 2 }, row)
+        local obj = {}
+        local function render() tween(pill, { BackgroundColor3 = state and C.Accent or C.ToggleOff }) tween(knob, { Position = state and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) }) end
+        function obj:Set(v, silent) state = v == true render() if not silent then safeCall(callback, state) end end
+        hit.Activated:Connect(function() obj:Set(not state) end)
+        if default then safeCall(callback, state) end
+        return obj
+    end
+
+    function Section:AddSlider(name, min, max, default, callback, step)
+        step = step or 1
+        local row = self:_row(name, 50)
+        local value = math.clamp(default or min, min, max)
+        create("TextLabel", { Size = UDim2.new(1, -60, 0, 24), BackgroundTransparency = 1, Text = name, Font = FONT, TextSize = 14, TextColor3 = C.Text, TextXAlignment = Enum.TextXAlignment.Left }, row)
+        local valueLabel = create("TextLabel", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0, 56, 0, 24), BackgroundTransparency = 1, Text = tostring(value), Font = FONT_BOLD, TextSize = 13, TextColor3 = C.Muted, TextXAlignment = Enum.TextXAlignment.Right }, row)
+        local track = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0, 36), Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = C.Track, BorderSizePixel = 0 }, row)
+        corner(track, 2)
+        local fill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.White, BorderSizePixel = 0 }, track)
+        corner(fill, 2)
+        local thumb = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = C.White, BorderSizePixel = 0, ZIndex = 2 }, track)
+        corner(thumb, 7)
+        local hit = create("TextButton", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0, 36), Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, Text = "", ZIndex = 3 }, row)
+        local obj = {}
+        local function render()
+            local a = (max == min) and 0 or (value - min) / (max - min)
+            fill.Size = UDim2.fromScale(a, 1)
             thumb.Position = UDim2.new(a, 0, 0.5, 0)
-            valueLabel.Text = formatNumber(value)
-            if not silent then task.spawn(opts.Callback, value) end
+            valueLabel.Text = tostring(value)
         end
-        local function fromX(x) apply(min + math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1) * (max - min)) end
-        
+        function obj:Set(v, silent)
+            v = math.clamp(math.floor((v - min) / step + 0.5) * step + min, min, max)
+            if v ~= value then value = v render() if not silent then safeCall(callback, value) end end
+        end
+        local function fromX(x) local a = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1) obj:Set(min + (max - min) * a) end
         local dragging, dragInput = false, nil
-        table.insert(self.Window._conns, hit.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; dragInput = input; self.Page.ScrollingEnabled = false; fromX(input.Position.X) end end))
-        table.insert(self.Window._conns, UserInputService.InputChanged:Connect(function(input) if dragging and (input == dragInput or input.UserInputType == Enum.UserInputType.MouseMovement) then fromX(input.Position.X) end end))
-        table.insert(self.Window._conns, UserInputService.InputEnded:Connect(function(input) if dragging and (input == dragInput or input.UserInputType == Enum.UserInputType.MouseButton1) then dragging = false; self.Page.ScrollingEnabled = true end end))
+        hit.InputBegan:Connect(function(input)
+            if isPress(input) then
+                dragging, dragInput = true, input
+                self.Page.ScrollingEnabled = false
+                fromX(input.Position.X)
+                input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false self.Page.ScrollingEnabled = true end end)
+            end
+        end)
+        UIS.InputChanged:Connect(function(input) if dragging and (input == dragInput or input.UserInputType == Enum.UserInputType.MouseMovement) then fromX(input.Position.X) end end)
+        render()
+        if default then safeCall(callback, value) end
+        return obj
     end
-    return Library
+
+    function Section:AddButton(name, callback)
+        local row = self:_row(name, 36)
+        local btn = create("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.Button, BorderSizePixel = 0, AutoButtonColor = false, Text = name, Font = FONT_BOLD, TextSize = 14, TextColor3 = C.Text }, row)
+        corner(btn, 6)
+        btn.Activated:Connect(function() tween(btn, { BackgroundColor3 = C.Accent }, 0.08) task.delay(0.12, function() tween(btn, { BackgroundColor3 = C.Button }, 0.2) end) safeCall(callback) end)
+        return btn
+    end
+    return PulseHubClass
 end)()
 
-local Window = Library.new("Liberium Hub")
-local TabVisuals = Window:CreateTab("Visuals")
-local TabFarm = Window:CreateTab("Farm")
-local TabMisc = Window:CreateTab("Misc")
+local Window = PulseHub.new({ Title = "Liberium Hub", DiscordInvite = "https://discord.gg/liberium" })
+local TabVisuals = Window:AddTab("Visuals", "👁")
+local TabFarm = Window:AddTab("Farm", "💰")
+local TabMisc = Window:AddTab("Misc", "⚙️")
 
 -- ==========================================
 -- ЛОГИКА
@@ -185,7 +274,7 @@ local TabMisc = Window:CreateTab("Misc")
 local CFG = {
     MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
     MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false,
-    AvoidRadius = 5,
+    AvoidRadius = 8,
 }
 
 local collectedCount = 0
@@ -194,6 +283,7 @@ local originalCollide = setmetatable({}, { __mode = "k" })
 local roles = {}
 local canFarmNow = false
 local currentSession = nil 
+local lastHealth = 100
 
 task.spawn(function()
     while task.wait(0.5) do
@@ -207,14 +297,26 @@ task.spawn(function()
     end
 end)
 
-local function getRoleColor(plr)
+local function getPlayerRole(plr)
     local rData = roles[plr.Name]
-    if rData and rData.Role then
-        local r = rData.Role
-        if r == "Murderer" or r == "Zombie" then return Color3.fromRGB(255, 50, 50) end
-        if r == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
-        if r == "Survivor" or r == "Innocent" then return Color3.fromRGB(255, 165, 0) end
+    if rData and rData.Role then return rData.Role end
+    local char = plr.Character
+    if char then
+        if char:FindFirstChild("Knife") then return "Murderer" end
+        if char:FindFirstChild("Gun") then return "Sheriff" end
     end
+    local bp = plr:FindFirstChild("Backpack")
+    if bp then
+        if bp:FindFirstChild("Knife") then return "Murderer" end
+        if bp:FindFirstChild("Gun") then return "Sheriff" end
+    end
+    return "Innocent"
+end
+
+local function getRoleColor(plr)
+    local role = getPlayerRole(plr)
+    if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end
+    if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
     return Color3.fromRGB(50, 255, 100)
 end
 
@@ -222,43 +324,56 @@ local function canCollect()
     if not canFarmNow then return false end
     local s = currentSession
     if not s or s.destroyed or s.humanoid.Health <= 0 then return false end
-    
     local myData = roles[player.Name]
     if not myData then return false end 
     if myData.Dead then return false end
-    
     local r = myData.Role
     if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end
-
     local container = Workspace:FindFirstChild("CoinContainer", true)
     if not container or #container:GetChildren() == 0 then return false end
-    
     return true
 end
 
 task.spawn(function()
-    while task.wait(0.3) do
+    while task.wait(0.2) do
+        local s = currentSession
+        if s and not s.destroyed and s.humanoid.Health > 0 then
+            if s.humanoid.Health < lastHealth then
+                if CFG.AutoFarm then
+                    if s.bv then s.bv.Velocity = Vector3.zero end
+                    if s.target then Blacklist[s.target] = true end
+                end
+            end
+            lastHealth = s.humanoid.Health
+        elseif s and not s.destroyed then
+            lastHealth = 100
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(0.2) do
         if CFG.ESP then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= player and p.Character then
-                    local myData = roles[p.Name]
-                    local isDead = myData and myData.Dead
                     local hl = p.Character:FindFirstChild("LibESP")
-                    
+                    if not hl then
+                        hl = Instance.new("Highlight")
+                        hl.Name = "LibESP"
+                        hl.Parent = p.Character
+                    end
+                    local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                    local isDead = (not hum or hum.Health <= 0)
+                    local rData = roles[p.Name]
+                    if rData and rData.Dead then isDead = true end
                     if isDead then
-                        if hl then hl:Destroy() end
+                        hl.FillTransparency = 1 hl.OutlineTransparency = 1
                     else
-                        if not hl then
-                            hl = Instance.new("Highlight")
-                            hl.Name = "LibESP"
-                            hl.Parent = p.Character
-                        end
                         hl.Adornee = p.Character
-                        hl.OutlineTransparency = 0
                         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.FillTransparency = 0.5 hl.OutlineTransparency = 0
                         local c = getRoleColor(p) 
-                        hl.FillColor = c 
-                        hl.OutlineColor = c
+                        hl.FillColor = c hl.OutlineColor = c
                     end
                 end
             end
@@ -273,13 +388,7 @@ task.spawn(function()
     end
 end)
 
--- ФИЗИКА (State Machine)
-local function releaseForces(s)
-    s.bv.MaxForce = Vector3.zero
-    s.bv.Velocity = Vector3.zero
-    s.bg.MaxTorque = Vector3.zero
-end
-
+local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
 local function resetHumanoid(s)
     local hum = s.humanoid
     if not hum.Parent then return end
@@ -291,67 +400,44 @@ local function resetHumanoid(s)
         hum:ChangeState(Enum.HumanoidStateType.GettingUp)
     end
 end
-
 local function teardown(s)
     if not s or s.destroyed then return end
     s.destroyed = true
     for _, conn in s.conns do conn:Disconnect() end
-    table.clear(s.conns)
-    releaseForces(s)
+    table.clear(s.conns) releaseForces(s)
     if s.root.Parent then
         s.root.AssemblyLinearVelocity = Vector3.zero
         s.root.AssemblyAngularVelocity = Vector3.zero
     end
-    resetHumanoid(s)
-    s.bv:Destroy()
-    s.bg:Destroy()
+    resetHumanoid(s) s.bv:Destroy() s.bg:Destroy()
     if currentSession == s then currentSession = nil end
 end
 
 local function bindCharacter(character)
     if currentSession then teardown(currentSession) end
-    canFarmNow = false
-    collectedCount = 0 
-    table.clear(Blacklist)
+    canFarmNow = false collectedCount = 0 table.clear(Blacklist) lastHealth = 100
 
     local root = character:WaitForChild("HumanoidRootPart", 10)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if not (root and humanoid) or player.Character ~= character then return end
 
     local bv = Instance.new("BodyVelocity")
-    bv.MaxForce = Vector3.zero
-    bv.Velocity = Vector3.zero
-    bv.P = 3000
-    bv.Parent = root
-
+    bv.MaxForce = Vector3.zero bv.Velocity = Vector3.zero bv.P = 3000 bv.Parent = root
     local bg = Instance.new("BodyGyro")
-    bg.MaxTorque = Vector3.zero
-    bg.P = 6000
-    bg.D = 500
-    bg.CFrame = root.CFrame
-    bg.Parent = root
+    bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root
 
-    local s = {
-        character = character, root = root, humanoid = humanoid, bv = bv, bg = bg,
-        conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate,
-    }
+    local s = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg, conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate, target = nil }
     currentSession = s
 
     table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end))
-    table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent)
-        if parent == nil then teardown(s) end
-    end))
-
+    table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
     if humanoid.Health <= 0 then teardown(s) end
 
-    task.wait(3)
-    canFarmNow = true
+    task.wait(3) canFarmNow = true
 end
 
 player.CharacterAdded:Connect(bindCharacter)
-player.CharacterRemoving:Connect(function(character)
-    if currentSession and currentSession.character == character then teardown(currentSession) end
-end)
+player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end)
 if player.Character then task.spawn(bindCharacter, player.Character) end
 
 RunService.Stepped:Connect(function()
@@ -371,52 +457,39 @@ end)
 local function flyTo(target)
     local s = currentSession
     if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end
-
-    local arrived = false
-    local startTime = os.clock()
+    s.target = target
+    local arrived = false local startTime = os.clock()
     local ok, err = pcall(function()
-        s.humanoid.AutoRotate = false
-        s.humanoid.PlatformStand = true
+        s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true
         local f = s.root.AssemblyMass * CFG.ForcePerMass
-        s.bv.MaxForce = Vector3.new(f, f, f)
-        s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
-
+        s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
             RunService.Heartbeat:Wait()
             if s.destroyed then break end
-            if not target:IsDescendantOf(Workspace) or os.clock() - startTime > 4.0 then Blacklist[target] = true break end
+            if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end
+            if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end
             if not canCollect() then break end
-
             local pos = s.root.Position
             local offset = target.Position - pos
             local dist = offset.Magnitude
             if dist <= 3 then arrived = true break end
-
             s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
             local flat = Vector3.new(offset.X, 0, offset.Z)
             if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
         end
     end)
     if not ok then warn("flyTo error:", err) end
-
     if not s.destroyed then
-        releaseForces(s)
-        s.root.AssemblyLinearVelocity = Vector3.zero
-        s.root.AssemblyAngularVelocity = Vector3.zero
-        resetHumanoid(s)
+        releaseForces(s) s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero resetHumanoid(s)
     end
-    return arrived
+    s.target = nil return arrived
 end
 
--- Поиск конфет
 local COIN_PRIMARY = "Coin_Server"
 local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true }
 local coinCache, coinCacheTime, coinContainer = {}, 0, nil
 
-local function findCoinContainer()
-    return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true)
-end
-
+local function findCoinContainer() return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true) end
 local function isCoinName(name)
     if name == COIN_PRIMARY then return true end
     if COIN_FALLBACK[name] then return true end
@@ -424,7 +497,6 @@ local function isCoinName(name)
     local n = string.lower(name)
     return string.find(n, "coin", 1, true) ~= nil or string.find(n, "candy", 1, true) ~= nil or string.find(n, "sweet", 1, true) ~= nil
 end
-
 local function isCoinAlive(c, container)
     if not c or not c.Parent then return false end
     if not c:IsDescendantOf(Workspace) then return false end
@@ -433,16 +505,13 @@ local function isCoinAlive(c, container)
     if vis and vis:IsA("BasePart") and vis.Transparency >= 0.99 then return false end
     return true
 end
-
 local function refreshCoinCache()
-    local t = os.clock()
-    if t - coinCacheTime < 1 then return end
+    local t = os.clock() if t - coinCacheTime < 1 then return end
     coinCacheTime = t coinCache = {} coinContainer = findCoinContainer()
     if coinContainer then
         for _, c in ipairs(coinContainer:GetChildren()) do
             if c:IsA("BasePart") and isCoinName(c.Name) then
-                if not Blacklist[c] and isCoinAlive(c, coinContainer) then
-                    coinCache[#coinCache+1] = c
+                if not Blacklist[c] and isCoinAlive(c, coinContainer) then coinCache[#coinCache+1] = c
                 elseif not isCoinAlive(c, coinContainer) then Blacklist[c] = true end
             end
         end
@@ -453,37 +522,33 @@ local function refreshCoinCache()
         end
     end
 end
-
-local function isCoinGuarded(pos)
-    local r = CFG.AvoidRadius
-    if r <= 0 then return false end
+local function isMurdererNear(pos)
+    if CFG.AvoidRadius <= 0 then return false end
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character then
-            local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-            if pRoot and (pRoot.Position - pos).Magnitude < r then return true end
+            local role = getPlayerRole(plr)
+            if role == "Murderer" or role == "Zombie" then
+                local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+                if pRoot and (pRoot.Position - pos).Magnitude < CFG.AvoidRadius then return true end
+            end
         end
     end
     return false
 end
-
 local function nearestPart()
-    local s = currentSession
-    if not s or s.destroyed then return nil end
+    local s = currentSession if not s or s.destroyed then return nil end
     refreshCoinCache()
-    local best, bestDist = nil, math.huge
-    local pos = s.root.Position
+    local best, bestDist = nil, math.huge local pos = s.root.Position
     for _, c in ipairs(coinCache) do
         if c and c.Parent and not Blacklist[c] then
             local d = (c.Position - pos).Magnitude
-            if d < bestDist and not isCoinGuarded(c.Position) then best, bestDist = c, d end
+            if d < bestDist and not isMurdererNear(c.Position) then best, bestDist = c, d end
         else Blacklist[c] = true end
     end
     return best
 end
-
 local function collectTarget(target)
-    local s = currentSession
-    if not s or s.destroyed or not target.Parent then return end
+    local s = currentSession if not s or s.destroyed or not target.Parent then return end
     Blacklist[target] = true collectedCount += 1
     pcall(function()
         if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end
@@ -491,7 +556,6 @@ local function collectTarget(target)
         if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
     end)
 end
-
 local function collectSession()
     while CFG.AutoFarm and canCollect() do
         if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
@@ -500,7 +564,7 @@ local function collectSession()
         end
         local target = nearestPart()
         if not target then break end
-        if flyTo(target) then collectTarget(target) task.wait(0.1) else break end
+        if flyTo(target) then collectTarget(target) task.wait(0.1) else task.wait(0.1) end
     end
 end
 
@@ -511,58 +575,24 @@ task.spawn(function()
     end
 end)
 
-player.Idled:Connect(function()
-    if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
-end)
+player.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end end)
 
 -- ==========================================
 -- НАПОЛНЕНИЕ UI (API КЛОДА)
 -- ==========================================
-local secVisuals = TabVisuals:CreateSection("ESP Settings")
-secVisuals:AddToggle({
-    Name = "Player ESP (Roles)",
-    Default = false,
-    Callback = function(v) CFG.ESP = v end
-})
+local secVisuals = TabVisuals:AddSection("ESP Settings")
+secVisuals:AddToggle("Player ESP (Roles)", false, function(v) CFG.ESP = v end)
 
-local secFarm = TabFarm:CreateSection("Automation")
-secFarm:AddToggle({
-    Name = "Auto Farm (Coins)",
-    Default = false,
-    Callback = function(v)
-        CFG.AutoFarm = v
-        if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
-    end
-})
-secFarm:AddSlider({
-    Name = "Farm Speed",
-    Min = 10, Max = 24, Default = 20,
-    Callback = function(v) CFG.MaxSpeed = v end
-})
-secFarm:AddToggle({
-    Name = "Auto Reset (Full Bag)",
-    Default = false,
-    Callback = function(v) CFG.AutoReset = v end
-})
-secFarm:AddSlider({
-    Name = "Max Coins",
-    Min = 40, Max = 50, Default = 50,
-    Callback = function(v) CFG.MaxCoins = v end
-})
-secFarm:AddSlider({
-    Name = "Avoid Players radius",
-    Min = 0, Max = 10, Default = 5,
-    Callback = function(v) CFG.AvoidRadius = v end
-})
+local secFarm = TabFarm:AddSection("Automation")
+secFarm:AddToggle("Auto Farm (Coins)", false, function(v)
+    CFG.AutoFarm = v
+    if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
+end)
+secFarm:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end)
+secFarm:AddToggle("Auto Reset (Full Bag)", false, function(v) CFG.AutoReset = v end)
+secFarm:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end)
+secFarm:AddSlider("Murderer Avoidance Radius", 0, 20, 8, function(v) CFG.AvoidRadius = v end)
 
-local secMisc = TabMisc:CreateSection("Miscellaneous")
-secMisc:AddToggle({
-    Name = "Anti-AFK",
-    Default = false,
-    Callback = function(v) CFG.AntiAFK = v end
-})
-secMisc:AddToggle({
-    Name = "Noclip",
-    Default = false,
-    Callback = function(v) CFG.Noclip = v end
-})
+local secMisc = TabMisc:AddSection("Miscellaneous")
+secMisc:AddToggle("Anti-AFK", false, function(v) CFG.AntiAFK = v end)
+secMisc:AddToggle("Noclip", false, function(v) CFG.Noclip = v end)
