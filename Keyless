@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v36 | Fixed Size (PulseHub style) + Real Logic
+-- LIBERIUM HUB | v38 | Premium UI + Real Logic
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -6,13 +6,12 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
-local Lighting = game:GetService("Lighting")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- ==========================================
--- КОНФИГ И ПЕРЕМЕННЫЕ
+-- КОНФИГ
 -- ==========================================
 local CFG = { 
     MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, 
@@ -28,244 +27,276 @@ local currentSession = nil
 local lastHealth = 100
 
 -- ==========================================
--- БИБЛИОТЕКА UI
+-- ТЕМА И UI БИБЛИОТЕКА (ОТ CHATGPT)
 -- ==========================================
+local Theme = {
+    BG = Color3.fromRGB(8, 10, 9), Sidebar = Color3.fromRGB(13, 17, 15),
+    Card = Color3.fromRGB(19, 24, 22), Hover = Color3.fromRGB(26, 37, 30),
+    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 85, 35),
+    White = Color3.fromRGB(245, 250, 247), Muted = Color3.fromRGB(139, 157, 146),
+    Track = Color3.fromRGB(42, 48, 44), Border = Color3.fromRGB(38, 57, 44),
+}
+
 local Library = {}
 Library.__index = Library
-local Theme = {
-    Background = Color3.fromRGB(7, 9, 10), Panel = Color3.fromRGB(17, 19, 20),
-    Card = Color3.fromRGB(26, 27, 28), CardHover = Color3.fromRGB(34, 38, 35),
-    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 105, 31),
-    Text = Color3.fromRGB(244, 247, 245), Muted = Color3.fromRGB(135, 143, 138),
-    Line = Color3.fromRGB(55, 65, 58), White = Color3.fromRGB(255, 255, 255),
-    Orange = Color3.fromRGB(255, 145, 67),
-}
-local function create(className, props, parent) local object = Instance.new(className) for key, value in pairs(props or {}) do object[key] = value end object.Parent = parent return object end
-local function addCorner(parent, radius) return create("UICorner", { CornerRadius = UDim.new(0, radius or 10) }, parent) end
-local function addStroke(parent, color, transparency, thickness) return create("UIStroke", { Color = color or Theme.Line, Transparency = transparency or 0, Thickness = thickness or 1 }, parent) end
-local function addGradient(parent, first, last, rotation) return create("UIGradient", { Color = ColorSequence.new(first, last), Rotation = rotation or 0 }, parent) end
-local function makeTween(object, duration, properties, style) local tween = TweenService:Create(object, TweenInfo.new(duration, style or Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties) tween:Play() return tween end
-local function makeLabel(parent, text, size, color, font, xAlignment) return create("TextLabel", { BackgroundTransparency = 1, Text = text or "", TextColor3 = color or Theme.Text, TextSize = size or 14, Font = font or Enum.Font.Gotham, TextXAlignment = xAlignment or Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd }, parent) end
-local function makeButton(parent, text, size, background, textColor) return create("TextButton", { Size = size, BackgroundColor3 = background or Theme.Card, Text = text or "", TextColor3 = textColor or Theme.Text, TextSize = 13, Font = Enum.Font.GothamSemibold, AutoButtonColor = false, BorderSizePixel = 0 }, parent) end
-local function connectHover(button, normalColor, hoverColor) button.MouseEnter:Connect(function() makeTween(button, 0.14, { BackgroundColor3 = hoverColor }) end) button.MouseLeave:Connect(function() makeTween(button, 0.14, { BackgroundColor3 = normalColor }) end) end
 
-local Window, Tab, Section, PlayerList = {}, {}, {}, {}
-Window.__index, Tab.__index, Section.__index, PlayerList.__index = Window, Tab, Section, PlayerList
+local function New(class, props, parent)
+    local object = Instance.new(class)
+    for property, value in pairs(props or {}) do object[property] = value end
+    object.Parent = parent
+    return object
+end
+local function Tween(object, duration, properties)
+    local animation = TweenService:Create(object, TweenInfo.new(duration or 0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties)
+    animation:Play() return animation
+end
+local function Round(object, radius) New("UICorner", { CornerRadius = UDim.new(0, radius or 10) }, object) end
+local function Outline(object, color, transparency, thickness) return New("UIStroke", { Color = color or Theme.Border, Transparency = transparency or 0, Thickness = thickness or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, object) end
+local function Text(parent, value, size, color, font) return New("TextLabel", { BackgroundTransparency = 1, Text = value, TextSize = size or 12, TextColor3 = color or Theme.White, Font = font or Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, 0, 1, 0) }, parent) end
+local function Gradient(object, first, last, rotation) return New("UIGradient", { Color = ColorSequence.new(first, last), Rotation = rotation or 0 }, object) end
+local function MakeButton(parent, text, size) local button = New("TextButton", { AutoButtonColor = false, Text = text, TextSize = 12, TextColor3 = Theme.Muted, Font = Enum.Font.GothamMedium, BackgroundColor3 = Theme.Card, BorderSizePixel = 0, Size = size }, parent) Round(button, 9) return button end
 
 function Library.new(options)
     options = options or {}
     local self = setmetatable({}, Library)
-    self.Title = options.Title or "LIBERIUM HUB" self.Tabs = {} self.ActiveTab = nil self.Closed = false
-    local previous = PlayerGui:FindFirstChild("LiberiumHubLibrary") if previous then previous:Destroy() end
-    self.Gui = create("ScreenGui", { Name = "LiberiumHubLibrary", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, PlayerGui)
-    self.Backdrop = create("Frame", { Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.48, BorderSizePixel = 0 }, self.Gui)
-    pcall(function() local oldBlur = Lighting:FindFirstChild("LiberiumUIBlur") if oldBlur then oldBlur:Destroy() end self.Blur = create("BlurEffect", { Name = "LiberiumUIBlur", Size = 7, Enabled = true }, Lighting) end)
+    self.Tabs = {} self.ActiveTab = nil self.Visible = true self.Connections = {}
 
-    self.OpenButton = create("ImageButton", { Name = "OpenWindow", Position = UDim2.new(0, 80, 0.5, -28), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Theme.Panel, Image = "rbxassetid://93999324301796", ScaleType = Enum.ScaleType.Crop, Visible = false, AutoButtonColor = false }, self.Gui)
-    addCorner(self.OpenButton, 28) addStroke(self.OpenButton, Theme.Green, 0.25, 1.4)
+    local gui = New("ScreenGui", { Name = "LiberiumHubPremium", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 50, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, PlayerGui)
+    self.Gui = gui
+
+    -- Плавающая кнопка вызова (с мечом)
+    self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(50, 50), BackgroundColor3 = Theme.BG, Text = "⚔", TextColor3 = Theme.Green, TextSize = 28, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
+    Round(self.OpenButton, 25) Outline(self.OpenButton, Theme.Green, 0.1, 1.5)
     
     local fDrag, fStart, fPos = false, nil, nil
     self.OpenButton.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag, fStart, fPos = true, i.Position, self.OpenButton.Position end end)
     UserInputService.InputChanged:Connect(function(i) if fDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then local d = i.Position - fStart self.OpenButton.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y) end end)
     UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag = false end end)
+    self.OpenButton.Activated:Connect(function() self:ToggleVisible() end)
 
-    -- ОКНО ФИКСИРОВАННОГО РАЗМЕРА (PULSE STYLE)
-    self.Main = create("Frame", { Name = "MainWindow", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(580, 380), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.04, BorderSizePixel = 0, ClipsDescendants = true }, self.Gui)
-    addCorner(self.Main, 18) self.MainStroke = addStroke(self.Main, Theme.Green, 0.5, 1.2) addGradient(self.Main, Color3.fromRGB(17, 24, 19), Theme.Background, 35)
-    self.Scale = create("UIScale", { Scale = 1 }, self.Main)
+    local root = New("Frame", { Name = "MainWindow", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.BG, BorderSizePixel = 0, ClipsDescendants = true }, gui)
+    self.Root = root Round(root, 15)
+    local outerStroke = Outline(root, Theme.Green, 0.1, 1.3) Gradient(root, Color3.fromRGB(10, 20, 13), Theme.BG, 35)
     
-    self.Header = create("Frame", { Name = "Header", Size = UDim2.new(1, 0, 0, 70), BackgroundColor3 = Theme.Panel, BackgroundTransparency = 0.18, BorderSizePixel = 0 }, self.Main)
-    addGradient(self.Header, Color3.fromRGB(27, 31, 29), Theme.Panel, 90)
-    local emblem = create("Frame", { Position = UDim2.new(0, 16, 0, 12), Size = UDim2.fromOffset(44, 44), BackgroundColor3 = Color3.fromRGB(20, 35, 25), BorderSizePixel = 0 }, self.Header)
-    addCorner(emblem, 12) addStroke(emblem, Theme.Green, 0.55, 1)
-    local emblemText = makeLabel(emblem, "⚔️", 25, Theme.White, Enum.Font.GothamBold, Enum.TextXAlignment.Center) emblemText.Size = UDim2.fromScale(1, 1)
+    local glow = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.3, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 2) }, root)
+    Gradient(glow, Theme.Green, Theme.GreenDark)
 
-    self.TitleLabel = makeLabel(self.Header, self.Title, 17, Theme.Text, Enum.Font.GothamBlack)
-    self.TitleLabel.Position = UDim2.new(0, 70, 0, 10) self.TitleLabel.Size = UDim2.new(0, 210, 0, 24)
-    self.Subtitle = makeLabel(self.Header, "PREMIUM UI  •  LOCAL PREVIEW", 8, Theme.Green, Enum.Font.GothamBold)
-    self.Subtitle.Position = UDim2.new(0, 71, 0, 34) self.Subtitle.Size = UDim2.new(0, 210, 0, 15)
+    -- Sidebar
+    local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BorderSizePixel = 0, Size = UDim2.new(0, 180, 1, 0) }, root)
+    Gradient(sidebar, Color3.fromRGB(14, 24, 17), Theme.Sidebar, 90)
+    New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.65, BorderSizePixel = 0, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
 
-    self.HeaderSearch = create("TextBox", { Name = "HeaderSearch", PlaceholderText = "Search tabs...", Text = "", ClearTextOnFocus = false, Position = UDim2.new(1, -230, 0, 17), Size = UDim2.new(0, 170, 0, 34), BackgroundColor3 = Theme.Card, TextColor3 = Theme.Text, PlaceholderColor3 = Theme.Muted, TextSize = 11, Font = Enum.Font.Gotham, BorderSizePixel = 0 }, self.Header)
-    addCorner(self.HeaderSearch, 10) addStroke(self.HeaderSearch, Theme.Line, 0.35, 1)
+    local logo = New("Frame", { Position = UDim2.fromOffset(15, 19), Size = UDim2.fromOffset(38, 38), BackgroundColor3 = Color3.fromRGB(8, 40, 19), BorderSizePixel = 0 }, sidebar)
+    Round(logo, 11) Outline(logo, Theme.Green, 0.25, 1)
+    local logoText = Text(logo, "L", 25, Theme.Green, Enum.Font.GothamBold) logoText.TextXAlignment = Enum.TextXAlignment.Center
 
-    self.CloseButton = makeButton(self.Header, "×", UDim2.fromOffset(31, 31), Color3.fromRGB(47, 29, 25), Theme.Orange)
-    self.CloseButton.Name = "Close" self.CloseButton.Position = UDim2.new(1, -43, 0, 19) self.CloseButton.TextSize = 23
-    addCorner(self.CloseButton, 10) addStroke(self.CloseButton, Theme.Orange, 0.7, 1)
+    local brand = Text(sidebar, options.Title or "LIBERIUM HUB", 14, Theme.White, Enum.Font.GothamBold) brand.Position = UDim2.fromOffset(61, 19) brand.Size = UDim2.new(1, -68, 0, 22)
+    local subtitle = Text(sidebar, "P R E M I U M   U I", 8, Theme.Green, Enum.Font.GothamBold) subtitle.Position = UDim2.fromOffset(62, 42) subtitle.Size = UDim2.new(1, -68, 0, 13)
 
-    self.Body = create("Frame", { Name = "Body", Position = UDim2.new(0, 0, 0, 71), Size = UDim2.new(1, 0, 1, -71), BackgroundTransparency = 1 }, self.Main)
-    self.Sidebar = create("Frame", { Name = "Sidebar", Position = UDim2.new(0, 12, 0, 12), Size = UDim2.new(0, 165, 1, -24), BackgroundColor3 = Theme.Panel, BackgroundTransparency = 0.1, BorderSizePixel = 0 }, self.Body)
-    addCorner(self.Sidebar, 14) addStroke(self.Sidebar, Theme.Line, 0.55, 1)
+    self.Nav = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 83), Size = UDim2.new(1, -24, 1, -145) }, sidebar)
+    New("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
 
-    self.SideSearch = create("TextBox", { Name = "TabSearch", PlaceholderText = "⌕  Find a tab", Text = "", ClearTextOnFocus = false, Position = UDim2.new(0, 9, 0, 11), Size = UDim2.new(1, -18, 0, 34), BackgroundColor3 = Theme.Card, TextColor3 = Theme.Text, PlaceholderColor3 = Theme.Muted, TextSize = 10, Font = Enum.Font.Gotham, BorderSizePixel = 0 }, self.Sidebar)
-    addCorner(self.SideSearch, 9)
+    local dot = New("Frame", { BackgroundColor3 = Theme.Green, Position = UDim2.fromOffset(17, 423), Size = UDim2.fromOffset(8, 8), BorderSizePixel = 0 }, sidebar) Round(dot, 8) Outline(dot, Theme.Green, 0.5, 2)
+    local footer = Text(sidebar, options.Subtitle or "MM2 PREMIUM", 10, Theme.White, Enum.Font.GothamMedium) footer.Position = UDim2.fromOffset(32, 416) footer.Size = UDim2.new(1, -42, 0, 18)
+    local version = Text(sidebar, "v1.0.0  •  UI EDITION", 8, Theme.Muted) version.Position = UDim2.fromOffset(32, 432) version.Size = UDim2.new(1, -42, 0, 14)
 
-    self.Nav = create("ScrollingFrame", { Name = "Navigation", Position = UDim2.new(0, 8, 0, 55), Size = UDim2.new(1, -16, 1, -66), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Green, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new() }, self.Sidebar)
-    self.NavLayout = create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
+    -- Right content
+    self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(180, 0), Size = UDim2.new(1, -180, 1, 0) }, root)
+    local header = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 14), Size = UDim2.new(1, -44, 0, 48) }, self.Content)
+    
+    self.PageTitle = Text(header, "Main", 25, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(0, 155, 1, 0)
+    
+    local search = New("Frame", { BackgroundColor3 = Theme.Card, Position = UDim2.new(1, -196, 0, 5), Size = UDim2.fromOffset(154, 36), BorderSizePixel = 0 }, header)
+    Round(search, 18) Outline(search, Theme.Border, 0.15, 1)
+    
+    local searchIcon = Text(search, "⌕", 22, Theme.Muted) searchIcon.Position = UDim2.fromOffset(12, 0) searchIcon.Size = UDim2.fromOffset(20, 36)
+    New("TextBox", { BackgroundTransparency = 1, ClearTextOnFocus = false, PlaceholderText = "Search...", PlaceholderColor3 = Theme.Muted, Text = "", TextColor3 = Theme.White, TextSize = 11, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -42, 1, 0) }, search)
 
-    self.Content = create("ScrollingFrame", { Name = "Content", Position = UDim2.new(0, 189, 0, 12), Size = UDim2.new(1, -201, 1, -24), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Green, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new() }, self.Body)
-    create("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 1), PaddingBottom = UDim.new(0, 14) }, self.Content)
-    self.ContentLayout = create("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, self.Content)
+    local close = MakeButton(header, "×", UDim2.fromOffset(34, 34)) close.Position = UDim2.new(1, -34, 0, 6) close.BackgroundColor3 = Theme.BG close.TextSize = 24 close.TextColor3 = Theme.White Round(close, 18)
+    local closeStroke = Outline(close, Theme.Green, 0.1, 1)
+    close.MouseEnter:Connect(function() Tween(closeStroke, 0.15, {Color = Color3.fromRGB(255, 70, 90)}) Tween(close, 0.15, {TextColor3 = Color3.fromRGB(255, 90, 110)}) end)
+    close.MouseLeave:Connect(function() Tween(closeStroke, 0.15, {Color = Theme.Green}) Tween(close, 0.15, {TextColor3 = Theme.White}) end)
+    close.Activated:Connect(function() self:ToggleVisible() end)
 
-    local dragging, dragStart, startPos = false, nil, nil
-    self.Header.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true dragStart = input.Position startPos = self.Main.Position end end)
-    UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then local delta = input.Position - dragStart self.Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end)
-    UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end)
+    New("Frame", { BackgroundColor3 = Theme.Border, BackgroundTransparency = 0.2, Position = UDim2.new(0, 18, 0, 66), Size = UDim2.new(1, -36, 0, 1), BorderSizePixel = 0 }, self.Content)
+    self.SubTabBar = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 78), Size = UDim2.new(1, -44, 0, 34) }, self.Content)
+    New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, self.SubTabBar)
+    self.PageHolder = New("Frame", { BackgroundColor3 = Color3.fromRGB(9, 13, 11), BackgroundTransparency = 0.03, Position = UDim2.fromOffset(14, 124), Size = UDim2.new(1, -28, 1, -138), BorderSizePixel = 0, ClipsDescendants = true }, self.Content)
+    Round(self.PageHolder, 12) Outline(self.PageHolder, Color3.fromRGB(29, 57, 40), 0.12, 1)
 
-    self.CloseButton.Activated:Connect(function() self:Close() end)
-    self.OpenButton.Activated:Connect(function() self:Open() end)
-    self.HeaderSearch:GetPropertyChangedSignal("Text"):Connect(function() self:FilterTabs(self.HeaderSearch.Text) end)
-    self.SideSearch:GetPropertyChangedSignal("Text"):Connect(function() self:FilterTabs(self.SideSearch.Text) end)
-
-    -- ЖЕСТКИЙ ФИКС РАЗМЕРА ПОД ТЕЛЕФОН
-    local function responsive()
+    local uiScale = New("UIScale", {Scale = 1}, root)
+    local function updateScale()
         local camera = workspace.CurrentCamera if not camera then return end
         local viewport = camera.ViewportSize
-        local width, height = viewport.X, viewport.Y
-        
-        -- Базовый размер окна всегда 580x380
-        -- Считаем, насколько его нужно уменьшить, чтобы влезло с отступами
-        local scaleX = (width * 0.90) / 580
-        local scaleY = (height * 0.80) / 380
-        self.Scale.Scale = math.min(scaleX, scaleY, 1.2) 
-        
-        if width < 700 then
-            -- Мобильная раскладка (сворачиваем сайдбар в иконки)
-            self.Sidebar.Position = UDim2.new(0, 7, 0, 8) self.Sidebar.Size = UDim2.new(0, 61, 1, -16) self.SideSearch.Visible = false
-            self.Nav.Position = UDim2.new(0, 5, 0, 9) self.Nav.Size = UDim2.new(1, -10, 1, -18)
-            self.Content.Position = UDim2.new(0, 76, 0, 8) self.Content.Size = UDim2.new(1, -84, 1, -16)
-            self.HeaderSearch.Visible = false self.TitleLabel.Size = UDim2.new(1, -125, 0, 24) self.TitleLabel.TextSize = 14 self.Subtitle.Visible = false
-        else
-            -- ПК раскладка
-            self.Sidebar.Position = UDim2.new(0, 12, 0, 12) self.Sidebar.Size = UDim2.new(0, 165, 1, -24) self.SideSearch.Visible = true
-            self.Nav.Position = UDim2.new(0, 8, 0, 55) self.Nav.Size = UDim2.new(1, -16, 1, -66)
-            self.Content.Position = UDim2.new(0, 189, 0, 12) self.Content.Size = UDim2.new(1, -201, 1, -24)
-            self.HeaderSearch.Visible = true self.TitleLabel.Size = UDim2.new(0, 210, 0, 24) self.TitleLabel.TextSize = 17 self.Subtitle.Visible = true
-        end
+        uiScale.Scale = math.max(0.48, math.min(1, (viewport.X - 24) / 720, (viewport.Y - 40) / 460))
     end
-    self._responsive = responsive responsive()
-    if workspace.CurrentCamera then workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(responsive) end
-    return setmetatable(self, Window)
+    updateScale() if workspace.CurrentCamera then table.insert(self.Connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
+
+    -- Opening animation
+    root.Size = UDim2.fromOffset(680, 430) root.BackgroundTransparency = 1 outerStroke.Transparency = 1
+    Tween(root, 0.38, { Size = UDim2.fromOffset(720, 460), BackgroundTransparency = 0 }) Tween(outerStroke, 0.4, {Transparency = 0.1})
+
+    local dragging, dragStart, startPosition = false, nil, nil
+    header.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true dragStart = input.Position startPosition = root.Position end end)
+    UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then local delta = input.Position - dragStart root.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y) end end)
+    UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end)
+
+    return self
 end
 
-function Window:FilterTabs(query) query = string.lower(query or "") for _, tab in ipairs(self.Tabs) do local match = query == "" or string.find(string.lower(tab.Name), query, 1, true) ~= nil or string.find(string.lower(tab.Icon), query, 1, true) ~= nil tab.Button.Visible = match end end
-function Window:ClearContent() for _, child in ipairs(self.Content:GetChildren()) do if child:IsA("GuiObject") and child ~= self.ContentLayout then child:Destroy() end end end
-function Window:SelectTab(tab)
-    if not tab then return end self.ActiveTab = tab
-    for _, item in ipairs(self.Tabs) do local selected = item == tab makeTween(item.Button, 0.16, { BackgroundColor3 = selected and Color3.fromRGB(23, 48, 29) or Theme.Panel }) item.Accent.BackgroundTransparency = selected and 0 or 1 item.Label.TextColor3 = selected and Theme.Green or Theme.Muted end
-    self:ClearContent()
-    for _, section in ipairs(tab.Sections) do section:Render(self.Content) end
-    for _, playerList in ipairs(tab.PlayerLists) do playerList:Render(self.Content) end
-    self.Content.CanvasPosition = Vector2.zero
+function Library:_Clear(container, keep) for _, child in ipairs(container:GetChildren()) do if not (keep and keep[child.ClassName]) then child:Destroy() end end end
+function Library:_CreatePage(sub)
+    local page = New("ScrollingFrame", { Name = sub.Name .. "Page", BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(10, 8), Size = UDim2.new(1, -20, 1, -16), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Green, Visible = false }, self.PageHolder)
+    New("UIListLayout", { Padding = UDim.new(0, 13), SortOrder = Enum.SortOrder.LayoutOrder }, page) New("UIPadding", { PaddingBottom = UDim.new(0, 10), PaddingRight = UDim.new(0, 4) }, page)
+    sub.Page = page for _, section in ipairs(sub.Sections) do self:_BuildSection(section) end
 end
-function Window:AddTab(name, icon)
-    local tab = setmetatable({ Window = self, Name = name, Icon = icon or "◈", Sections = {}, PlayerLists = {} }, Tab)
-    local button = makeButton(self.Nav, "", UDim2.new(1, 0, 0, 42), Theme.Panel, Theme.Text)
-    button.Name = name .. "Tab" button.LayoutOrder = #self.Tabs + 1 addCorner(button, 10)
-    local accent = create("Frame", { Name = "Accent", Position = UDim2.new(0, 0, 0, 8), Size = UDim2.new(0, 3, 1, -16), BackgroundColor3 = Theme.Green, BackgroundTransparency = 1, BorderSizePixel = 0 }, button) addCorner(accent, 3)
-    local iconLabel = makeLabel(button, tab.Icon, 17, Theme.Muted, Enum.Font.GothamBold, Enum.TextXAlignment.Center) iconLabel.Position = UDim2.new(0, 4, 0, 0) iconLabel.Size = UDim2.new(0, 32, 1, 0)
-    local textLabel = makeLabel(button, name, 11, Theme.Muted, Enum.Font.GothamSemibold) textLabel.Name = "TabLabel" textLabel.Position = UDim2.new(0, 38, 0, 0) textLabel.Size = UDim2.new(1, -44, 1, 0)
-    tab.Button, tab.Accent, tab.Label = button, accent, textLabel
-    button.Activated:Connect(function() self:SelectTab(tab) end)
-    connectHover(button, Theme.Panel, Theme.CardHover)
-    table.insert(self.Tabs, tab)
-    if not self.ActiveTab then self:SelectTab(tab) end
-    if self._responsive then self._responsive() end
-    return tab
+function Library:_BuildSubButton(tab, sub)
+    local b = MakeButton(self.SubTabBar, sub.Name, UDim2.fromOffset(94, 34)) b.TextSize = 11 b.BackgroundColor3 = Theme.Card
+    local st = Outline(b, Theme.Green, 1, 1) sub.Button = b sub.Stroke = st
+    b.Activated:Connect(function() self:_SelectSub(tab, sub) end)
 end
-function Window:Close()
-    if self.Closed then return end self.Closed = true
-    makeTween(self.Main, 0.2, { BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0.53, 10) })
-    makeTween(self.Backdrop, 0.2, { BackgroundTransparency = 1 })
-    task.delay(0.21, function() self.Main.Visible = false self.Backdrop.Visible = false self.OpenButton.Visible = true if self.Blur then self.Blur.Enabled = false end end)
-end
-function Window:Open()
-    self.Closed = false self.Main.Visible = true self.Backdrop.Visible = true
-    self.Main.Position = UDim2.new(0.5, 0, 0.53, 10) self.Main.BackgroundTransparency = 1 self.Backdrop.BackgroundTransparency = 1 self.OpenButton.Visible = false
-    if self.Blur then self.Blur.Enabled = true end
-    makeTween(self.Main, 0.24, { BackgroundTransparency = 0.04, Position = UDim2.fromScale(0.5, 0.5) })
-    makeTween(self.Backdrop, 0.24, { BackgroundTransparency = 0.48 })
-end
-function Tab:AddSection(name) local section = setmetatable({ Tab = self, Name = name, Items = {} }, Section) table.insert(self.Sections, section) if self.Window.ActiveTab == self then self.Window:SelectTab(self) end return section end
-function Tab:AddPlayerList(name) local list = setmetatable({ Tab = self, Name = name or "Players", Players = {}, Search = "", SelectedPlayer = nil }, PlayerList) table.insert(self.PlayerLists, list) if self.Window.ActiveTab == self then self.Window:SelectTab(self) end return list end
-function Section:AddToggle(name, defaultState, callback) local item = { Type = "Toggle", Name = name, Value = defaultState == true, Callback = callback } table.insert(self.Items, item) if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end return item end
-function Section:AddSlider(name, minimum, maximum, defaultValue, callback) local item = { Type = "Slider", Name = name, Min = minimum, Max = maximum, Value = math.clamp(defaultValue or minimum, minimum, maximum), Callback = callback } table.insert(self.Items, item) if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end return item end
-function Section:AddButton(name, callback) local item = { Type = "Button", Name = name, Callback = callback } table.insert(self.Items, item) if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end return item end
-
-function Section:Render(parent)
-    local container = create("Frame", { Name = self.Name .. "Section", Size = UDim2.new(1, 0, 0, 50), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.16, BorderSizePixel = 0 }, parent)
-    addCorner(container, 13) addStroke(container, Theme.Line, 0.48, 1) addGradient(container, Color3.fromRGB(29, 31, 30), Color3.fromRGB(20, 22, 22), 90)
-    create("UIPadding", { PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, container)
-    create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, container)
-    local title = makeLabel(container, string.upper(self.Name), 9, Theme.Muted, Enum.Font.GothamBold) title.Size = UDim2.new(1, 0, 0, 18) title.LayoutOrder = 0
-
-    for index, item in ipairs(self.Items) do
-        if item.Type == "Toggle" then
-            local row = create("Frame", { Name = item.Name, Size = UDim2.new(1, 0, 0, 47), BackgroundTransparency = 1, LayoutOrder = index }, container)
-            local titleLabel = makeLabel(row, item.Name, 12, Theme.Text, Enum.Font.GothamSemibold) titleLabel.Size = UDim2.new(1, -75, 1, 0)
-            local switch = makeButton(row, "", UDim2.fromOffset(42, 23), item.Value and Theme.Green or Color3.fromRGB(60, 64, 61), Theme.Text)
-            switch.Name = "Switch" switch.AnchorPoint = Vector2.new(1, 0.5) switch.Position = UDim2.new(1, -2, 0.5, 0) addCorner(switch, 20)
-            local switchStroke = addStroke(switch, item.Value and Theme.Green or Theme.Line, 0.25, 1)
-            local thumb = create("Frame", { Name = "Thumb", Position = item.Value and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Theme.White, BorderSizePixel = 0 }, switch) addCorner(thumb, 20)
-            switch.Activated:Connect(function()
-                item.Value = not item.Value makeTween(switch, 0.16, { BackgroundColor3 = item.Value and Theme.Green or Color3.fromRGB(60, 64, 61) })
-                makeTween(switchStroke, 0.16, { Color = item.Value and Theme.Green or Theme.Line })
-                makeTween(thumb, 0.16, { Position = item.Value and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8) })
-                if item.Callback then task.spawn(item.Callback, item.Value) end
-            end)
-        elseif item.Type == "Slider" then
-            local row = create("Frame", { Name = item.Name, Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, LayoutOrder = index }, container)
-            local titleLabel = makeLabel(row, item.Name, 12, Theme.Text, Enum.Font.GothamSemibold) titleLabel.Position = UDim2.new(0, 0, 0, 0) titleLabel.Size = UDim2.new(0.75, 0, 0, 22)
-            local valueLabel = makeLabel(row, tostring(item.Value), 11, Theme.Green, Enum.Font.GothamBold, Enum.TextXAlignment.Right) valueLabel.Position = UDim2.new(0.75, 0, 0, 0) valueLabel.Size = UDim2.new(0.25, 0, 0, 22)
-            local track = create("Frame", { Name = "Track", Position = UDim2.new(0, 0, 0, 38), Size = UDim2.new(1, -2, 0, 4), BackgroundColor3 = Color3.fromRGB(61, 67, 63), BorderSizePixel = 0 }, row) addCorner(track, 5)
-            local percent = (item.Value - item.Min) / (item.Max - item.Min)
-            local fill = create("Frame", { Size = UDim2.new(percent, 0, 1, 0), BackgroundColor3 = Theme.Green, BorderSizePixel = 0 }, track) addCorner(fill, 5)
-            local thumb = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(percent, 0, 0.5, 0), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Theme.White, BorderSizePixel = 0 }, track) addCorner(thumb, 20) addStroke(thumb, Theme.Green, 0.35, 1)
-            local hit = makeButton(track, "", UDim2.new(1, 0, 0, 28), Theme.Panel, Theme.Text) hit.Position = UDim2.new(0, 0, 0.5, -14) hit.BackgroundTransparency = 1 hit.ZIndex = 4
-            local dragging = false
-            local function setFromX(x)
-                local p = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-                local value = math.floor(item.Min + (item.Max - item.Min) * p + 0.5) item.Value = value valueLabel.Text = tostring(value)
-                makeTween(fill, 0.05, { Size = UDim2.new(p, 0, 1, 0) }, Enum.EasingStyle.Linear) makeTween(thumb, 0.05, { Position = UDim2.new(p, 0, 0.5, 0) }, Enum.EasingStyle.Linear)
-                if item.Callback then task.spawn(item.Callback, value) end
-            end
-            hit.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true setFromX(input.Position.X) end end)
-            UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then setFromX(input.Position.X) end end)
-            UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end)
-        elseif item.Type == "Button" then
-            local btn = makeButton(container, item.Name, UDim2.new(1, 0, 0, 36), Theme.Panel, Theme.Text) btn.LayoutOrder = index addCorner(btn, 8)
-            btn.Activated:Connect(function() makeTween(btn, 0.1, { BackgroundColor3 = Theme.GreenDark }) task.delay(0.15, function() makeTween(btn, 0.2, { BackgroundColor3 = Theme.Panel }) end) if item.Callback then task.spawn(item.Callback) end end)
-        end
+function Library:_SelectSub(tab, sub)
+    tab.ActiveSub = sub
+    for _, s in ipairs(tab.SubTabs) do
+        if s.Button then local active = s == sub Tween(s.Button, 0.18, { BackgroundColor3 = active and Color3.fromRGB(7, 35, 17) or Theme.Card, TextColor3 = active and Theme.White or Theme.Muted }) Tween(s.Stroke, 0.18, { Transparency = active and 0 or 1 }) end
+        if s.Page then s.Page.Visible = s == sub end
     end
 end
-
-function PlayerList:UpdatePlayers() self.Players = Players:GetPlayers() if self.Tab.Window.ActiveTab == self.Tab then self.Tab.Window:SelectTab(self.Tab) end end
-function PlayerList:Render(parent)
-    local container = create("Frame", { Name = self.Name:gsub("%s+", "") .. "PlayerList", Size = UDim2.new(1, 0, 0, 220), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.16, BorderSizePixel = 0 }, parent) addCorner(container, 13) addStroke(container, Theme.Line, 0.48, 1)
-    create("UIPadding", { PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, container)
-    create("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, container)
-    local title = makeLabel(container, string.upper(self.Name), 9, Theme.Muted, Enum.Font.GothamBold) title.Size = UDim2.new(1, 0, 0, 18) title.LayoutOrder = 0
-    local search = create("TextBox", { PlaceholderText = "Search players...", Text = self.Search, ClearTextOnFocus = false, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Panel, TextColor3 = Theme.Text, PlaceholderColor3 = Theme.Muted, TextSize = 11, Font = Enum.Font.Gotham, BorderSizePixel = 0, LayoutOrder = 1 }, container) addCorner(search, 9)
-    local rows = create("Frame", { Name = "Rows", Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 2 }, container) create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, rows)
-    local function populate(query)
-        self.Search = query or "" for _, child in ipairs(rows:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
-        local count = 0
-        for _, player in ipairs(self.Players) do
-            if string.find(string.lower(player.Name), string.lower(self.Search), 1, true) or string.find(string.lower(player.DisplayName), string.lower(self.Search), 1, true) then
-                count += 1
-                local row = create("Frame", { Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, LayoutOrder = count }, rows) addCorner(row, 10)
-                local avatar = create("ImageLabel", { Position = UDim2.new(0, 7, 0.5, -17), Size = UDim2.fromOffset(34, 34), BackgroundColor3 = Theme.Card, Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=48&h=48", BorderSizePixel = 0 }, row) addCorner(avatar, 18)
-                local username = makeLabel(row, player.DisplayName, 11, Theme.Text, Enum.Font.GothamSemibold) username.Position = UDim2.new(0, 49, 0, 6) username.Size = UDim2.new(1, -120, 0, 18)
-                local handle = makeLabel(row, "@" .. player.Name, 9, Theme.Muted, Enum.Font.Gotham) handle.Position = UDim2.new(0, 49, 0, 24) handle.Size = UDim2.new(1, -120, 0, 15)
-                local action = makeButton(row, "SELECT", UDim2.fromOffset(58, 27), Color3.fromRGB(21, 53, 30), Theme.Green) action.Position = UDim2.new(1, -65, 0.5, -13) action.TextSize = 8 addCorner(action, 8)
-                action.Activated:Connect(function()
-                    self.SelectedPlayer = player action.Text = "TARGETED" action.TextColor3 = Theme.White makeTween(action, 0.14, { BackgroundColor3 = Theme.GreenDark })
-                end)
-            end
-        end
-        if count == 0 then local empty = makeLabel(rows, "No players found", 10, Theme.Muted, Enum.Font.Gotham) empty.Size = UDim2.new(1, 0, 0, 32) empty.LayoutOrder = 1 end
-    end
-    search:GetPropertyChangedSignal("Text"):Connect(function() populate(search.Text) end) populate(self.Search)
+function Library:_SelectTab(tab)
+    self.ActiveTab = tab self.PageTitle.Text = tab.Name
+    for _, t in ipairs(self.Tabs) do local active = t == tab Tween(t.Button, 0.18, { BackgroundTransparency = active and 0 or 1, TextColor3 = active and Theme.White or Theme.Muted }) Tween(t.Stroke, 0.18, {Transparency = active and 0.05 or 1}) t.Gradient.Enabled = active end
+    self:_Clear(self.SubTabBar, {UIListLayout = true}) self:_Clear(self.PageHolder, {UICorner = true, UIStroke = true})
+    for _, sub in ipairs(tab.SubTabs) do sub.Button = nil sub.Stroke = nil sub.Page = nil self:_BuildSubButton(tab, sub) self:_CreatePage(sub) end
+    if tab.ActiveSub then self:_SelectSub(tab, tab.ActiveSub) elseif tab.SubTabs[1] then self:_SelectSub(tab, tab.SubTabs[1]) end
 end
+function Library:AddTab(name, icon)
+    local tab = { Window = self, Name = name, Icon = icon or "•", SubTabs = {} }
+    local b = MakeButton(self.Nav, (icon or "•") .. "    " .. name, UDim2.new(1, 0, 0, 40))
+    b.LayoutOrder = #self.Tabs + 1 b.TextXAlignment = Enum.TextXAlignment.Left b.TextSize = 13 b.BackgroundTransparency = 1 b.TextColor3 = Theme.Muted
+    New("UIPadding", { PaddingLeft = UDim.new(0, 12) }, b)
+    local st = Outline(b, Theme.Green, 1, 1) local grad = Gradient(b, Color3.fromRGB(0, 75, 30), Theme.BG, 0) grad.Enabled = false
+    tab.Button, tab.Stroke, tab.Gradient = b, st, grad table.insert(self.Tabs, tab)
+    b.MouseEnter:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 0.4, TextColor3 = Theme.White }) end end)
+    b.MouseLeave:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 1, TextColor3 = Theme.Muted }) end end)
+    b.Activated:Connect(function() self:_SelectTab(tab) end) if not self.ActiveTab then self:_SelectTab(tab) end
+    return setmetatable(tab, {__index = {
+        AddSubTab = function(t, subName)
+            local sub = { Tab = t, Name = subName, Sections = {} }
+            table.insert(t.SubTabs, sub)
+            if t == self.ActiveTab then self:_BuildSubButton(t, sub) self:_CreatePage(sub) if not t.ActiveSub then self:_SelectSub(t, sub) end end
+            return setmetatable(sub, {__index = {
+                AddSection = function(s, sectionName)
+                    local section = { Sub = s, Name = sectionName, Items = {} }
+                    table.insert(s.Sections, section) if s.Page then self:_BuildSection(section) end
+                    return setmetatable(section, {__index = {
+                        AddToggle = function(sec, title, default, callback, description) return self:_AddItem(sec, { Kind = "Toggle", Title = title, Value = default == true, Callback = callback, Description = description or "" }) end,
+                        AddSlider = function(sec, title, min, max, default, callback, description) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback, Description = description or "" }) end,
+                        AddButton = function(sec, title, callback, description) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback, Description = description or "" }) end,
+                    }})
+                end,
+            }})
+        end,
+    }})
+end
+
+function Library:_AddItem(section, item)
+    table.insert(section.Items, item)
+    if section.Frame then self:_BuildItem(item, section.ItemsFrame) self:_UpdateSectionSize(section) end
+    return item
+end
+function Library:_UpdateSectionSize(section)
+    if not section.Frame then return end
+    local count = #section.Items local rows = math.ceil(count / 2)
+    section.ItemsFrame.Size = UDim2.new(1, 0, 0, rows * 63) section.Frame.Size = UDim2.new(1, 0, 0, 25 + rows * 63)
+end
+function Library:_BuildSection(section)
+    if section.Frame then return end
+    local page = section.Sub.Page if not page then return end
+    local holder = New("Frame", { Name = section.Name, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 25) }, page) section.Frame = holder
+    local heading = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 19) }, holder)
+    local headingWidth = math.max(65, #section.Name * 7)
+    local headingText = Text(heading, string.upper(section.Name), 10, Color3.fromRGB(178, 225, 197), Enum.Font.GothamBold) headingText.Size = UDim2.new(0, headingWidth, 1, 0)
+    local line = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.2, Position = UDim2.new(0, headingWidth + 8, 0, 9), Size = UDim2.new(1, -headingWidth - 16, 0, 1), BorderSizePixel = 0 }, heading)
+    Gradient(line, Theme.Green, Theme.GreenDark)
+    section.ItemsFrame = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 25), Size = UDim2.new(1, 0, 0, 0) }, holder)
+    New("UIGridLayout", { CellSize = UDim2.new(0.5, -6, 0, 54), CellPadding = UDim2.fromOffset(12, 9), SortOrder = Enum.SortOrder.LayoutOrder }, section.ItemsFrame)
+    for _, item in ipairs(section.Items) do self:_BuildItem(item, section.ItemsFrame) end
+    self:_UpdateSectionSize(section)
+end
+
+function Library:_BuildItem(item, parent)
+    local isSlider = item.Kind == "Slider"
+    local isButton = item.Kind == "Button"
+    local height = isSlider and 76 or (isButton and 38 or 54)
+
+    local card = New("Frame", { BackgroundColor3 = Theme.Card, BorderSizePixel = 0, Size = UDim2.new(0.5, -6, 0, height) }, parent)
+    Round(card, 10) local cardStroke = Outline(card, Color3.fromRGB(40, 59, 47), 0.25, 1) Gradient(card, Color3.fromRGB(18, 28, 22), Theme.Card, 90)
+    
+    if not isButton then
+        card.MouseEnter:Connect(function() Tween(card, 0.15, {BackgroundColor3 = Theme.Hover}) Tween(cardStroke, 0.15, {Transparency = 0.05}) end)
+        card.MouseLeave:Connect(function() Tween(card, 0.15, {BackgroundColor3 = Theme.Card}) Tween(cardStroke, 0.15, {Transparency = 0.25}) end)
+    end
+
+    local title = Text(card, item.Title, 11, Theme.White, Enum.Font.GothamMedium) title.Position = UDim2.fromOffset(12, 5) title.Size = UDim2.new(1, isSlider and -60 or -70, 0, 17)
+    if item.Description ~= "" and not isButton then
+        local desc = Text(card, item.Description, 9, Theme.Muted) desc.Position = UDim2.fromOffset(12, 23) desc.Size = UDim2.new(1, -22, 0, 14)
+    end
+
+    if item.Kind == "Toggle" then
+        local track = New("Frame", { BackgroundColor3 = item.Value and Theme.Green or Theme.Track, Position = UDim2.new(1, -53, 0, 15), Size = UDim2.fromOffset(40, 22), BorderSizePixel = 0 }, card) Round(track, 15)
+        local trackStroke = Outline(track, item.Value and Theme.Green or Color3.fromRGB(95, 107, 99), 0.1, 1)
+        local thumb = New("Frame", { BackgroundColor3 = Theme.White, Position = UDim2.fromOffset(item.Value and 21 or 3, 3), Size = UDim2.fromOffset(16, 16), BorderSizePixel = 0 }, track) Round(thumb, 12)
+        local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Size = UDim2.fromScale(1, 1) }, track)
+        local function setState(value, instant)
+            item.Value = value local duration = instant and 0 or 0.18
+            Tween(track, duration, { BackgroundColor3 = value and Theme.Green or Theme.Track })
+            Tween(trackStroke, duration, { Color = value and Theme.Green or Color3.fromRGB(95, 107, 99) })
+            Tween(thumb, duration, { Position = UDim2.fromOffset(value and 21 or 3, 3) })
+            if item.Callback then task.spawn(item.Callback, value) end
+        end
+        hit.Activated:Connect(function() setState(not item.Value) end) item.Set = setState
+    elseif item.Kind == "Slider" then
+        local valueLabel = Text(card, "", 10, Theme.White, Enum.Font.GothamMedium) valueLabel.Position = UDim2.new(1, -45, 0, 23) valueLabel.Size = UDim2.fromOffset(33, 17) valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+        local track = New("Frame", { BackgroundColor3 = Theme.Track, Position = UDim2.new(0, 12, 0, 53), Size = UDim2.new(1, -60, 0, 4), BorderSizePixel = 0 }, card) Round(track, 5)
+        local fill = New("Frame", { BackgroundColor3 = Theme.Green, Size = UDim2.new(0, 0, 1, 0), BorderSizePixel = 0 }, track) Round(fill, 5) Gradient(fill, Theme.Green, Color3.fromRGB(0, 205, 116))
+        local thumb = New("Frame", { BackgroundColor3 = Theme.White, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), BorderSizePixel = 0 }, track) Round(thumb, 10) Outline(thumb, Color3.fromRGB(205, 255, 221), 0.35, 1)
+        local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.new(0, -5, 0, -12), Size = UDim2.new(1, 10, 0, 28) }, track)
+        local dragging = false
+        local function setValue(value, instant)
+            item.Value = math.clamp(value, item.Min, item.Max)
+            local range = math.max(1, item.Max - item.Min) local pct = (item.Value - item.Min) / range
+            Tween(fill, instant and 0 or 0.08, { Size = UDim2.new(pct, 0, 1, 0) }) Tween(thumb, instant and 0 or 0.08, { Position = UDim2.new(pct, 0, 0.5, 0) })
+            valueLabel.Text = tostring(math.floor(item.Value + 0.5)) .. "%"
+            if item.Callback then task.spawn(item.Callback, item.Value) end
+        end
+        local function updateFromX(x)
+            local pct = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1) setValue(item.Min + (item.Max - item.Min) * pct, true)
+        end
+        hit.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true updateFromX(input.Position.X) end end)
+        table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateFromX(input.Position.X) end end))
+        table.insert(self.Connections, UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end))
+        setValue(item.Value, true) item.Set = setValue
+    elseif item.Kind == "Button" then
+        local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.Title, TextColor3 = Theme.White, TextSize = 12, Font = Enum.Font.GothamBold, Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false }, card)
+        btn.Activated:Connect(function()
+            Tween(card, 0.1, { BackgroundColor3 = Color3.fromRGB(7, 35, 17) })
+            task.delay(0.15, function() Tween(card, 0.2, { BackgroundColor3 = Theme.Card }) end)
+            if item.Callback then task.spawn(item.Callback) end
+        end)
+    end
+end
+
+function Library:ToggleVisible()
+    self.Visible = not self.Visible
+    if self.Visible then
+        self.Root.Visible = true self.Root.BackgroundTransparency = 1
+        Tween(self.Root, 0.22, {BackgroundTransparency = 0}) self.OpenButton.Visible = false
+    else
+        Tween(self.Root, 0.18, {BackgroundTransparency = 1})
+        task.delay(0.2, function() if self.Root and self.Root.Parent and not self.Visible then self.Root.Visible = false self.OpenButton.Visible = true end end)
+    end
+end
+function Library:Destroy() for _, connection in ipairs(self.Connections) do connection:Disconnect() end if self.Gui then self.Gui:Destroy() end end
 
 -- ==========================================
 -- ЛОГИКА (ФАРМ / ФЛИНГ / ESP)
@@ -273,12 +304,13 @@ end
 task.spawn(function() while task.wait(0.5) do pcall(function() local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) if getData and getData:IsA("RemoteFunction") then local ok, data = pcall(function() return getData:InvokeServer() end) if ok and type(data) == "table" then roles = data end end end) end end)
 local function getPlayerRole(plr) local rData = roles[plr.Name] if rData and rData.Role then return rData.Role end local char = plr.Character if char then if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end end local bp = plr:FindFirstChild("Backpack") if bp then if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end end return "Innocent" end
 local function getRoleColor(plr) local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end return Color3.fromRGB(50, 255, 100) end
-local function canCollect() if not canFarmNow then return false end local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 then return false end local myData = roles[LocalPlayer.Name] if not myData or myData.Dead then return false end local r = myData.Role if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end local container = Workspace:FindFirstChild("CoinContainer", true) if not container or #container:GetChildren() == 0 then return false end return true end
+local function canCollect() if not canFarmNow then return false end local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 then return false end local myData = roles[Player.Name] if not myData or myData.Dead then return false end local r = myData.Role if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end local container = Workspace:FindFirstChild("CoinContainer", true) if not container or #container:GetChildren() == 0 then return false end return true end
+
 task.spawn(function()
     while task.wait(0.2) do
         if CFG.ESP then
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer and p.Character then
+                if p ~= Player and p.Character then
                     local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight") hl.Name = "LibESP" hl.Parent = p.Character
                     local hum = p.Character:FindFirstChildOfClass("Humanoid") local isDead = (not hum or hum.Health <= 0) or (roles[p.Name] and roles[p.Name].Dead)
                     if isDead then hl.FillTransparency = 1 hl.OutlineTransparency = 1
@@ -290,12 +322,14 @@ task.spawn(function()
         end
     end
 end)
-local function getClosestMurderer(pos) local closestRoot, closestDist = nil, math.huge for _, plr in ipairs(Players:GetPlayers()) do if plr ~= LocalPlayer and plr.Character then local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then local pRoot = plr.Character:FindFirstChild("HumanoidRootPart") if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end end end end return closestRoot, closestDist end
+
+local function getClosestMurderer(pos) local closestRoot, closestDist = nil, math.huge for _, plr in ipairs(Players:GetPlayers()) do if plr ~= Player and plr.Character then local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then local pRoot = plr.Character:FindFirstChild("HumanoidRootPart") if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end end end end return closestRoot, closestDist end
+
 local function FlingTarget(targetRoot)
     local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not targetRoot then return end
     local myRoot = s.root local oldCFrame = myRoot.CFrame local oldAnchored = myRoot.Anchored myRoot.Anchored = true
     pcall(function()
-        if setnetworkowner then pcall(setnetworkowner, targetRoot, LocalPlayer) end
+        if setnetworkowner then pcall(setnetworkowner, targetRoot, Player) end
         myRoot.CFrame = targetRoot.CFrame
         local spin = Instance.new("BodyAngularVelocity") spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5) spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) spin.Parent = targetRoot
         local push = Instance.new("BodyVelocity") push.Velocity = Vector3.new(1e5, 1e5, 1e5) push.MaxForce = Vector3.new(1e9, 1e9, 1e9) push.Parent = targetRoot
@@ -304,7 +338,9 @@ local function FlingTarget(targetRoot)
     myRoot.CFrame = oldCFrame myRoot.Anchored = oldAnchored
     if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
 end
+
 task.spawn(function() while task.wait(0.5) do if CFG.AutoFling and currentSession and not currentSession.destroyed then local mRoot, mDist = getClosestMurderer(currentSession.root.Position) if mRoot and mDist < 50 then FlingTarget(mRoot) task.wait(2) end end end end)
+
 local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
 local function resetHumanoid(s) local hum = s.humanoid if not hum.Parent then return end hum.PlatformStand = s.origPlatformStand hum.AutoRotate = s.origAutoRotate if hum.Health > 0 and s.root.Parent then local _, yaw = s.root.CFrame:ToOrientation() s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0) hum:ChangeState(Enum.HumanoidStateType.GettingUp) end end
 local function teardown(s)
@@ -318,7 +354,7 @@ end
 local function bindCharacter(character)
     if currentSession then teardown(currentSession) end canFarmNow = false collectedCount = 0 table.clear(Blacklist) lastHealth = 100
     local root = character:WaitForChild("HumanoidRootPart", 10) local humanoid = character:WaitForChild("Humanoid", 10)
-    if not (root and humanoid) or LocalPlayer.Character ~= character then return end
+    if not (root and humanoid) or Player.Character ~= character then return end
     local bv = Instance.new("BodyVelocity") bv.MaxForce = Vector3.zero bv.Velocity = Vector3.zero bv.P = 3000 bv.Parent = root
     local bg = Instance.new("BodyGyro") bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root
     local s = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg, conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate, target = nil }
@@ -326,28 +362,23 @@ local function bindCharacter(character)
     table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end)) table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
     if humanoid.Health <= 0 then teardown(s) end task.wait(3) canFarmNow = true
 end
-LocalPlayer.CharacterAdded:Connect(bindCharacter) LocalPlayer.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
+Player.CharacterAdded:Connect(bindCharacter) Player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end) if Player.Character then task.spawn(bindCharacter, Player.Character) end
 local function setNoclip(char, state) if not char then return end for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then if state then if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end d.CanCollide = false else if originalCollide[d] ~= nil then d.CanCollide = originalCollide[d] originalCollide[d] = nil end end end end end
+
 local function flyTo(target)
     local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end s.target = target
-    local arrived = false local startTime = os.clock()
+    local arrived = false local startTime = os.clock() local lastPos = s.root.Position local stuckCounter = 0
     local ok, err = pcall(function()
         s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true setNoclip(s.character, true)
         local f = s.root.AssemblyMass * CFG.ForcePerMass s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
             RunService.Heartbeat:Wait() if s.destroyed then break end s.root.CanCollide = false
+            if (s.root.Position - lastPos).Magnitude < 0.5 then stuckCounter = stuckCounter + 1 if stuckCounter > 30 then s.root.CFrame = s.root.CFrame + (target.Position - s.root.Position).Unit * 4 stuckCounter = 0 end
+            else stuckCounter = 0 lastPos = s.root.Position end
             local mRoot, mDist = getClosestMurderer(s.root.Position)
-            if mRoot and mDist < CFG.AvoidRadius then
-                Blacklist[target] = true local escapeDir = (s.root.Position - mRoot.Position).Unit s.bv.Velocity = escapeDir * (CFG.MaxSpeed * 1.5) task.wait(0.2)
-            else
-                local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude
-                if dist <= 5 then arrived = true break end
-                s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
-                local flat = Vector3.new(offset.X, 0, offset.Z) if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
-            end
-            if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end
-            if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end
-            if not canCollect() then break end
+            if mRoot and mDist < CFG.AvoidRadius then Blacklist[target] = true local escapeDir = (s.root.Position - mRoot.Position).Unit s.bv.Velocity = Vector3.new(escapeDir.X, 0.8, escapeDir.Z) * (CFG.MaxSpeed * 1.5) task.wait(0.3)
+            else local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude if dist <= 5 then arrived = true break end s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain) local flat = Vector3.new(offset.X, 0, offset.Z) if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end end
+            if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end if not canCollect() then break end
         end
     end)
     if not ok then warn("flyTo error:", err) end
@@ -363,38 +394,38 @@ local function nearestPart() local s = currentSession if not s or s.destroyed th
 local function collectTarget(target) local s = currentSession if not s or s.destroyed or not target.Parent then return end Blacklist[target] = true collectedCount += 1 pcall(function() if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) task.wait(0.05) firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true) if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end end) end
 local function collectSession() while CFG.AutoFarm and canCollect() do if CFG.AutoReset and collectedCount >= CFG.MaxCoins then if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end break end local target = nearestPart() if not target then break end if flyTo(target) then collectTarget(target) task.wait(0.2) if target and target.Parent then Blacklist[target] = true end else task.wait(0.1) end end end
 task.spawn(function() while true do if CFG.AutoFarm and canCollect() then collectSession() end task.wait(1) end end)
-LocalPlayer.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end end)
+Player.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end end)
 
 -- ==========================================
 -- НАПОЛНЕНИЕ UI (ВКЛАДКИ)
 -- ==========================================
-local WindowInstance = Library.new({ Title = "LIBERIUM HUB" })
+local Window = Library.new({ Title = "LIBERIUM HUB", Subtitle = "MM2 PREMIUM" })
 
--- Combat Tab
-local CombatTab = WindowInstance:AddTab("Combat", "⚔️")
-local MurderSection = CombatTab:AddSection("MURDERER CONTROL")
-MurderSection:AddToggle("Auto Fling Murderer", false, function(state) CFG.AutoFling = state end)
-MurderSection:AddButton("Manual Fling (Closest)", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end)
-local PlayerListInstance = CombatTab:AddPlayerList("Kill Player")
-PlayerListInstance:UpdatePlayers()
+-- Combat
+local CombatTab = Window:AddTab("Combat", "⚔")
+local CombatSub = CombatTab:AddSubTab("Murderer")
+local CombatSec = CombatSub:AddSection("Actions")
+CombatSec:AddToggle("Auto Fling", false, function(state) CFG.AutoFling = state end, "Kick murderers away")
+CombatSec:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end, "Fling closest murderer")
 
--- Farm Tab
-local FarmTab = WindowInstance:AddTab("Farm", "💰")
-local AutoFarmSec = FarmTab:AddSection("AUTOMATION")
-AutoFarmSec:AddToggle("Auto Farm Coins", false, function(state) CFG.AutoFarm = state if state then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end)
-AutoFarmSec:AddSlider("Farm Speed", 10, 24, 20, function(val) CFG.MaxSpeed = val end)
+-- Farm
+local FarmTab = Window:AddTab("Farm", "💰")
+local FarmSub = FarmTab:AddSubTab("Auto Farm")
+local FarmSec = FarmSub:AddSection("Settings")
+FarmSec:AddToggle("Auto Collect Coins", false, function(state) CFG.AutoFarm = state if state then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end, "Fly and collect coins")
+FarmSec:AddSlider("Farm Speed", 10, 24, 20, function(val) CFG.MaxSpeed = val end, "Flight speed")
+FarmSec:AddToggle("Auto Reset", false, function(state) CFG.AutoReset = state end, "Reset when full")
+FarmSec:AddSlider("Max Coins", 40, 50, 50, function(val) CFG.MaxCoins = val end, "Limit before reset")
+FarmSec:AddSlider("Avoid Radius", 0, 30, 20, function(val) CFG.AvoidRadius = val end, "Murderer avoid distance")
 
-local FarmLimits = FarmTab:AddSection("LIMITS")
-FarmLimits:AddToggle("Auto Reset (Full Bag)", false, function(state) CFG.AutoReset = state end)
-FarmLimits:AddSlider("Max Coins", 40, 50, 50, function(val) CFG.MaxCoins = val end)
-FarmLimits:AddSlider("Avoid Murderer Radius", 0, 30, 20, function(val) CFG.AvoidRadius = val end)
+-- Visuals
+local VisualTab = Window:AddTab("Visuals", "👁")
+local VisualSub = VisualTab:AddSubTab("ESP")
+local VisualSec = VisualSub:AddSection("Players")
+VisualSec:AddToggle("Player ESP", false, function(state) CFG.ESP = state end, "Highlight players")
 
--- Visuals Tab
-local VisualTab = WindowInstance:AddTab("Visuals", "👁")
-local VisualSec = VisualTab:AddSection("ESP")
-VisualSec:AddToggle("Player ESP", false, function(state) CFG.ESP = state end)
-
--- Settings Tab
-local SettingsTab = WindowInstance:AddTab("Settings", "⚙️")
-local SettingsSec = SettingsTab:AddSection("INTERFACE")
-SettingsSec:AddToggle("Anti-AFK", false, function(state) CFG.AntiAFK = state end)
+-- Settings
+local SettingsTab = Window:AddTab("Settings", "⚙")
+local SettingsSub = SettingsTab:AddSubTab("Misc")
+local SettingsSec = SettingsSub:AddSection("Interface")
+SettingsSec:AddToggle("Anti-AFK", false, function(state) CFG.AntiAFK = state end, "Prevent kick")
