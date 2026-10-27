@@ -1,4 +1,4 @@
--- Liberium Hub | Claude's Physics + MM2 Farm (No Lag, No Crash)
+-- Liberium Hub | Delta Drag Fix + Optimized
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -6,27 +6,64 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local Cam = Workspace.CurrentCamera
 
--- ========== НАСТРОЙКИ ==========
 local CFG = {
-    MaxSpeed = 40,         -- Максимальная скорость (студов/сек)
-    Gain = 4,              -- Плавность (чем выше, тем быстрее тормозит)
-    ForcePerMass = 2000,   -- Сила (вместо math.huge для стабильности)
-    MaxCoins = 50,         -- Лимит сумки
-    AutoReset = true,      -- Умирать при полной сумке
-    AutoFarm = false,
-    ESP = false,
-    Noclip = false
+    MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
+    MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false
 }
 
 -- UI (Slate)
-local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Godmode", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Stable", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+
+-- ==========================================
+-- КАСТОМНОЕ ПЕРЕТАСКИВАНИЕ ДЛЯ DELTA
+-- ==========================================
+task.spawn(function()
+    task.wait(0.5) -- Ждем, пока Slate отрисует окно
+    pcall(function()
+        local MainFrame = Window.Items.MainFrame.Instance or Window.root:FindFirstChild("MainFrame")
+        if not MainFrame then return end
+
+        local dragging, dragStart, startPos = false, nil, nil
+
+        MainFrame.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                local relativeY = input.Position.Y - MainFrame.AbsolutePosition.Y
+                if relativeY <= 45 then -- Таскаем только за шапку (верхние 45 пикселей)
+                    dragging = true
+                    dragStart = input.Position
+                    startPos = MainFrame.Position
+                end
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStart
+                MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+    end)
+end)
+
 local uiscale = Instance.new("UIScale", Window.root)
-local function updateScale() if Cam then uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) end end
+local function updateScale() 
+    if Cam then 
+        -- На Delta экран часто меньше, поэтому делаем авто-масштаб
+        uiscale.Scale = math.min(1, Cam.ViewportSize.X / 600, Cam.ViewportSize.Y / 420) 
+    end 
+end
 updateScale()
 Cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 
@@ -35,11 +72,11 @@ local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
 -- ==========================================
--- ESP
+-- РОЛИ И ESP
 -- ==========================================
 local roles = {}
 task.spawn(function()
-    while task.wait(2) do
+    while task.wait(1) do
         pcall(function()
             local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
             if getData and getData:IsA("RemoteFunction") then
@@ -49,6 +86,12 @@ task.spawn(function()
         end)
     end
 end)
+
+local function canCollect()
+    local myData = roles[player.Name]
+    if myData and myData.Dead then return false end
+    return true
+end
 
 local function getRoleColor(plr)
     local rData = roles[plr.Name]
@@ -66,12 +109,11 @@ task.spawn(function()
         if CFG.ESP then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= player and p.Character then
-                    local char = p.Character
-                    local hl = char:FindFirstChild("LibESP") or Instance.new("Highlight")
+                    local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight")
                     hl.Name = "LibESP"
                     hl.OutlineTransparency = 0
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.Parent = char
+                    hl.Parent = p.Character
                     local c = getRoleColor(p)
                     hl.FillColor = c
                     hl.OutlineColor = c
@@ -89,7 +131,7 @@ task.spawn(function()
 end)
 
 -- ==========================================
--- ФИЗИКА (От Клода)
+-- ФИЗИКА (DELTA SAFE)
 -- ==========================================
 local currentChar = nil
 local originalCollide = setmetatable({}, { __mode = "k" })
@@ -99,6 +141,12 @@ local function bindCharacter(character)
     local root = character:WaitForChild("HumanoidRootPart", 10)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if not (root and humanoid) or player.Character ~= character then return end
+
+    -- Удаляем старые, если остались (защита от утечек)
+    local oldBv = root:FindFirstChildOfClass("BodyVelocity")
+    local oldBg = root:FindFirstChildOfClass("BodyGyro")
+    if oldBv then oldBv:Destroy() end
+    if oldBg then oldBg:Destroy() end
 
     local bv = Instance.new("BodyVelocity")
     bv.MaxForce = Vector3.zero
@@ -134,34 +182,32 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- ==========================================
--- ПОЛЕТ (От Клода)
--- ==========================================
+-- Полет
 local function flyTo(target)
     local c = currentChar
-    if not c or c.humanoid.Health <= 0 then return false end
+    if not c or c.humanoid.Health <= 0 or not canCollect() then return false end
 
-    local origPlatformStand = c.humanoid.PlatformStand
-    local origAutoRotate = c.humanoid.AutoRotate
+    local origPS = c.humanoid.PlatformStand
+    local origAR = c.humanoid.AutoRotate
     local arrived = false
 
     local ok, err = pcall(function()
         c.humanoid.AutoRotate = false
         c.humanoid.PlatformStand = true
-        local f = c.root.AssemblyMass * CFG.ForcePerMass
+        local mass = math.max(1, c.root.AssemblyMass)
+        local f = mass * CFG.ForcePerMass
         c.bv.MaxForce = Vector3.new(f, f, f)
         c.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
 
         while c.humanoid.Health > 0 and c.root.Parent and target.Parent do
             RunService.Heartbeat:Wait()
-
+            if not canCollect() then break end
+            if c.root.Position.Y < -50 then break end
+            
             local rootPos = c.root.Position
             local offset = target.Position - rootPos
             local dist = offset.Magnitude
-            if dist <= 3 then -- ArriveDistance
-                arrived = true
-                break
-            end
+            if dist <= 3 then arrived = true; break end
 
             local speed = math.min(CFG.MaxSpeed, dist * CFG.Gain)
             c.bv.Velocity = offset.Unit * speed
@@ -174,7 +220,6 @@ local function flyTo(target)
     end)
     if not ok then warn("flyTo error:", err) end
 
-    -- Восстановление состояния
     c.bv.MaxForce = Vector3.zero
     c.bv.Velocity = Vector3.zero
     c.bg.MaxTorque = Vector3.zero
@@ -185,39 +230,14 @@ local function flyTo(target)
         c.root.CFrame = CFrame.new(c.root.Position) * CFrame.Angles(0, yaw, 0)
     end
     if c.humanoid.Parent and c.humanoid.Health > 0 then
-        c.humanoid.AutoRotate = origAutoRotate
-        c.humanoid.PlatformStand = origPlatformStand
+        c.humanoid.AutoRotate = origAR
+        c.humanoid.PlatformStand = origPS
         c.humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
     end
-
     return arrived
 end
 
--- ==========================================
--- ЛОГИКА СБОРА И ОЖИДАНИЯ
--- ==========================================
-local function waitForAny(...)
-    local thread = coroutine.running()
-    local connections = {}
-    local fired = false
-
-    local function onFire()
-        if fired then return end
-        fired = true
-        for _, c in connections do c:Disconnect() end
-        if coroutine.status(thread) == "suspended" then task.spawn(thread) end
-    end
-
-    for _, signal in { ... } do table.insert(connections, signal:Connect(onFire)) end
-    coroutine.yield()
-end
-
-local function waitForDeath(humanoid)
-    while humanoid.Health > 0 and humanoid:IsDescendantOf(Workspace) do
-        waitForAny(humanoid.Died, humanoid.AncestryChanged)
-    end
-end
-
+-- Ожидание раунда
 local knownParts = setmetatable({}, { __mode = "k" })
 
 local function markKnownParts()
@@ -240,35 +260,19 @@ local function hasUsableParts(freshOnly)
 end
 
 local function WaitForActivePhase(freshOnly)
-    local char = player.Character
-    local hum = char and (char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5))
-    if hum then
-        if freshOnly then markKnownParts() end
-        waitForDeath(hum)
-    end
-    local deadChar = char
-
-    while true do
-        while player.Character == nil or player.Character == deadChar do
-            player.CharacterAdded:Wait()
+    if freshOnly then markKnownParts() end
+    while CFG.AutoFarm do
+        local c = player.Character
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 and canCollect() and hasUsableParts(freshOnly) then
+            return true
         end
-        local newChar = player.Character
-        local newHum = newChar:WaitForChild("Humanoid", 10)
-        task.wait(2)
-
-        if newHum then
-            while task.wait(1) do
-                if newHum.Health <= 0 or not newChar:IsDescendantOf(Workspace) then break end
-                if hasUsableParts(freshOnly) then return true end
-            end
-        end
-        deadChar = newChar
+        task.wait(1)
     end
+    return false
 end
 
--- ==========================================
--- СЕССИЯ СБОРА
--- ==========================================
+-- Сессия сбора
 local collectedCount = 0
 local Blacklist = {}
 
@@ -291,18 +295,22 @@ local function collectTarget(target)
     if not c then return end
     Blacklist[target] = true
     collectedCount += 1
-    if typeof(firetouchinterest) == "function" then
-        firetouchinterest(c.root, target, 0)
-        firetouchinterest(c.root, target, 1)
-    end
-    local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then
-        fireproximityprompt(prompt)
-    end
+    
+    -- Безопасный сбор
+    pcall(function()
+        if typeof(firetouchinterest) == "function" then
+            firetouchinterest(c.root, target, 0)
+            firetouchinterest(c.root, target, 1)
+        end
+        local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then
+            fireproximityprompt(prompt)
+        end
+    end)
 end
 
 local function collectSession()
-    while CFG.AutoFarm and currentChar and currentChar.humanoid.Health > 0 do
+    while CFG.AutoFarm and currentChar and currentChar.humanoid.Health > 0 and canCollect() do
         if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
             currentChar.humanoid.Health = 0
             break
@@ -317,18 +325,14 @@ local function collectSession()
     end
 end
 
--- ==========================================
--- ГЛАВНЫЙ ЦИКЛ
--- ==========================================
 task.spawn(function()
     while true do
         if CFG.AutoFarm then
             collectSession()
-            if CFG.AutoFarm then
-                WaitForActivePhase(false)
-                collectedCount = 0
-                table.clear(Blacklist)
-            end
+            WaitForActivePhase(collectedCount > 0)
+            collectedCount = 0
+            table.clear(Blacklist)
+            table.clear(knownParts)
         else
             task.wait(1)
         end
@@ -349,10 +353,14 @@ secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = functio
     if v then
         collectedCount = 0
         table.clear(Blacklist)
+        table.clear(knownParts)
     end
 end })
-secFarm:Slider({ Name = "Farm Speed (10-60)", Min = 10, Max = 60, Default = 40, Callback = function(v) CFG.MaxSpeed = v end })
+secFarm:Slider({ Name = "Farm Speed (10-24)", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
 secFarm:Toggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
 secFarm:Slider({ Name = "Max Coins (40-50)", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Claude Physics Engine Loaded", Icon = "check", Tone = "Success", Duration = 5 })
+local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
+secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
+
+Slate:Notify({ Title = "Liberium Hub", Description = "Delta Drag Fix + Speed Cap", Icon = "check", Tone = "Success", Duration = 5 })
