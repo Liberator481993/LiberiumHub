@@ -1,4 +1,4 @@
--- Liberium Hub | v14 | Slate Auto-Scanner
+-- Liberium Hub | v15 | Farm fixes + ESP fixes
 local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
@@ -62,39 +62,18 @@ pcall(function()
 end)
 
 -- ============== СКАНЕР МЕТОДОВ ==============
-local function dumpKeys(o)
-    local keys = {}
-    for k, v in pairs(o) do table.insert(keys, tostring(k).." ("..type(v)..")") end
-    local mt = getmetatable(o)
-    if mt and mt.__index then
-        if type(mt.__index) == "table" then
-            for k, v in pairs(mt.__index) do table.insert(keys, tostring(k).." ("..type(v)..")") end
-        elseif type(mt.__index) == "function" then
-            table.insert(keys, "__index (function)")
-        end
-    end
-    return table.concat(keys, ", ")
-end
-
 local function findMethod(obj, keyword)
-    -- Ищем в метатабле
     local mt = getmetatable(obj)
     if mt and mt.__index then
         if type(mt.__index) == "table" then
             for k, v in pairs(mt.__index) do
-                if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then
-                    return k
-                end
+                if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then return k end
             end
         end
     end
-    -- Ищем в самой таблице
     for k, v in pairs(obj) do
-        if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then
-            return k
-        end
+        if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then return k end
     end
-    -- Жесткий перебор известных имен
     local defaults = {"AddToggle", "CreateToggle", "Toggle", "NewToggle", "AddSlider", "CreateSlider", "Slider", "NewSlider"}
     for _, name in ipairs(defaults) do
         if string.find(string.lower(name), keyword) then
@@ -109,12 +88,7 @@ local function addElement(sec, tab, win, opts, keyword)
     local method = findMethod(sec, keyword) or findMethod(tab, keyword) or findMethod(win, keyword)
     if method then
         local target = (findMethod(sec, keyword) and sec) or (findMethod(tab, keyword) and tab) or win
-        local ok, err = pcall(target[method], target, opts)
-        if not ok then
-            showErr("Вызов "..method.." упал:\n"..tostring(err))
-        end
-    else
-        showErr("Не найден метод '"..keyword.."'\nДоступно в окне: "..dumpKeys(win).."\n\nВ табе: "..dumpKeys(tab))
+        pcall(target[method], target, opts)
     end
 end
 
@@ -142,9 +116,9 @@ local okAll, allErr = pcall(function()
     local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
     local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
-    -- Роли
+    -- Роли (обновляем чаще для точного ESP)
     task.spawn(function()
-        while task.wait(1) do
+        while task.wait(0.5) do
             pcall(function()
                 local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
                 if getData and getData:IsA("RemoteFunction") then
@@ -166,23 +140,44 @@ local okAll, allErr = pcall(function()
         return Color3.fromRGB(50, 255, 100)
     end
 
+    -- ЖЕСТКАЯ ПРОВЕРКА (лобби, смерть, живой ли персонаж)
     local function canCollect()
         local c = currentChar
         if not c or not c.root or not c.root.Parent then return false end
         if not c.humanoid or c.humanoid.Health <= 0 then return false end
+        
+        local myData = roles[player.Name]
+        if myData then
+            if myData.Dead then return false end
+            local r = myData.Role
+            if not r or r == "Spectator" or r == "Lobby" then return false end
+        end
+
+        -- Если конфет на карте нет (лобби), не летим
+        local container = Workspace:FindFirstChild("CoinContainer", true)
+        if not container or #container:GetChildren() == 0 then return false end
+        
         return true
     end
 
-    -- ESP
+    -- ESP (Обновляем цвета и убираем с трупов)
     task.spawn(function()
-        while task.wait(0.5) do
+        while task.wait(0.3) do
             if CFG.ESP then
                 for _, p in ipairs(Players:GetPlayers()) do
                     if p ~= player and p.Character then
-                        local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight")
-                        hl.Name = "LibESP" hl.OutlineTransparency = 0
-                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = p.Character
-                        local c = getRoleColor(p) hl.FillColor = c hl.OutlineColor = c
+                        local myData = roles[p.Name]
+                        local isDead = myData and myData.Dead
+                        local hl = p.Character:FindFirstChild("LibESP")
+                        
+                        if isDead then
+                            if hl then hl:Destroy() end
+                        else
+                            hl = hl or Instance.new("Highlight")
+                            hl.Name = "LibESP" hl.OutlineTransparency = 0
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = p.Character
+                            local c = getRoleColor(p) hl.FillColor = c hl.OutlineColor = c
+                        end
                     end
                 end
             else
