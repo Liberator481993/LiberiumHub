@@ -1,4 +1,4 @@
--- Liberium Hub | v13 | Slate Methods Auto-Detect
+-- Liberium Hub | v14 | Slate Auto-Scanner
 local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
@@ -6,10 +6,10 @@ local function showErr(msg)
     pcall(function()
         local old = pg:FindFirstChild("LiberiumErr") if old then old:Destroy() end
         local sg = Instance.new("ScreenGui") sg.Name="LiberiumErr" sg.ResetOnSpawn=false sg.DisplayOrder=999 sg.Parent=pg
-        local f = Instance.new("Frame", sg) f.Size=UDim2.new(1,-20,0,120) f.Position=UDim2.new(0,10,0,40)
+        local f = Instance.new("Frame", sg) f.Size=UDim2.new(1,-20,0,160) f.Position=UDim2.new(0,10,0,40)
         f.BackgroundColor3=Color3.fromRGB(50,0,0) f.BorderSizePixel=0
         local t = Instance.new("TextLabel", f) t.Size=UDim2.new(1,-20,1,-20) t.Position=UDim2.new(0,10,0,10)
-        t.BackgroundTransparency=1 t.TextColor3=Color3.fromRGB(255,100,100) t.Font=Enum.Font.Code t.TextSize=13
+        t.BackgroundTransparency=1 t.TextColor3=Color3.fromRGB(255,100,100) t.Font=Enum.Font.Code t.TextSize=12
         t.TextWrapped=true t.TextXAlignment=Enum.TextXAlignment.Left t.Text="[Liberium Error]\n"..tostring(msg)
     end)
 end
@@ -61,35 +61,62 @@ pcall(function()
     workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 end)
 
--- ============== УМНЫЙ АДАПТЕР МЕТОДОВ ==============
-local function getKeys(t)
+-- ============== СКАНЕР МЕТОДОВ ==============
+local function dumpKeys(o)
     local keys = {}
-    if type(t) == "table" then
-        for k in pairs(t) do table.insert(keys, tostring(k)) end
-        local mt = getmetatable(t)
-        if mt and mt.__index and type(mt.__index) == "table" then
-            for k in pairs(mt.__index) do table.insert(keys, tostring(k)) end
+    for k, v in pairs(o) do table.insert(keys, tostring(k).." ("..type(v)..")") end
+    local mt = getmetatable(o)
+    if mt and mt.__index then
+        if type(mt.__index) == "table" then
+            for k, v in pairs(mt.__index) do table.insert(keys, tostring(k).." ("..type(v)..")") end
+        elseif type(mt.__index) == "function" then
+            table.insert(keys, "__index (function)")
         end
     end
     return table.concat(keys, ", ")
 end
 
-local function safeAdd(sec, tab, methodNames, opts)
-    for _, name in ipairs(methodNames) do
-        if type(sec[name]) == "function" then
-            pcall(sec[name], sec, opts)
-            return
-        elseif type(tab[name]) == "function" then
-            pcall(tab[name], tab, opts)
-            return
+local function findMethod(obj, keyword)
+    -- Ищем в метатабле
+    local mt = getmetatable(obj)
+    if mt and mt.__index then
+        if type(mt.__index) == "table" then
+            for k, v in pairs(mt.__index) do
+                if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then
+                    return k
+                end
+            end
         end
     end
-    -- Если ничего не нашли - выводим ошибку со списком доступных методов
-    showErr("Не найден метод для "..opts.Name..".\nДоступные методы: "..getKeys(sec))
+    -- Ищем в самой таблице
+    for k, v in pairs(obj) do
+        if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then
+            return k
+        end
+    end
+    -- Жесткий перебор известных имен
+    local defaults = {"AddToggle", "CreateToggle", "Toggle", "NewToggle", "AddSlider", "CreateSlider", "Slider", "NewSlider"}
+    for _, name in ipairs(defaults) do
+        if string.find(string.lower(name), keyword) then
+            local ok, res = pcall(function() return obj[name] end)
+            if ok and res then return name end
+        end
+    end
+    return nil
 end
 
-local toggleMethods = {"AddToggle", "CreateToggle", "Toggle", "NewToggle", "AddToggleBox"}
-local sliderMethods = {"AddSlider", "CreateSlider", "Slider", "NewSlider"}
+local function addElement(sec, tab, win, opts, keyword)
+    local method = findMethod(sec, keyword) or findMethod(tab, keyword) or findMethod(win, keyword)
+    if method then
+        local target = (findMethod(sec, keyword) and sec) or (findMethod(tab, keyword) and tab) or win
+        local ok, err = pcall(target[method], target, opts)
+        if not ok then
+            showErr("Вызов "..method.." упал:\n"..tostring(err))
+        end
+    else
+        showErr("Не найден метод '"..keyword.."'\nДоступно в окне: "..dumpKeys(win).."\n\nВ табе: "..dumpKeys(tab))
+    end
+end
 
 -- ============== ЛОГИКА ==============
 local okAll, allErr = pcall(function()
@@ -344,24 +371,24 @@ local okAll, allErr = pcall(function()
         if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
     end)
 
-    -- ============== НАПОЛНЕНИЕ UI (ЧЕРЕЗ АДАПТЕР) ==============
+    -- ============== НАПОЛНЕНИЕ UI ==============
     local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
-    safeAdd(secVisuals, TabVisuals, toggleMethods, { Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
+    addElement(secVisuals, TabVisuals, Window, { Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end }, "toggle")
 
     local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-    safeAdd(secFarm, TabFarm, toggleMethods, { Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
+    addElement(secFarm, TabFarm, Window, { Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
         CFG.AutoFarm = v
         if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
-    end })
-    safeAdd(secFarm, TabFarm, sliderMethods, { Name = "Farm Speed", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
-    safeAdd(secFarm, TabFarm, toggleMethods, { Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
-    safeAdd(secFarm, TabFarm, sliderMethods, { Name = "Max Coins", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
-    safeAdd(secFarm, TabFarm, sliderMethods, { Name = "Avoid Players radius", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end })
+    end }, "toggle")
+    
+    addElement(secFarm, TabFarm, Window, { Name = "Farm Speed", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end }, "slider")
+    addElement(secFarm, TabFarm, Window, { Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end }, "toggle")
+    addElement(secFarm, TabFarm, Window, { Name = "Max Coins", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end }, "slider")
+    addElement(secFarm, TabFarm, Window, { Name = "Avoid Players radius", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end }, "slider")
 
     local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
-    safeAdd(secMisc, TabMisc, toggleMethods, { Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
-    safeAdd(secMisc, TabMisc, toggleMethods, { Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
-    safeAdd(secMisc, TabMisc, toggleMethods, { Name = "Debug (console)", Default = false, Callback = function(v) CFG.Debug = v end })
+    addElement(secMisc, TabMisc, Window, { Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end }, "toggle")
+    addElement(secMisc, TabMisc, Window, { Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end }, "toggle")
 end)
 
 if not okAll then
