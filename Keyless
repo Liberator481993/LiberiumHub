@@ -1,4 +1,4 @@
--- Liberium Hub | Anti-Collision Death + High Flight
+-- Liberium Hub | Cross-Platform Stable
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -14,14 +14,13 @@ local Cam = Workspace.CurrentCamera
 
 local CFG = {
     MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
-    MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false,
-    FlightHeight = 6 -- Высота полета над монетой
+    MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false
 }
 
 -- UI
-local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Anti-Kill", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+local Window = Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Stable", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
 
--- Перетаскивание (Delta fix)
+-- Перетаскивание
 task.spawn(function()
     task.wait(0.5)
     pcall(function()
@@ -56,7 +55,9 @@ local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
 local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
 local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
 
--- Роли
+-- ==========================================
+-- РОЛИ
+-- ==========================================
 local roles = {}
 task.spawn(function()
     while task.wait(1) do
@@ -70,13 +71,16 @@ task.spawn(function()
     end
 end)
 
+-- Простая проверка: живы ли мы и не в лобби
 local function canCollect()
     local char = player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return false end
+    
     local myData = roles[player.Name]
     if not myData then return false end
     if myData.Dead then return false end
+    
     local r = myData.Role
     if not r or r == "Spectator" or r == "Lobby" then return false end
     return true
@@ -120,7 +124,9 @@ task.spawn(function()
     end
 end)
 
--- Физика
+-- ==========================================
+-- ФИЗИКА
+-- ==========================================
 local currentChar = nil
 local originalCollide = setmetatable({}, { __mode = "k" })
 
@@ -168,14 +174,15 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- ПОЛЕТ С ЗАЩИТОЙ ОТ ДАМАГА
+-- ==========================================
+-- ПОЛЕТ (БЕЗ ЛИШНИХ ПРОВЕРОК)
+-- ==========================================
 local function flyTo(target)
     local c = currentChar
     if not c or not canCollect() then return false end
 
     local origPS = c.humanoid.PlatformStand
     local origAR = c.humanoid.AutoRotate
-    local origHealth = c.humanoid.Health -- Запоминаем здоровье
     local arrived = false
 
     local ok, err = pcall(function()
@@ -188,23 +195,9 @@ local function flyTo(target)
 
         while c.humanoid.Health > 0 and c.root.Parent and target.Parent do
             RunService.Heartbeat:Wait()
-            
-            -- Если умерли или роль пропала - выходим
             if not canCollect() then break end
             
-            -- Если потеряли здоровье во время полета (атака) - прерываем
-            if c.humanoid.Health < origHealth then
-                -- Восстанавливаем здоровье клиента (не всегда работает, но помогает)
-                pcall(function() c.humanoid.Health = origHealth end)
-                break
-            end
-            
-            if c.root.Position.Y < -50 then break end
-            
-            -- ЦЕЛЬ НА 6 СТАДОВ ВЫШЕ (защита от kill aura)
-            local targetPos = target.Position + Vector3.new(0, CFG.FlightHeight, 0)
-            local rootPos = c.root.Position
-            local offset = targetPos - rootPos
+            local offset = target.Position - c.root.Position
             local dist = offset.Magnitude
             if dist <= 3 then arrived = true; break end
 
@@ -213,13 +206,12 @@ local function flyTo(target)
 
             local flat = Vector3.new(offset.X, 0, offset.Z)
             if flat.Magnitude > 0.5 then
-                c.bg.CFrame = CFrame.lookAt(rootPos, rootPos + flat)
+                c.bg.CFrame = CFrame.lookAt(c.root.Position, c.root.Position + flat)
             end
         end
     end)
-    if not ok then warn("flyTo error:", err) end
+    if not ok then warn("[Liberium flyTo error]:", err) end
 
-    -- Восстановление
     c.bv.MaxForce = Vector3.zero
     c.bv.Velocity = Vector3.zero
     c.bg.MaxTorque = Vector3.zero
@@ -237,38 +229,9 @@ local function flyTo(target)
     return arrived
 end
 
--- Ожидание раунда
-local knownParts = setmetatable({}, { __mode = "k" })
-
-local function markKnownParts()
-    local folder = Workspace:FindFirstChild("CoinContainer", true)
-    if not folder then return end
-    for _, child in folder:GetChildren() do
-        if child.Name == "Coin_Server" then knownParts[child] = true end
-    end
-end
-
-local function hasUsableParts(freshOnly)
-    local folder = Workspace:FindFirstChild("CoinContainer", true)
-    if not folder then return false end
-    for _, child in folder:GetChildren() do
-        if child.Name == "Coin_Server" and child:IsA("BasePart") and child:FindFirstChild("CoinVisual") then
-            if not (freshOnly and knownParts[child]) then return true end
-        end
-    end
-    return false
-end
-
-local function WaitForActivePhase(freshOnly)
-    if freshOnly then markKnownParts() end
-    while CFG.AutoFarm do
-        if canCollect() and hasUsableParts(freshOnly) then return true end
-        task.wait(1)
-    end
-    return false
-end
-
--- Сбор
+-- ==========================================
+-- СБОР (УБРАЛ ПРОВЕРКУ COINVISUAL)
+-- ==========================================
 local collectedCount = 0
 local Blacklist = {}
 
@@ -278,7 +241,7 @@ local function nearestPart()
     local best, bestDist = nil, math.huge
     local pos = currentChar.root.Position
     for _, child in folder:GetChildren() do
-        if child.Name == "Coin_Server" and child:IsA("BasePart") and not Blacklist[child] and child:FindFirstChild("CoinVisual") then
+        if child.Name == "Coin_Server" and child:IsA("BasePart") and not Blacklist[child] then
             local d = (child.Position - pos).Magnitude
             if d < bestDist then best, bestDist = child, d end
         end
@@ -316,29 +279,37 @@ local function collectSession()
         if flyTo(target) then
             collectTarget(target)
             task.wait(0.1)
+        else
+            break
         end
     end
 end
 
+-- ==========================================
+-- ГЛАВНЫЙ ЦИКЛ (БЕЗ ЛОЖНЫХ ОЖИДАНИЙ)
+-- ==========================================
 task.spawn(function()
     while true do
         if CFG.AutoFarm then
-            collectSession()
-            WaitForActivePhase(collectedCount > 0)
-            collectedCount = 0
-            table.clear(Blacklist)
-            table.clear(knownParts)
-        else
-            task.wait(1)
+            if canCollect() then
+                collectSession()
+                if collectedCount >= CFG.MaxCoins then
+                    collectedCount = 0
+                    table.clear(Blacklist)
+                end
+            end
         end
-    end
+        task.wait(1)
+    end)
 end)
 
 player.Idled:Connect(function()
     if CFG.AntiAFK then VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end
 end)
 
+-- ==========================================
 -- UI
+-- ==========================================
 local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
 secVisuals:Toggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
@@ -348,15 +319,13 @@ secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = functio
     if v then
         collectedCount = 0
         table.clear(Blacklist)
-        table.clear(knownParts)
     end
 end })
 secFarm:Slider({ Name = "Farm Speed (10-24)", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
-secFarm:Slider({ Name = "Flight Height", Min = 2, Max = 15, Default = 6, Callback = function(v) CFG.FlightHeight = v end })
 secFarm:Toggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
 secFarm:Slider({ Name = "Max Coins (40-50)", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Anti-Kill + High Flight", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Fixed: CoinVisual check removed", Icon = "check", Tone = "Success", Duration = 5 })
