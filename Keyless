@@ -1,684 +1,471 @@
--- Liberium Hub | v18 | PulseHub-Style UI + Strict Lobby Fix
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local player = Players.LocalPlayer
+-- Liberium Hub | v19 | REAL SLATE + State Machine + Lobby Fix
+local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
--- ==========================================
--- UI ДВИЖОК (PULSE HUB STYLE)
--- ==========================================
-local function CreatePulseUI()
-    local Colors = {
-        Bg = Color3.fromRGB(18, 18, 21),
-        Sidebar = Color3.fromRGB(24, 24, 27),
-        Section = Color3.fromRGB(28, 28, 33),
-        Element = Color3.fromRGB(36, 36, 42),
-        Text = Color3.fromRGB(240, 240, 245),
-        Dim = Color3.fromRGB(140, 140, 150),
-        Accent = Color3.fromRGB(60, 130, 255),
-        Off = Color3.fromRGB(50, 50, 60)
-    }
-    
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "LiberiumUI"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    ScreenGui.DisplayOrder = 100
-    ScreenGui.Parent = pg
-
-    local Main = Instance.new("Frame", ScreenGui)
-    Main.Name = "MainFrame"
-    Main.Size = UDim2.new(0, 580, 0, 380)
-    Main.Position = UDim2.new(0.5, -290, 0.5, -190)
-    Main.BackgroundColor3 = Colors.Bg
-    Main.BorderSizePixel = 0
-    Main.Active = true
-    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
-    local stroke = Instance.new("UIStroke", Main)
-    stroke.Color = Color3.fromRGB(45, 45, 50)
-    stroke.Thickness = 1
-
-    -- Перетаскивание
-    local dragging, dragStart, startPos
-    Main.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            if (input.Position.Y - Main.AbsolutePosition.Y) <= 50 then
-                dragging = true
-                dragStart = input.Position
-                startPos = Main.Position
-            end
-        end
+local function showErr(msg)
+    pcall(function()
+        local old = pg:FindFirstChild("LiberiumErr") if old then old:Destroy() end
+        local sg = Instance.new("ScreenGui") sg.Name="LiberiumErr" sg.ResetOnSpawn=false sg.DisplayOrder=999 sg.Parent=pg
+        local f = Instance.new("Frame", sg) f.Size=UDim2.new(1,-20,0,160) f.Position=UDim2.new(0,10,0,40)
+        f.BackgroundColor3=Color3.fromRGB(50,0,0) f.BorderSizePixel=0
+        local t = Instance.new("TextLabel", f) t.Size=UDim2.new(1,-20,1,-20) t.Position=UDim2.new(0,10,0,10)
+        t.BackgroundTransparency=1 t.TextColor3=Color3.fromRGB(255,100,100) t.Font=Enum.Font.Code t.TextSize=12
+        t.TextWrapped=true t.TextXAlignment=Enum.TextXAlignment.Left t.Text="[Liberium Error]\n"..tostring(msg)
     end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-
-    -- Header
-    local Header = Instance.new("Frame", Main)
-    Header.Size = UDim2.new(1, 0, 0, 50)
-    Header.BackgroundTransparency = 1
-    Header.BorderSizePixel = 0
-
-    local Title = Instance.new("TextLabel", Header)
-    Title.Size = UDim2.new(1, -150, 0, 20)
-    Title.Position = UDim2.new(0, 20, 0, 10)
-    Title.BackgroundTransparency = 1
-    Title.Text = "Liberium Hub"
-    Title.TextColor3 = Colors.Text
-    Title.TextSize = 18
-    Title.Font = Enum.Font.GothamBold
-    Title.TextXAlignment = Enum.TextXAlignment.Left
-
-    local SubTitle = Instance.new("TextLabel", Header)
-    SubTitle.Size = UDim2.new(1, -150, 0, 15)
-    SubTitle.Position = UDim2.new(0, 20, 0, 28)
-    SubTitle.BackgroundTransparency = 1
-    SubTitle.Text = "MM2 | Stable"
-    SubTitle.TextColor3 = Colors.Dim
-    SubTitle.TextSize = 12
-    SubTitle.Font = Enum.Font.Gotham
-    SubTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-    local CloseBtn = Instance.new("TextButton", Header)
-    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
-    CloseBtn.Position = UDim2.new(1, -40, 0, 10)
-    CloseBtn.BackgroundColor3 = Colors.Section
-    CloseBtn.Text = "×"
-    CloseBtn.TextColor3 = Colors.Text
-    CloseBtn.TextSize = 20
-    CloseBtn.Font = Enum.Font.GothamBold
-    CloseBtn.BorderSizePixel = 0
-    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
-    CloseBtn.MouseButton1Click:Connect(function() Main.Visible = false end)
-
-    -- Sidebar
-    local Sidebar = Instance.new("Frame", Main)
-    Sidebar.Size = UDim2.new(0, 160, 1, -60)
-    Sidebar.Position = UDim2.new(0, 10, 0, 50)
-    Sidebar.BackgroundColor3 = Colors.Sidebar
-    Sidebar.BorderSizePixel = 0
-    Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 8)
-    
-    local SideLayout = Instance.new("UIListLayout", Sidebar)
-    SideLayout.Padding = UDim.new(0, 5)
-    SideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    SideLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-    
-    local SidePadding = Instance.new("UIPadding", Sidebar)
-    SidePadding.PaddingTop = UDim.new(0, 10)
-
-    -- Content
-    local Content = Instance.new("ScrollingFrame", Main)
-    Content.Size = UDim2.new(1, -190, 1, -60)
-    Content.Position = UDim2.new(0, 180, 0, 50)
-    Content.BackgroundTransparency = 1
-    Content.BorderSizePixel = 0
-    Content.ScrollBarThickness = 0
-    
-    local ContentLayout = Instance.new("UIListLayout", Content)
-    ContentLayout.Padding = UDim.new(0, 10)
-
-    local Tabs = {}
-    
-    local UI = {}
-
-    function UI:CreateTab(tabInfo)
-        local btn = Instance.new("TextButton", Sidebar)
-        btn.Size = UDim2.new(1, -10, 0, 36)
-        btn.BackgroundColor3 = Colors.Sidebar
-        btn.Text = "  " .. tabInfo.Name
-        btn.TextColor3 = Colors.Dim
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 14
-        btn.BorderSizePixel = 0
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
-        local page = Instance.new("Frame", Content)
-        page.Size = UDim2.new(1, -10, 0, 0)
-        page.AutomaticSize = Enum.AutomaticSize.Y
-        page.BackgroundTransparency = 1
-        page.Visible = false
-        
-        local pageLayout = Instance.new("UIListLayout", page)
-        pageLayout.Padding = UDim.new(0, 10)
-
-        local tab = { btn = btn, page = page }
-
-        btn.MouseButton1Click:Connect(function()
-            for _, t in ipairs(Tabs) do
-                t.page.Visible = false
-                t.btn.BackgroundColor3 = Colors.Sidebar
-                t.btn.TextColor3 = Colors.Dim
-            end
-            page.Visible = true
-            btn.BackgroundColor3 = Colors.Element
-            btn.TextColor3 = Colors.Text
-        end)
-
-        table.insert(Tabs, tab)
-        if #Tabs == 1 then
-            page.Visible = true
-            btn.BackgroundColor3 = Colors.Element
-            btn.TextColor3 = Colors.Text
-        end
-
-        function tab:CreateSection(secInfo)
-            local secFrame = Instance.new("Frame", page)
-            secFrame.Size = UDim2.new(1, 0, 0, 0)
-            secFrame.AutomaticSize = Enum.AutomaticSize.Y
-            secFrame.BackgroundColor3 = Colors.Section
-            secFrame.BorderSizePixel = 0
-            Instance.new("UICorner", secFrame).CornerRadius = UDim.new(0, 8)
-            
-            local pad = Instance.new("UIPadding", secFrame)
-            pad.PaddingTop = UDim.new(0, 10)
-            pad.PaddingBottom = UDim.new(0, 10)
-            
-            local layout = Instance.new("UIListLayout", secFrame)
-            layout.Padding = UDim.new(0, 5)
-            layout.SortOrder = Enum.SortOrder.LayoutOrder
-            
-            local title = Instance.new("TextLabel", secFrame)
-            title.Size = UDim2.new(1, -20, 0, 20)
-            title.Position = UDim2.new(0, 10, 0, 0)
-            title.BackgroundTransparency = 1
-            title.Text = secInfo.Name
-            title.TextColor3 = Colors.Dim
-            title.TextSize = 12
-            title.Font = Enum.Font.GothamBold
-            title.TextXAlignment = Enum.TextXAlignment.Left
-
-            local sec = {}
-
-            function sec:CreateToggle(opt)
-                local row = Instance.new("Frame", secFrame)
-                row.Size = UDim2.new(1, -20, 0, 34)
-                row.BackgroundColor3 = Colors.Element
-                row.BorderSizePixel = 0
-                Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-
-                local txt = Instance.new("TextLabel", row)
-                txt.Size = UDim2.new(1, -60, 1, 0)
-                txt.Position = UDim2.new(0, 10, 0, 0)
-                txt.BackgroundTransparency = 1
-                txt.Text = opt.Name
-                txt.TextColor3 = Colors.Text
-                txt.TextSize = 13
-                txt.Font = Enum.Font.Gotham
-                txt.TextXAlignment = Enum.TextXAlignment.Left
-
-                local state = opt.Default or false
-                local track = Instance.new("Frame", row)
-                track.Size = UDim2.new(0, 36, 0, 18)
-                track.Position = UDim2.new(1, -46, 0.5, -9)
-                track.BackgroundColor3 = state and Colors.Accent or Colors.Off
-                track.BorderSizePixel = 0
-                Instance.new("UICorner", track).CornerRadius = UDim.new(0, 9)
-
-                local thumb = Instance.new("Frame", track)
-                thumb.Size = UDim2.new(0, 14, 0, 14)
-                thumb.Position = UDim2.new(0, state and 20 or 2, 0, 2)
-                thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                thumb.BorderSizePixel = 0
-                Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 7)
-
-                local click = Instance.new("TextButton", row)
-                click.Size = UDim2.new(1, 0, 1, 0)
-                click.BackgroundTransparency = 1
-                click.Text = ""
-                
-                click.MouseButton1Click:Connect(function()
-                    state = not state
-                    track.BackgroundColor3 = state and Colors.Accent or Colors.Off
-                    TweenService:Create(thumb, TweenInfo.new(0.15), {Position = UDim2.new(0, state and 20 or 2, 0, 2)}):Play()
-                    pcall(opt.Callback, state)
-                end)
-            end
-
-            function sec:CreateSlider(opt)
-                local row = Instance.new("Frame", secFrame)
-                row.Size = UDim2.new(1, -20, 0, 46)
-                row.BackgroundColor3 = Colors.Element
-                row.BorderSizePixel = 0
-                Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-
-                local mn, mx = opt.Min or 0, opt.Max or 100
-                local cur = opt.Default or mn
-
-                local txt = Instance.new("TextLabel", row)
-                txt.Size = UDim2.new(1, -20, 0, 20)
-                txt.Position = UDim2.new(0, 10, 0, 4)
-                txt.BackgroundTransparency = 1
-                txt.Text = opt.Name .. "  [" .. cur .. "]"
-                txt.TextColor3 = Colors.Text
-                txt.TextSize = 13
-                txt.Font = Enum.Font.Gotham
-                txt.TextXAlignment = Enum.TextXAlignment.Left
-
-                local track = Instance.new("Frame", row)
-                track.Size = UDim2.new(1, -20, 0, 4)
-                track.Position = UDim2.new(0, 10, 1, -12)
-                track.BackgroundColor3 = Colors.Off
-                track.BorderSizePixel = 0
-                Instance.new("UICorner", track).CornerRadius = UDim.new(0, 2)
-
-                local fill = Instance.new("Frame", track)
-                fill.Size = UDim2.new((cur - mn) / (mx - mn), 0, 1, 0)
-                fill.BackgroundColor3 = Colors.Accent
-                fill.BorderSizePixel = 0
-                Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 2)
-
-                local click = Instance.new("TextButton", row)
-                click.Size = UDim2.new(1, 0, 1, 0)
-                click.BackgroundTransparency = 1
-                click.Text = ""
-
-                local dragging = false
-                local function update(x)
-                    local rel = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
-                    cur = math.floor(mn + rel * (mx - mn) + 0.5)
-                    fill.Size = UDim2.new(rel, 0, 1, 0)
-                    txt.Text = opt.Name .. "  [" .. cur .. "]"
-                    pcall(opt.Callback, cur)
-                end
-
-                click.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                        dragging = true
-                        update(input.Position.X)
-                    end
-                end)
-                UserInputService.InputChanged:Connect(function(input)
-                    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                        update(input.Position.X)
-                    end
-                end)
-                UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                        dragging = false
-                    end
-                end)
-            end
-
-            return sec
-        end
-        return tab
-    end
-    return UI
 end
 
-local UI = CreatePulseUI()
+-- Универсальный загрузчик (работает на Delta и Arceus X)
+local function fetch(url)
+    if game.HttpGet then
+        local ok, res = pcall(game.HttpGet, game, url)
+        if ok and type(res) == "string" and #res > 0 then return res end
+    end
+    if request then
+        local ok, res = pcall(request, {Url = url, Method = "GET"})
+        if ok and res and res.Body then return res.Body end
+    end
+    return nil
+end
 
--- ============== ЛОГИКА ==============
-local CFG = {
-    MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
-    MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false,
-    AvoidRadius = 5,
+local SOURCES = {
+    "https://cdn.jsdelivr.net/gh/PulseZax/Slate@main/.lua",
+    "https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua",
+    "https://raw.gitmirror.com/PulseZax/Slate/main/.lua"
 }
 
-local collectedCount = 0
-local Blacklist = setmetatable({}, { __mode = "k" })
-local originalCollide = setmetatable({}, { __mode = "k" })
-local roles = {}
-local canFarmNow = false
-local currentSession = nil 
+local src = nil
+for _, url in ipairs(SOURCES) do
+    src = fetch(url)
+    if src then break end
+end
 
-local TabVisuals = UI:CreateTab({ Name = "Visuals" })
-local TabFarm = UI:CreateTab({ Name = "Farm" })
-local TabMisc = UI:CreateTab({ Name = "Misc" })
+if not src then showErr("Slate не скачался. Проверь интернет.") return end
+local LS = loadstring or load
+local fn, perr = LS(src)
+if not fn then showErr("Slate parse: "..tostring(perr)) return end
+local ok, Slate = pcall(fn)
+if not ok or type(Slate) ~= "table" or not Slate.CreateWindow then showErr("Slate init: "..tostring(Slate)) return end
 
--- Роли
-task.spawn(function()
-    while task.wait(0.5) do
-        pcall(function()
-            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-            if getData and getData:IsA("RemoteFunction") then
-                local ok, data = pcall(function() return getData:InvokeServer() end)
-                if ok and type(data) == "table" then roles = data end
-            end
-        end)
+local okWin, Window = pcall(function()
+    return Slate:CreateWindow({ Name = "Liberium Hub", Subtitle = "MM2 | Stable", Icon = "shield", Logo = true, Size = UDim2.fromOffset(550, 380), ToggleKey = Enum.KeyCode.RightShift })
+end)
+if not okWin or not Window or not Window.root then showErr("CreateWindow: "..tostring(Window)) return end
+
+-- Масштабирование
+pcall(function()
+    local uiscale = Instance.new("UIScale", Window.root)
+    local function updateScale() 
+        local cam = workspace.CurrentCamera
+        if cam then uiscale.Scale = math.min(1, cam.ViewportSize.X / 600, cam.ViewportSize.Y / 420) end 
     end
+    updateScale()
+    workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 end)
 
-local function getRoleColor(plr)
-    local rData = roles[plr.Name]
-    if rData and rData.Role then
-        local r = rData.Role
-        if r == "Murderer" or r == "Zombie" then return Color3.fromRGB(255, 50, 50) end
-        if r == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
-        if r == "Survivor" or r == "Innocent" then return Color3.fromRGB(255, 165, 0) end
-    end
-    return Color3.fromRGB(50, 255, 100)
-end
-
--- ЖЕСТКИЙ ФИКС ЛОББИ
-local function canCollect()
-    if not canFarmNow then return false end
-    local s = currentSession
-    if not s or s.destroyed or s.humanoid.Health <= 0 then return false end
+-- ============== УМНЫЙ МОСТ ДЛЯ SLATE ==============
+local function safeAdd(obj1, obj2, opts, keyword)
+    local targets = {obj1, obj2}
+    -- Пытаемся найти стандартные названия
+    local defaults = {"AddToggle", "CreateToggle", "Toggle", "NewToggle", "AddSlider", "CreateSlider", "Slider", "NewSlider"}
     
-    local myData = roles[player.Name]
-    if not myData then return false end -- Ждем прогрузки данных о нас
-    if myData.Dead then return false end
-    
-    local r = myData.Role
-    -- Если роль пустая, Lobby, Spectator или None — стоим на месте
-    if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end
-
-    local container = Workspace:FindFirstChild("CoinContainer", true)
-    if not container or #container:GetChildren() == 0 then return false end
-    
-    return true
-end
-
--- ESP Фикс (Adornee)
-task.spawn(function()
-    while task.wait(0.3) do
-        if CFG.ESP then
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= player and p.Character then
-                    local myData = roles[p.Name]
-                    local isDead = myData and myData.Dead
-                    local hl = p.Character:FindFirstChild("LibESP")
-                    
-                    if isDead then
-                        if hl then hl:Destroy() end
-                    else
-                        if not hl then
-                            hl = Instance.new("Highlight")
-                            hl.Name = "LibESP"
-                            hl.Parent = p.Character
-                        end
-                        hl.Adornee = p.Character
-                        hl.OutlineTransparency = 0
-                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        local c = getRoleColor(p) 
-                        hl.FillColor = c 
-                        hl.OutlineColor = c
+    for _, target in ipairs(targets) do
+        if type(target) == "table" then
+            -- 1. Пробуем стандартные имена
+            for _, name in ipairs(defaults) do
+                if string.find(string.lower(name), keyword) and type(target[name]) == "function" then
+                    local success = pcall(target[name], target, opts)
+                    if success then return end
+                end
+            end
+            -- 2. Если не вышло, ищем любую функцию с ключевым словом (toggle или slider)
+            for k, v in pairs(target) do
+                if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then
+                    local success = pcall(v, target, opts)
+                    if success then return end
+                end
+            end
+            -- 3. Ищем в метатабле
+            local mt = getmetatable(target)
+            if mt and mt.__index and type(mt.__index) == "table" then
+                for k, v in pairs(mt.__index) do
+                    if type(v) == "function" and string.find(string.lower(tostring(k)), keyword) then
+                        local success = pcall(v, target, opts)
+                        if success then return end
                     end
                 end
             end
-        else
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.Character then
-                    local hl = p.Character:FindFirstChild("LibESP")
-                    if hl then hl:Destroy() end
+        end
+    end
+end
+
+-- ============== ЛОГИКА ==============
+local okAll, allErr = pcall(function()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local VirtualUser = game:GetService("VirtualUser")
+
+    local CFG = {
+        MaxSpeed = 20, Gain = 3, ForcePerMass = 1500,
+        MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false,
+        AvoidRadius = 5,
+    }
+
+    local collectedCount = 0
+    local Blacklist = setmetatable({}, { __mode = "k" })
+    local originalCollide = setmetatable({}, { __mode = "k" })
+    local roles = {}
+    local canFarmNow = false
+    local currentSession = nil 
+
+    local TabVisuals = Window:CreateTab({ Name = "Visuals", Icon = "eye" })
+    local TabFarm = Window:CreateTab({ Name = "Farm", Icon = "coins" })
+    local TabMisc = Window:CreateTab({ Name = "Misc", Icon = "settings" })
+
+    -- Роли
+    task.spawn(function()
+        while task.wait(0.5) do
+            pcall(function()
+                local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+                if getData and getData:IsA("RemoteFunction") then
+                    local ok, data = pcall(function() return getData:InvokeServer() end)
+                    if ok and type(data) == "table" then roles = data end
+                end
+            end)
+        end
+    end)
+
+    local function getRoleColor(plr)
+        local rData = roles[plr.Name]
+        if rData and rData.Role then
+            local r = rData.Role
+            if r == "Murderer" or r == "Zombie" then return Color3.fromRGB(255, 50, 50) end
+            if r == "Sheriff" then return Color3.fromRGB(50, 120, 255) end
+            if r == "Survivor" or r == "Innocent" then return Color3.fromRGB(255, 165, 0) end
+        end
+        return Color3.fromRGB(50, 255, 100)
+    end
+
+    -- ЖЕСТКИЙ ФИКС ЛОББИ
+    local function canCollect()
+        if not canFarmNow then return false end
+        local s = currentSession
+        if not s or s.destroyed or s.humanoid.Health <= 0 then return false end
+        
+        local myData = roles[player.Name]
+        if not myData then return false end -- Ждем данных
+        if myData.Dead then return false end
+        
+        local r = myData.Role
+        if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end
+
+        local container = Workspace:FindFirstChild("CoinContainer", true)
+        if not container or #container:GetChildren() == 0 then return false end
+        
+        return true
+    end
+
+    -- ESP Фикс (Adornee)
+    task.spawn(function()
+        while task.wait(0.3) do
+            if CFG.ESP then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= player and p.Character then
+                        local myData = roles[p.Name]
+                        local isDead = myData and myData.Dead
+                        local hl = p.Character:FindFirstChild("LibESP")
+                        
+                        if isDead then
+                            if hl then hl:Destroy() end
+                        else
+                            if not hl then
+                                hl = Instance.new("Highlight")
+                                hl.Name = "LibESP"
+                                hl.Parent = p.Character
+                            end
+                            hl.Adornee = p.Character
+                            hl.OutlineTransparency = 0
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            local c = getRoleColor(p) 
+                            hl.FillColor = c 
+                            hl.OutlineColor = c
+                        end
+                    end
+                end
+            else
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p.Character then
+                        local hl = p.Character:FindFirstChild("LibESP")
+                        if hl then hl:Destroy() end
+                    end
                 end
             end
         end
-    end
-end)
-
--- ================= ФИЗИКА (TEARDOWN) =================
-local function releaseForces(s)
-    s.bv.MaxForce = Vector3.zero
-    s.bv.Velocity = Vector3.zero
-    s.bg.MaxTorque = Vector3.zero
-end
-
-local function resetHumanoid(s)
-    local hum = s.humanoid
-    if not hum.Parent then return end
-    hum.PlatformStand = s.origPlatformStand
-    hum.AutoRotate = s.origAutoRotate
-    if hum.Health > 0 and s.root.Parent then
-        local _, yaw = s.root.CFrame:ToOrientation()
-        s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0)
-        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-    end
-end
-
-local function teardown(s)
-    if not s or s.destroyed then return end
-    s.destroyed = true
-    for _, conn in s.conns do conn:Disconnect() end
-    table.clear(s.conns)
-    releaseForces(s)
-    if s.root.Parent then
-        s.root.AssemblyLinearVelocity = Vector3.zero
-        s.root.AssemblyAngularVelocity = Vector3.zero
-    end
-    resetHumanoid(s)
-    s.bv:Destroy()
-    s.bg:Destroy()
-    if currentSession == s then currentSession = nil end
-end
-
-local function bindCharacter(character)
-    if currentSession then teardown(currentSession) end
-    canFarmNow = false
-    collectedCount = 0 
-    table.clear(Blacklist)
-
-    local root = character:WaitForChild("HumanoidRootPart", 10)
-    local humanoid = character:WaitForChild("Humanoid", 10)
-    if not (root and humanoid) or player.Character ~= character then return end
-
-    local bv = Instance.new("BodyVelocity")
-    bv.MaxForce = Vector3.zero
-    bv.Velocity = Vector3.zero
-    bv.P = 3000
-    bv.Parent = root
-
-    local bg = Instance.new("BodyGyro")
-    bg.MaxTorque = Vector3.zero
-    bg.P = 6000
-    bg.D = 500
-    bg.CFrame = root.CFrame
-    bg.Parent = root
-
-    local s = {
-        character = character, root = root, humanoid = humanoid, bv = bv, bg = bg,
-        conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate,
-    }
-    currentSession = s
-
-    table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end))
-    table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent)
-        if parent == nil then teardown(s) end
-    end))
-
-    if humanoid.Health <= 0 then teardown(s) end
-
-    task.wait(3)
-    canFarmNow = true
-end
-
-player.CharacterAdded:Connect(bindCharacter)
-player.CharacterRemoving:Connect(function(character)
-    if currentSession and currentSession.character == character then teardown(currentSession) end
-end)
-if player.Character then task.spawn(bindCharacter, player.Character) end
-
-RunService.Stepped:Connect(function()
-    if (CFG.Noclip or CFG.AutoFarm) and player.Character and currentSession and not currentSession.destroyed then
-        for _, d in ipairs(player.Character:GetDescendants()) do
-            if d:IsA("BasePart") then
-                if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
-                d.CanCollide = false
-            end
-        end
-    elseif not CFG.Noclip and not CFG.AutoFarm then
-        for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
-        table.clear(originalCollide)
-    end
-end)
-
-local function flyTo(target)
-    local s = currentSession
-    if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end
-
-    local arrived = false
-    local startTime = os.clock()
-    local ok, err = pcall(function()
-        s.humanoid.AutoRotate = false
-        s.humanoid.PlatformStand = true
-        local f = s.root.AssemblyMass * CFG.ForcePerMass
-        s.bv.MaxForce = Vector3.new(f, f, f)
-        s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
-
-        while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
-            RunService.Heartbeat:Wait()
-            if s.destroyed then break end
-            if not target:IsDescendantOf(Workspace) or os.clock() - startTime > 4.0 then Blacklist[target] = true break end
-            if not canCollect() then break end
-
-            local pos = s.root.Position
-            local offset = target.Position - pos
-            local dist = offset.Magnitude
-            if dist <= 3 then arrived = true break end
-
-            s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
-            local flat = Vector3.new(offset.X, 0, offset.Z)
-            if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
-        end
     end)
-    if not ok then warn("flyTo error:", err) end
 
-    if not s.destroyed then
+    -- ================= ФИЗИКА (TEARDOWN ОТ КЛОДА) =================
+    local function releaseForces(s)
+        s.bv.MaxForce = Vector3.zero
+        s.bv.Velocity = Vector3.zero
+        s.bg.MaxTorque = Vector3.zero
+    end
+
+    local function resetHumanoid(s)
+        local hum = s.humanoid
+        if not hum.Parent then return end
+        hum.PlatformStand = s.origPlatformStand
+        hum.AutoRotate = s.origAutoRotate
+        if hum.Health > 0 and s.root.Parent then
+            local _, yaw = s.root.CFrame:ToOrientation()
+            s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0)
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end
+
+    local function teardown(s)
+        if not s or s.destroyed then return end
+        s.destroyed = true
+        for _, conn in s.conns do conn:Disconnect() end
+        table.clear(s.conns)
         releaseForces(s)
-        s.root.AssemblyLinearVelocity = Vector3.zero
-        s.root.AssemblyAngularVelocity = Vector3.zero
+        if s.root.Parent then
+            s.root.AssemblyLinearVelocity = Vector3.zero
+            s.root.AssemblyAngularVelocity = Vector3.zero
+        end
         resetHumanoid(s)
+        s.bv:Destroy()
+        s.bg:Destroy()
+        if currentSession == s then currentSession = nil end
     end
-    return arrived
-end
 
--- Поиск конфет
-local COIN_PRIMARY = "Coin_Server"
-local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true }
-local coinCache, coinCacheTime, coinContainer = {}, 0, nil
+    local function bindCharacter(character)
+        if currentSession then teardown(currentSession) end
+        canFarmNow = false
+        collectedCount = 0 
+        table.clear(Blacklist)
 
-local function findCoinContainer()
-    return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true)
-end
+        local root = character:WaitForChild("HumanoidRootPart", 10)
+        local humanoid = character:WaitForChild("Humanoid", 10)
+        if not (root and humanoid) or player.Character ~= character then return end
 
-local function isCoinName(name)
-    if name == COIN_PRIMARY then return true end
-    if COIN_FALLBACK[name] then return true end
-    if name == "CoinVisual" then return false end
-    local n = string.lower(name)
-    return string.find(n, "coin", 1, true) ~= nil or string.find(n, "candy", 1, true) ~= nil or string.find(n, "sweet", 1, true) ~= nil
-end
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.zero
+        bv.Velocity = Vector3.zero
+        bv.P = 3000
+        bv.Parent = root
 
-local function isCoinAlive(c, container)
-    if not c or not c.Parent then return false end
-    if not c:IsDescendantOf(Workspace) then return false end
-    if container and not c:IsDescendantOf(container) then return false end
-    local vis = c:FindFirstChild("CoinVisual")
-    if vis and vis:IsA("BasePart") and vis.Transparency >= 0.99 then return false end
-    return true
-end
+        local bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.zero
+        bg.P = 6000
+        bg.D = 500
+        bg.CFrame = root.CFrame
+        bg.Parent = root
 
-local function refreshCoinCache()
-    local t = os.clock()
-    if t - coinCacheTime < 1 then return end
-    coinCacheTime = t coinCache = {} coinContainer = findCoinContainer()
-    if coinContainer then
-        for _, c in ipairs(coinContainer:GetChildren()) do
-            if c:IsA("BasePart") and isCoinName(c.Name) then
-                if not Blacklist[c] and isCoinAlive(c, coinContainer) then
-                    coinCache[#coinCache+1] = c
-                elseif not isCoinAlive(c, coinContainer) then Blacklist[c] = true end
+        local s = {
+            character = character, root = root, humanoid = humanoid, bv = bv, bg = bg,
+            conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate,
+        }
+        currentSession = s
+
+        table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end))
+        table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then teardown(s) end
+        end))
+
+        if humanoid.Health <= 0 then teardown(s) end
+
+        task.wait(3) -- Ждем загрузки ролей
+        canFarmNow = true
+    end
+
+    player.CharacterAdded:Connect(bindCharacter)
+    player.CharacterRemoving:Connect(function(character)
+        if currentSession and currentSession.character == character then teardown(currentSession) end
+    end)
+    if player.Character then task.spawn(bindCharacter, player.Character) end
+
+    RunService.Stepped:Connect(function()
+        if (CFG.Noclip or CFG.AutoFarm) and player.Character and currentSession and not currentSession.destroyed then
+            for _, d in ipairs(player.Character:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
+                    d.CanCollide = false
+                end
+            end
+        elseif not CFG.Noclip and not CFG.AutoFarm then
+            for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
+            table.clear(originalCollide)
+        end
+    end)
+
+    local function flyTo(target)
+        local s = currentSession
+        if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end
+
+        local arrived = false
+        local startTime = os.clock()
+        local ok, err = pcall(function()
+            s.humanoid.AutoRotate = false
+            s.humanoid.PlatformStand = true
+            local f = s.root.AssemblyMass * CFG.ForcePerMass
+            s.bv.MaxForce = Vector3.new(f, f, f)
+            s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
+
+            while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
+                RunService.Heartbeat:Wait()
+                if s.destroyed then break end
+                if not target:IsDescendantOf(Workspace) or os.clock() - startTime > 4.0 then Blacklist[target] = true break end
+                if not canCollect() then break end
+
+                local pos = s.root.Position
+                local offset = target.Position - pos
+                local dist = offset.Magnitude
+                if dist <= 3 then arrived = true break end
+
+                s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
+                local flat = Vector3.new(offset.X, 0, offset.Z)
+                if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
+            end
+        end)
+        if not ok then warn("flyTo error:", err) end
+
+        if not s.destroyed then
+            releaseForces(s)
+            s.root.AssemblyLinearVelocity = Vector3.zero
+            s.root.AssemblyAngularVelocity = Vector3.zero
+            resetHumanoid(s)
+        end
+        return arrived
+    end
+
+    -- Поиск конфет
+    local COIN_PRIMARY = "Coin_Server"
+    local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true }
+    local coinCache, coinCacheTime, coinContainer = {}, 0, nil
+
+    local function findCoinContainer()
+        return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true)
+    end
+
+    local function isCoinName(name)
+        if name == COIN_PRIMARY then return true end
+        if COIN_FALLBACK[name] then return true end
+        if name == "CoinVisual" then return false end
+        local n = string.lower(name)
+        return string.find(n, "coin", 1, true) ~= nil or string.find(n, "candy", 1, true) ~= nil or string.find(n, "sweet", 1, true) ~= nil
+    end
+
+    local function isCoinAlive(c, container)
+        if not c or not c.Parent then return false end
+        if not c:IsDescendantOf(Workspace) then return false end
+        if container and not c:IsDescendantOf(container) then return false end
+        local vis = c:FindFirstChild("CoinVisual")
+        if vis and vis:IsA("BasePart") and vis.Transparency >= 0.99 then return false end
+        return true
+    end
+
+    local function refreshCoinCache()
+        local t = os.clock()
+        if t - coinCacheTime < 1 then return end
+        coinCacheTime = t coinCache = {} coinContainer = findCoinContainer()
+        if coinContainer then
+            for _, c in ipairs(coinContainer:GetChildren()) do
+                if c:IsA("BasePart") and isCoinName(c.Name) then
+                    if not Blacklist[c] and isCoinAlive(c, coinContainer) then
+                        coinCache[#coinCache+1] = c
+                    elseif not isCoinAlive(c, coinContainer) then Blacklist[c] = true end
+                end
+            end
+        end
+        if #coinCache == 0 then
+            for _, d in ipairs(Workspace:GetDescendants()) do
+                if d:IsA("BasePart") and isCoinName(d.Name) and not Blacklist[d] and isCoinAlive(d, nil) then coinCache[#coinCache+1] = d end
             end
         end
     end
-    if #coinCache == 0 then
-        for _, d in ipairs(Workspace:GetDescendants()) do
-            if d:IsA("BasePart") and isCoinName(d.Name) and not Blacklist[d] and isCoinAlive(d, nil) then coinCache[#coinCache+1] = d end
+
+    local function isCoinGuarded(pos)
+        local r = CFG.AvoidRadius
+        if r <= 0 then return false end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character then
+                local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+                if pRoot and (pRoot.Position - pos).Magnitude < r then return true end
+            end
+        end
+        return false
+    end
+
+    local function nearestPart()
+        local s = currentSession
+        if not s or s.destroyed then return nil end
+        refreshCoinCache()
+        local best, bestDist = nil, math.huge
+        local pos = s.root.Position
+        for _, c in ipairs(coinCache) do
+            if c and c.Parent and not Blacklist[c] then
+                local d = (c.Position - pos).Magnitude
+                if d < bestDist and not isCoinGuarded(c.Position) then best, bestDist = c, d end
+            else Blacklist[c] = true end
+        end
+        return best
+    end
+
+    local function collectTarget(target)
+        local s = currentSession
+        if not s or s.destroyed or not target.Parent then return end
+        Blacklist[target] = true collectedCount += 1
+        pcall(function()
+            if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end
+            local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
+        end)
+    end
+
+    local function collectSession()
+        while CFG.AutoFarm and canCollect() do
+            if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
+                if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end
+                break
+            end
+            local target = nearestPart()
+            if not target then break end
+            if flyTo(target) then collectTarget(target) task.wait(0.1) else break end
         end
     end
-end
 
-local function isCoinGuarded(pos)
-    local r = CFG.AvoidRadius
-    if r <= 0 then return false end
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-            if pRoot and (pRoot.Position - pos).Magnitude < r then return true end
+    task.spawn(function()
+        while true do
+            if CFG.AutoFarm and canCollect() then collectSession() end
+            task.wait(1)
         end
-    end
-    return false
-end
-
-local function nearestPart()
-    local s = currentSession
-    if not s or s.destroyed then return nil end
-    refreshCoinCache()
-    local best, bestDist = nil, math.huge
-    local pos = s.root.Position
-    for _, c in ipairs(coinCache) do
-        if c and c.Parent and not Blacklist[c] then
-            local d = (c.Position - pos).Magnitude
-            if d < bestDist and not isCoinGuarded(c.Position) then best, bestDist = c, d end
-        else Blacklist[c] = true end
-    end
-    return best
-end
-
-local function collectTarget(target)
-    local s = currentSession
-    if not s or s.destroyed or not target.Parent then return end
-    Blacklist[target] = true collectedCount += 1
-    pcall(function()
-        if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end
-        local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end
     end)
-end
 
-local function collectSession()
-    while CFG.AutoFarm and canCollect() do
-        if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
-            if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end
-            break
-        end
-        local target = nearestPart()
-        if not target then break end
-        if flyTo(target) then collectTarget(target) task.wait(0.1) else break end
-    end
-end
+    player.Idled:Connect(function()
+        if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
+    end)
 
-task.spawn(function()
-    while true do
-        if CFG.AutoFarm and canCollect() then collectSession() end
-        task.wait(1)
-    end
+    -- ============== НАПОЛНЕНИЕ UI ==============
+    local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
+    safeAdd(secVisuals, TabVisuals, { Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end }, "toggle")
+
+    local secFarm = TabFarm:CreateSection({ Name = "Automation" })
+    safeAdd(secFarm, TabFarm, { Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
+        CFG.AutoFarm = v
+        if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
+    end }, "toggle")
+    
+    safeAdd(secFarm, TabFarm, { Name = "Farm Speed", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end }, "slider")
+    safeAdd(secFarm, TabFarm, { Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end }, "toggle")
+    safeAdd(secFarm, TabFarm, { Name = "Max Coins", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end }, "slider")
+    safeAdd(secFarm, TabFarm, { Name = "Avoid Players radius", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end }, "slider")
+
+    local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
+    safeAdd(secMisc, TabMisc, { Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end }, "toggle")
+    safeAdd(secMisc, TabMisc, { Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end }, "toggle")
 end)
 
-player.Idled:Connect(function()
-    if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
-end)
-
--- ============== НАПОЛНЕНИЕ UI ==============
-local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
-secVisuals:CreateToggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
-
-local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-secFarm:CreateToggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
-    CFG.AutoFarm = v
-    if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
-end })
-secFarm:CreateSlider({ Name = "Farm Speed", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
-secFarm:CreateToggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
-secFarm:CreateSlider({ Name = "Max Coins", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
-secFarm:CreateSlider({ Name = "Avoid Players radius", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end })
-
-local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
-secMisc:CreateToggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
-secMisc:CreateToggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
+if not okAll then
+    showErr("Runtime error: " .. tostring(allErr))
+end
