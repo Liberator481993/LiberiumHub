@@ -1,4 +1,4 @@
--- Liberium Hub | v29 | Evade Loop + Strong Noclip
+-- Liberium Hub | v30 | Fling Murderer + Return to Original Position
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -174,6 +174,18 @@ local PulseHub = (function()
         render() if default then safeCall(callback, value) end
         return obj
     end
+
+    function Section:AddButton(name, callback)
+        local row = self:_row(name, 36)
+        local btn = create("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.Button, BorderSizePixel = 0, AutoButtonColor = false, Text = name, Font = FONT_BOLD, TextSize = 14, TextColor3 = C.Text }, row)
+        corner(btn, 6)
+        btn.Activated:Connect(function() 
+            tween(btn, { BackgroundColor3 = C.Accent }, 0.08) 
+            task.delay(0.12, function() tween(btn, { BackgroundColor3 = C.Button }, 0.2) end) 
+            safeCall(callback) 
+        end)
+        return btn
+    end
     return PulseHubClass
 end)()
 
@@ -185,7 +197,7 @@ local TabMisc = Window:AddTab("Misc", "settings")
 -- ==========================================
 -- ЛОГИКА
 -- ==========================================
-local CFG = { MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false, AvoidRadius = 20 }
+local CFG = { MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, AutoReset = false, AutoFarm = false, AutoFling = false, ESP = false, AntiAFK = false, AvoidRadius = 20 }
 local collectedCount = 0
 local Blacklist = setmetatable({}, { __mode = "k" })
 local originalCollide = setmetatable({}, { __mode = "k" })
@@ -268,18 +280,79 @@ task.spawn(function()
 end)
 
 local function getClosestMurderer(pos)
-    local closest, closestDist = nil, math.huge
+    local closestRoot, closestDist = nil, math.huge
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character then
             local role = getPlayerRole(plr)
             if role == "Murderer" or role == "Zombie" then
                 local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-                if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closest, closestDist = pRoot.Position, d end end
+                if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end
             end
         end
     end
-    return closest, closestDist
+    return closestRoot, closestDist
 end
+
+-- ==========================================
+-- ФУНКЦИЯ ФЛИНГА
+-- ==========================================
+local function FlingMurderer()
+    local s = currentSession
+    if not s or s.destroyed or s.humanoid.Health <= 0 then return end
+    local myRoot = s.root
+    local oldCFrame = myRoot.CFrame -- Запоминаем нашу позицию
+    local oldVel = myRoot.AssemblyLinearVelocity
+    
+    -- Ищем маньяка
+    local mRoot = getClosestMurderer(myRoot.Position)
+    if not mRoot then return end
+    
+    -- 1. Телепортируемся к нему
+    myRoot.CFrame = mRoot.CFrame
+    myRoot.AssemblyLinearVelocity = Vector3.zero
+    
+    -- 2. Выдаем ему ебейшую скорость вращения и полета
+    pcall(function()
+        if setnetworkowner then pcall(setnetworkowner, mRoot, player) end
+        
+        local spin = Instance.new("BodyAngularVelocity")
+        spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5)
+        spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) -- 1e9 чтобы не крашило мобилки вместо math.huge
+        spin.Parent = mRoot
+        
+        local push = Instance.new("BodyVelocity")
+        push.Velocity = Vector3.new(1e5, 1e5, 1e5)
+        push.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        push.Parent = mRoot
+        
+        task.wait(0.1) -- Ждем пока физика сработает
+        
+        spin:Destroy()
+        push:Destroy()
+    end)
+    
+    -- 3. Возвращаемся обратно на то же место
+    task.wait(0.1)
+    myRoot.CFrame = oldCFrame
+    myRoot.AssemblyLinearVelocity = oldVel
+    
+    -- Останавливаем наши силы, чтобы не улететь
+    if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end
+    if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
+end
+
+-- Авто-флинг (если включен в меню)
+task.spawn(function()
+    while task.wait(0.5) do
+        if CFG.AutoFling and currentSession and not currentSession.destroyed then
+            local mRoot, mDist = getClosestMurderer(currentSession.root.Position)
+            if mRoot and mDist < 15 then
+                FlingMurderer()
+                task.wait(1) -- Пауза чтобы не спамить
+            end
+        end
+    end
+end)
 
 local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
 local function resetHumanoid(s)
@@ -294,7 +367,6 @@ local function teardown(s)
     table.clear(s.conns) releaseForces(s)
     if s.root.Parent then s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero end
     resetHumanoid(s) s.bv:Destroy() s.bg:Destroy()
-    -- Восстановление коллизий
     for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end
     table.clear(originalCollide)
     if currentSession == s then currentSession = nil end
@@ -319,7 +391,6 @@ player.CharacterAdded:Connect(bindCharacter)
 player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end)
 if player.Character then task.spawn(bindCharacter, player.Character) end
 
--- ЖЕСТКИЙ НОКЛИП (Принудительно ломает коллизии, даже если сервер возвращает их)
 local function setNoclip(char, state)
     if not char then return end
     for _, d in ipairs(char:GetDescendants()) do
@@ -348,19 +419,15 @@ local function flyTo(target)
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
             RunService.Heartbeat:Wait()
             if s.destroyed then break end
-            
-            -- ПРИНУДИТЕЛЬНЫЙ НОКЛИП КАЖДЫЙ КАДР (если вдруг сервер включил обратно)
             s.root.CanCollide = false
             
-            -- УМНОЕ УКЛОНЕНИЕ (Evade)
-            local mPos, mDist = getClosestMurderer(s.root.Position)
-            if mPos and mDist < CFG.AvoidRadius then
-                Blacklist[target] = true -- Бросаем эту монету, она слишком опасна
-                local escapeDir = (s.root.Position - mPos).Unit
+            local mRoot, mDist = getClosestMurderer(s.root.Position)
+            if mRoot and mDist < CFG.AvoidRadius then
+                Blacklist[target] = true 
+                local escapeDir = (s.root.Position - mRoot.Position).Unit
                 s.bv.Velocity = escapeDir * (CFG.MaxSpeed * 1.5)
-                task.wait(0.2) -- Даем время отлететь подальше
+                task.wait(0.2)
             else
-                -- Обычный полет
                 local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude
                 if dist <= 5 then arrived = true break end
                 s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
@@ -376,7 +443,7 @@ local function flyTo(target)
     if not ok then warn("flyTo error:", err) end
     if not s.destroyed then 
         releaseForces(s) s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero 
-        setNoclip(s.character, false) -- ВЫКЛ НОКЛИП
+        setNoclip(s.character, false)
         resetHumanoid(s) 
     end
     s.target = nil return arrived
@@ -488,5 +555,11 @@ secFarm:AddToggle("Auto Reset (Full Bag)", false, function(v) CFG.AutoReset = v 
 secFarm:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end)
 secFarm:AddSlider("Avoid Murderer Radius", 0, 30, 20, function(v) CFG.AvoidRadius = v end)
 
-local secMisc = TabMisc:AddSection("Miscellaneous")
-secMisc:AddToggle("Anti-AFK", false, function(v) CFG.AntiAFK = v end)
+local secMisc = TabMisc:AddSection("Murderer Fling")
+secMisc:AddToggle("Auto Fling Murderer", false, function(v) CFG.AutoFling = v end)
+secMisc:AddButton("Manual Fling Murderer", function()
+    FlingMurderer()
+end)
+
+local secMisc2 = TabMisc:AddSection("Miscellaneous")
+secMisc2:AddToggle("Anti-AFK", false, function(v) CFG.AntiAFK = v end)
