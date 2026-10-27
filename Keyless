@@ -1,4 +1,4 @@
--- Liberium Hub | v12 | REAL SLATE + Arceus X Support
+-- Liberium Hub | v13 | Slate Methods Auto-Detect
 local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
@@ -6,15 +6,14 @@ local function showErr(msg)
     pcall(function()
         local old = pg:FindFirstChild("LiberiumErr") if old then old:Destroy() end
         local sg = Instance.new("ScreenGui") sg.Name="LiberiumErr" sg.ResetOnSpawn=false sg.DisplayOrder=999 sg.Parent=pg
-        local f = Instance.new("Frame", sg) f.Size=UDim2.new(1,-20,0,100) f.Position=UDim2.new(0,10,0,40)
+        local f = Instance.new("Frame", sg) f.Size=UDim2.new(1,-20,0,120) f.Position=UDim2.new(0,10,0,40)
         f.BackgroundColor3=Color3.fromRGB(50,0,0) f.BorderSizePixel=0
         local t = Instance.new("TextLabel", f) t.Size=UDim2.new(1,-20,1,-20) t.Position=UDim2.new(0,10,0,10)
-        t.BackgroundTransparency=1 t.TextColor3=Color3.fromRGB(255,100,100) t.Font=Enum.Font.Code t.TextSize=14
-        t.TextWrapped=true t.Text="[Liberium Error]\n"..tostring(msg)
+        t.BackgroundTransparency=1 t.TextColor3=Color3.fromRGB(255,100,100) t.Font=Enum.Font.Code t.TextSize=13
+        t.TextWrapped=true t.TextXAlignment=Enum.TextXAlignment.Left t.Text="[Liberium Error]\n"..tostring(msg)
     end)
 end
 
--- Универсальный загрузчик (работает на Delta и Arceus X)
 local function fetch(url)
     if game.HttpGet then
         local ok, res = pcall(game.HttpGet, game, url)
@@ -22,10 +21,6 @@ local function fetch(url)
     end
     if request then
         local ok, res = pcall(request, {Url = url, Method = "GET"})
-        if ok and res and res.Body then return res.Body end
-    end
-    if syn and syn.request then
-        local ok, res = pcall(syn.request, {Url = url, Method = "GET"})
         if ok and res and res.Body then return res.Body end
     end
     return nil
@@ -43,10 +38,8 @@ for _, url in ipairs(SOURCES) do
     if src then break end
 end
 
-if not src then showErr("Slate не скачался. Arceus X режет сеть.") return end
+if not src then showErr("Slate не скачался.") return end
 local LS = loadstring or load
-if not LS then showErr("Нет loadstring") return end
-
 local fn, perr = LS(src)
 if not fn then showErr("Slate parse: "..tostring(perr)) return end
 local ok, Slate = pcall(fn)
@@ -67,6 +60,36 @@ pcall(function()
     updateScale()
     workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
 end)
+
+-- ============== УМНЫЙ АДАПТЕР МЕТОДОВ ==============
+local function getKeys(t)
+    local keys = {}
+    if type(t) == "table" then
+        for k in pairs(t) do table.insert(keys, tostring(k)) end
+        local mt = getmetatable(t)
+        if mt and mt.__index and type(mt.__index) == "table" then
+            for k in pairs(mt.__index) do table.insert(keys, tostring(k)) end
+        end
+    end
+    return table.concat(keys, ", ")
+end
+
+local function safeAdd(sec, tab, methodNames, opts)
+    for _, name in ipairs(methodNames) do
+        if type(sec[name]) == "function" then
+            pcall(sec[name], sec, opts)
+            return
+        elseif type(tab[name]) == "function" then
+            pcall(tab[name], tab, opts)
+            return
+        end
+    end
+    -- Если ничего не нашли - выводим ошибку со списком доступных методов
+    showErr("Не найден метод для "..opts.Name..".\nДоступные методы: "..getKeys(sec))
+end
+
+local toggleMethods = {"AddToggle", "CreateToggle", "Toggle", "NewToggle", "AddToggleBox"}
+local sliderMethods = {"AddSlider", "CreateSlider", "Slider", "NewSlider"}
 
 -- ============== ЛОГИКА ==============
 local okAll, allErr = pcall(function()
@@ -321,26 +344,24 @@ local okAll, allErr = pcall(function()
         if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
     end)
 
-    -- ============== НАПОЛНЕНИЕ UI (ОРИГИНАЛЬНЫЙ API SLATE) ==============
+    -- ============== НАПОЛНЕНИЕ UI (ЧЕРЕЗ АДАПТЕР) ==============
     local secVisuals = TabVisuals:CreateSection({ Name = "ESP Settings" })
-    -- ОРИГИНАЛЬНЫЙ МЕТОД AddToggle
-    secVisuals:AddToggle({ Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
+    safeAdd(secVisuals, TabVisuals, toggleMethods, { Name = "Player ESP (Roles)", Default = false, Callback = function(v) CFG.ESP = v end })
 
     local secFarm = TabFarm:CreateSection({ Name = "Automation" })
-    secFarm:AddToggle({ Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
+    safeAdd(secFarm, TabFarm, toggleMethods, { Name = "Auto Farm (Coins)", Default = false, Callback = function(v)
         CFG.AutoFarm = v
         if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end
     end })
-    -- ОРИГИНАЛЬНЫЙ МЕТОД AddSlider
-    secFarm:AddSlider({ Name = "Farm Speed", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
-    secFarm:AddToggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
-    secFarm:AddSlider({ Name = "Max Coins", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
-    secFarm:AddSlider({ Name = "Avoid Players radius", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end })
+    safeAdd(secFarm, TabFarm, sliderMethods, { Name = "Farm Speed", Min = 10, Max = 24, Default = 20, Callback = function(v) CFG.MaxSpeed = v end })
+    safeAdd(secFarm, TabFarm, toggleMethods, { Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
+    safeAdd(secFarm, TabFarm, sliderMethods, { Name = "Max Coins", Min = 40, Max = 50, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
+    safeAdd(secFarm, TabFarm, sliderMethods, { Name = "Avoid Players radius", Min = 0, Max = 10, Default = 5, Callback = function(v) CFG.AvoidRadius = v end })
 
     local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
-    secMisc:AddToggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
-    secMisc:AddToggle({ Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
-    secMisc:AddToggle({ Name = "Debug (console)", Default = false, Callback = function(v) CFG.Debug = v end })
+    safeAdd(secMisc, TabMisc, toggleMethods, { Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
+    safeAdd(secMisc, TabMisc, toggleMethods, { Name = "Noclip", Default = false, Callback = function(v) CFG.Noclip = v end })
+    safeAdd(secMisc, TabMisc, toggleMethods, { Name = "Debug (console)", Default = false, Callback = function(v) CFG.Debug = v end })
 end)
 
 if not okAll then
