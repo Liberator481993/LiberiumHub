@@ -1,4 +1,4 @@
--- Liberium Hub | v26 | Cyber-Liberty Style (Custom Image)
+-- Liberium Hub | v27 | UI Fix + Evade + ESP Fix
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -55,12 +55,12 @@ local PulseHub = (function()
         local gui = create("ScreenGui", { Name = "PulseHub", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
         self.Gui = gui
 
-        -- ===== ПЛАВАЮЩАЯ КНОПКА (ТВОЙ АРТ) =====
+        -- ===== ПЛАВАЮЩАЯ КНОПКА =====
         local floatBtn = create("ImageButton", {
             Name = "Open",
-            Image = "rbxassetid://93999324301796", -- Твой ID
+            Image = "rbxassetid://93999324301796",
             ImageColor3 = Color3.new(1,1,1),
-            ScaleType = Enum.ScaleType.Crop, -- Обрезает края, оставляя центр в круге
+            ScaleType = Enum.ScaleType.Crop,
             BackgroundColor3 = C.Background,
             AutoButtonColor = false,
             AnchorPoint = Vector2.new(0, 0.5),
@@ -70,6 +70,9 @@ local PulseHub = (function()
         }, gui)
         corner(floatBtn, 28)
         local fs = stroke(floatBtn, C.Accent) fs.Thickness = 2
+        
+        -- Текст на случай если картинка не прогрузилась
+        local fallbackTxt = create("TextLabel", { Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, Text = "LIB", Font = FONT_BOLD, TextSize = 16, TextColor3 = C.Accent, ZIndex = 0 }, floatBtn)
         
         -- Таскание кнопки
         local fDrag, fStart, fPos = false, nil, nil
@@ -97,30 +100,29 @@ local PulseHub = (function()
         updateScale()
         if workspace.CurrentCamera then table.insert(self.Connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
 
-        -- Шапка
+        -- Шапка (ПОФИКШЕНЫ РАЗМЕРЫ)
         local header = create("Frame", { Name = "Header", Size = UDim2.new(1, 0, 0, HEADER_H), BackgroundColor3 = C.Background, BorderSizePixel = 0 }, main)
         create("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.Accent, BackgroundTransparency = 0.7 }, header)
         
-        create("TextLabel", { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0, 150, 1, 0), BackgroundTransparency = 1, Text = opts.Title or "Liberium Hub", Font = FONT_BOLD, TextSize = 16, TextColor3 = C.Accent, TextXAlignment = Enum.TextXAlignment.Left }, header)
+        create("TextLabel", { Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -180, 1, 0), BackgroundTransparency = 1, Text = opts.Title or "Liberium Hub", Font = FONT_BOLD, TextSize = 16, TextColor3 = C.Accent, TextXAlignment = Enum.TextXAlignment.Left }, header)
 
-        local right = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 280, 0, 32), BackgroundTransparency = 1 }, header)
-        create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, right)
+        local right = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.new(0, 160, 0, 32), BackgroundTransparency = 1 }, header)
+        create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, right)
 
-        local headerSearch = create("TextBox", { LayoutOrder = 1, Size = UDim2.new(0, 140, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, Text = "", PlaceholderText = "Search...", PlaceholderColor3 = C.Muted, TextColor3 = C.Text, Font = FONT, TextSize = 13, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left }, right)
+        local headerSearch = create("TextBox", { LayoutOrder = 1, Size = UDim2.new(0, 110, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, Text = "", PlaceholderText = "Search...", PlaceholderColor3 = C.Muted, TextColor3 = C.Text, Font = FONT, TextSize = 13, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left }, right)
         corner(headerSearch, 6) stroke(headerSearch)
-        create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, headerSearch)
+        create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, headerSearch)
 
-        local closeBtn = create("TextButton", { LayoutOrder = 3, Size = UDim2.new(0, 32, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, AutoButtonColor = false, Text = "" }, right)
+        local closeBtn = create("TextButton", { LayoutOrder = 2, Size = UDim2.new(0, 32, 0, 32), BackgroundColor3 = C.Input, BorderSizePixel = 0, AutoButtonColor = false, Text = "" }, right)
         corner(closeBtn, 6) stroke(closeBtn)
         
-        -- КАСТОМНЫЙ КРЕСТИК
+        -- КРЕСТИК
         local x1 = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 12, 0, 2), BackgroundColor3 = C.Muted, BorderSizePixel = 0, Rotation = 45 }, closeBtn)
         local x2 = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 12, 0, 2), BackgroundColor3 = C.Muted, BorderSizePixel = 0, Rotation = -45 }, closeBtn)
-
         closeBtn.MouseEnter:Connect(function() tween(x1, {BackgroundColor3 = C.White}) tween(x2, {BackgroundColor3 = C.White}) end)
         closeBtn.MouseLeave:Connect(function() tween(x1, {BackgroundColor3 = C.Muted}) tween(x2, {BackgroundColor3 = C.Muted}) end)
 
-        -- Перетаскивание окна
+        -- Перетаскивание
         local dragging, dragInput, startInput, startPos = false, nil, nil, nil
         header.InputBegan:Connect(function(input)
             if isPress(input) then
@@ -138,7 +140,6 @@ local PulseHub = (function()
 
         -- Сайдбар
         local sidebar = create("Frame", { Name = "Sidebar", Position = UDim2.fromOffset(0, HEADER_H), Size = UDim2.new(0, SIDEBAR_W, 1, -HEADER_H), BackgroundColor3 = C.Sidebar, BorderSizePixel = 0 }, main)
-        
         local tabList = create("ScrollingFrame", { Position = UDim2.fromOffset(0, 10), Size = UDim2.new(1, 0, 1, -10), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y }, sidebar)
         create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4) }, tabList)
         create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, tabList)
@@ -162,7 +163,6 @@ local PulseHub = (function()
 
     function Window:SetVisible(state) 
         self.Main.Visible = state
-        -- Привязываем плавающую кнопку
         if self.Gui:FindFirstChild("Open") then self.Gui.Open.Visible = not state end
     end
     function Window:Destroy() for _, c in ipairs(self.Connections) do c:Disconnect() end self.Gui:Destroy() end
@@ -212,8 +212,7 @@ local PulseHub = (function()
         local win = self.Window
         self._order += 1
         local frame = create("Frame", { LayoutOrder = self._order, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.Section, BorderSizePixel = 0 }, self.Page)
-        corner(frame, 8)
-        stroke(frame, C.Stroke)
+        corner(frame, 8) stroke(frame, C.Stroke)
         create("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, frame)
         create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, frame)
         create("TextLabel", { LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, Text = string.upper(title), Font = FONT_BOLD, TextSize = 12, TextColor3 = C.Accent, TextXAlignment = Enum.TextXAlignment.Left }, frame)
@@ -295,7 +294,7 @@ local TabMisc = Window:AddTab("Misc", "⚙️")
 -- ==========================================
 -- ЛОГИКА
 -- ==========================================
-local CFG = { MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false, AvoidRadius = 8 }
+local CFG = { MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, AutoReset = false, AutoFarm = false, ESP = false, Noclip = false, AntiAFK = false, AvoidRadius = 15 }
 local collectedCount = 0
 local Blacklist = setmetatable({}, { __mode = "k" })
 local originalCollide = setmetatable({}, { __mode = "k" })
@@ -323,11 +322,6 @@ local function getPlayerRole(plr)
     if char then
         if char:FindFirstChild("Knife") then return "Murderer" end
         if char:FindFirstChild("Gun") then return "Sheriff" end
-    end
-    local bp = plr:FindFirstChild("Backpack")
-    if bp then
-        if bp:FindFirstChild("Knife") then return "Murderer" end
-        if bp:FindFirstChild("Gun") then return "Sheriff" end
     end
     return "Innocent"
 end
@@ -365,20 +359,29 @@ task.spawn(function()
     end
 end)
 
+-- ESP (ФИКС СИНЕГО ГОВНА)
 task.spawn(function()
     while task.wait(0.2) do
         if CFG.ESP then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= player and p.Character then
                     local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight")
-                    hl.Name = "LibESP" hl.Parent = p.Character
+                    hl.Name = "LibESP" 
+                    hl.Parent = p.Character
                     local hum = p.Character:FindFirstChildOfClass("Humanoid")
                     local isDead = (not hum or hum.Health <= 0) or (roles[p.Name] and roles[p.Name].Dead)
-                    if isDead then hl.FillTransparency = 1 hl.OutlineTransparency = 1
+                    
+                    if isDead then 
+                        hl.FillTransparency = 1 
+                        hl.OutlineTransparency = 1
                     else
-                        hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.FillTransparency = 0.6 hl.OutlineTransparency = 0
-                        local c = getRoleColor(p) hl.FillColor = c hl.OutlineColor = c
+                        hl.Adornee = p.Character 
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.FillTransparency = 0.7 -- Более прозрачная заливка
+                        hl.OutlineTransparency = 0.2
+                        local c = getRoleColor(p) 
+                        hl.FillColor = c 
+                        hl.OutlineColor = c
                     end
                 end
             end
@@ -392,6 +395,24 @@ task.spawn(function()
         end
     end
 end)
+
+-- АКТИВНЫЙ АНТИ-МАНЬЯК
+local function getClosestMurderer(pos)
+    local closest, closestDist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local role = getPlayerRole(plr)
+            if role == "Murderer" or role == "Zombie" then
+                local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+                if pRoot then
+                    local d = (pRoot.Position - pos).Magnitude
+                    if d < closestDist then closest, closestDist = pRoot.Position, d end
+                end
+            end
+        end
+    end
+    return closest, closestDist
+end
 
 local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
 local function resetHumanoid(s)
@@ -461,19 +482,31 @@ local function flyTo(target)
         s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true
         local f = s.root.AssemblyMass * CFG.ForcePerMass
         s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
+        
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
             RunService.Heartbeat:Wait()
             if s.destroyed then break end
-            if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end
+            
+            -- АКТИВНЫЙ ЭВЕЙД ОТ МАНЬЯКА
+            local mPos, mDist = getClosestMurderer(s.root.Position)
+            if mPos and mDist < CFG.AvoidRadius then
+                -- Летим в противоположную сторону от маньяка
+                s.bv.Velocity = (s.root.Position - mPos).Unit * (CFG.MaxSpeed * 1.5)
+                task.wait(0.3) -- Даем время отлететь
+            else
+                -- Обычный полет к монете
+                local pos = s.root.Position
+                local offset = target.Position - pos
+                local dist = offset.Magnitude
+                if dist <= 3 then arrived = true break end
+                s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
+                local flat = Vector3.new(offset.X, 0, offset.Z)
+                if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
+            end
+            
+            if os.clock() - startTime > 4.0 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end
             if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end
             if not canCollect() then break end
-            local pos = s.root.Position
-            local offset = target.Position - pos
-            local dist = offset.Magnitude
-            if dist <= 3 then arrived = true break end
-            s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain)
-            local flat = Vector3.new(offset.X, 0, offset.Z)
-            if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end
         end
     end)
     if not ok then warn("flyTo error:", err) end
@@ -517,19 +550,6 @@ local function refreshCoinCache()
         end
     end
 end
-local function isMurdererNear(pos)
-    if CFG.AvoidRadius <= 0 then return false end
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            local role = getPlayerRole(plr)
-            if role == "Murderer" or role == "Zombie" then
-                local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-                if pRoot and (pRoot.Position - pos).Magnitude < CFG.AvoidRadius then return true end
-            end
-        end
-    end
-    return false
-end
 local function nearestPart()
     local s = currentSession if not s or s.destroyed then return nil end
     refreshCoinCache()
@@ -537,11 +557,14 @@ local function nearestPart()
     for _, c in ipairs(coinCache) do
         if c and c.Parent and not Blacklist[c] then
             local d = (c.Position - pos).Magnitude
-            if d < bestDist and not isMurdererNear(c.Position) then best, bestDist = c, d end
+            -- Не летим к монете, если там маньяк
+            local _, mDist = getClosestMurderer(c.Position)
+            if d < bestDist and (not mDist or mDist > CFG.AvoidRadius) then best, bestDist = c, d end
         else Blacklist[c] = true end
     end
     return best
 end
+
 local function collectTarget(target)
     local s = currentSession if not s or s.destroyed or not target.Parent then return end
     Blacklist[target] = true collectedCount += 1
@@ -586,7 +609,7 @@ end)
 secFarm:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end)
 secFarm:AddToggle("Auto Reset (Full Bag)", false, function(v) CFG.AutoReset = v end)
 secFarm:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end)
-secFarm:AddSlider("Murderer Avoidance Radius", 0, 20, 8, function(v) CFG.AvoidRadius = v end)
+secFarm:AddSlider("Avoid Murderer Radius", 0, 30, 15, function(v) CFG.AvoidRadius = v end)
 
 local secMisc = TabMisc:AddSection("Miscellaneous")
 secMisc:AddToggle("Anti-AFK", false, function(v) CFG.AntiAFK = v end)
