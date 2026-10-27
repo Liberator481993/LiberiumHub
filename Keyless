@@ -1,4 +1,4 @@
--- Liberium Hub | Slate UI + Claude Flight Engine
+-- Liberium Hub | FINAL FARM EDITION
 local Slate = loadstring(game:HttpGet("https://raw.githubusercontent.com/PulseZax/Slate/refs/heads/main/.lua"))()
 
 local Players = game:GetService("Players")
@@ -12,14 +12,18 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local Cam = Workspace.CurrentCamera
 
-local CFG = { ESP = false, Noclip = false, WalkSpeed = 16, AutoFarm = false, FarmSpeed = 20, AntiAFK = false }
+local CFG = { 
+    ESP = false, Noclip = false, WalkSpeed = 16, 
+    AutoFarm = false, FarmSpeed = 20, 
+    AntiAFK = false, AutoReset = false, MaxCoins = 50 
+}
 
 -- ==========================================
 -- UI (Slate)
 -- ==========================================
 local Window = Slate:CreateWindow({ 
     Name = "Liberium Hub", 
-    Subtitle = "MM2 Edition | Claude Flight", 
+    Subtitle = "MM2 Edition | Ultimate Farm", 
     Icon = "shield", 
     Logo = true, 
     Size = UDim2.fromOffset(550, 380), 
@@ -99,7 +103,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ==========================================
--- MOVEMENT (Noclip & WalkSpeed)
+-- MOVEMENT
 -- ==========================================
 local originalCollide = setmetatable({}, { __mode = "k" })
 RunService.Stepped:Connect(function()
@@ -128,14 +132,13 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ==========================================
--- AUTO FARM (CLAUDE FLIGHT ENGINE)
+-- AUTO FARM (FLIGHT ENGINE)
 -- ==========================================
 local TARGET_NAME = "Coin_Server"
-local MAX_VELOCITY = 20
 local RESPONSIVENESS = 200
 local STOP_DISTANCE = 1.5
-local TARGET_TIMEOUT = 2
-local SCAN_INTERVAL = 0.3
+local TARGET_TIMEOUT = 3
+local SCAN_INTERVAL = 0.2
 
 local flying = false
 local collecting = false
@@ -146,6 +149,7 @@ local currentTarget = nil
 local targetSince = 0
 local attachment, alignPos, alignOri = nil, nil, nil
 local heartbeatConn = nil
+local collectedCount = 0
 
 local function getHumanoid()
     local ok, r = pcall(function() local c = player.Character; return c and c:FindFirstChildOfClass("Humanoid") end)
@@ -204,9 +208,11 @@ local function rescan()
     local list = {}
     pcall(function()
         for _, d in ipairs(Workspace:GetDescendants()) do
-            if d.Name == TARGET_NAME and d:IsA("BasePart") then
-                -- Убрали проверку Transparency, так как Coin_Server невидимый
-                table.insert(list, d)
+            if d.Name == TARGET_NAME and d:IsA("BasePart") and d.Parent then
+                -- Игнорируем фантомов (летим только если есть визуал)
+                if d:FindFirstChild("CoinVisual") then
+                    table.insert(list, d)
+                end
             end
         end
     end)
@@ -224,13 +230,12 @@ local function findNearest(fromPos)
     return best
 end
 
--- ВСТАВЛЕН НАШ КОД СБОРА
 local function collect(target)
     collecting = true
     pcall(function()
         local root = getRoot()
         if root and target then
-            -- Жестко телепортируем в монету для 100% сбора
+            -- Жесткий телепорт в монету
             root.CFrame = CFrame.new(target.Position)
             firetouchinterest(root, target, 0)
             firetouchinterest(root, target, 1)
@@ -240,6 +245,7 @@ local function collect(target)
         task.wait(0.1)
     end)
     Blacklist[target] = true
+    collectedCount += 1
     currentTarget = nil
     collecting = false
 end
@@ -249,12 +255,17 @@ local function flyStep(root, now)
     
     local target = findNearest(root.Position)
 
-    if target ~= currentTarget then
-        currentTarget = target
-        targetSince = now
+    -- Динамическая смена цели: если новая ближе, летим к ней
+    if target and target ~= currentTarget then
+        local currentDist = currentTarget and (currentTarget.Position - root.Position).Magnitude or math.huge
+        local newDist = (target.Position - root.Position).Magnitude
+        if newDist < currentDist then
+            currentTarget = target
+            targetSince = now
+        end
     end
 
-    if not target then
+    if not target and not currentTarget then
         if alignPos then 
             destroyAligns()
             setFlightHumanoidState(false)
@@ -269,22 +280,24 @@ local function flyStep(root, now)
         setCharacterCollision(true)
     end
 
+    if not currentTarget then return end
+
     if now - targetSince > TARGET_TIMEOUT then
-        Blacklist[target] = true
+        Blacklist[currentTarget] = true
         currentTarget = nil
         return
     end
 
-    local distance = (target.Position - root.Position).Magnitude
+    local distance = (currentTarget.Position - root.Position).Magnitude
     if distance < STOP_DISTANCE then
         alignPos.Position = root.Position 
-        task.spawn(collect, target)
+        task.spawn(collect, currentTarget)
         return
     end
 
     alignPos.MaxVelocity = CFG.FarmSpeed
-    alignPos.Position = target.Position
-    alignOri.CFrame = CFrame.lookAt(root.Position, Vector3.new(target.Position.X, root.Position.Y, target.Position.Z))
+    alignPos.Position = currentTarget.Position
+    alignOri.CFrame = CFrame.lookAt(root.Position, Vector3.new(currentTarget.Position.X, root.Position.Y, currentTarget.Position.Z))
 end
 
 local function stopFlight()
@@ -296,13 +309,24 @@ end
 local function startFlight()
     if flying then return end
     local root = getRoot(); if not root then return end
-    flying = true; table.clear(Blacklist); currentTarget = nil; lastScan = 0
+    flying = true; table.clear(Blacklist); currentTarget = nil; lastScan = 0; collectedCount = 0
     createAligns(root); setFlightHumanoidState(true)
     
     heartbeatConn = RunService.Heartbeat:Connect(function()
         if not flying or collecting then return end
         pcall(function()
-            local r = getRoot(); if not r or not getHumanoid() then return end
+            local r = getRoot(); local hum = getHumanoid()
+            if not r or not hum then return end
+            
+            -- АВТО-РЕСЕТ
+            if CFG.AutoReset and collectedCount >= CFG.MaxCoins then
+                stopFlight()
+                hum.Health = 0 -- Убиваем персонажа
+                task.wait(3) -- Ждем респавна
+                if CFG.AutoFarm then startFlight() end -- Перезапускаем
+                return
+            end
+
             if not alignPos or alignPos.Parent ~= r then createAligns(r); setFlightHumanoidState(true) end
             setCharacterCollision(true)
             flyStep(r, os.clock())
@@ -336,9 +360,11 @@ secFarm:Toggle({ Name = "Auto Farm (Coins)", Default = false, Callback = functio
     if v then startFlight() else stopFlight() end
 end })
 secFarm:Slider({ Name = "Farm Speed (1-24)", Min = 5, Max = 24, Default = 20, Callback = function(v) CFG.FarmSpeed = v end })
+secFarm:Toggle({ Name = "Auto Reset (Full Bag)", Default = false, Callback = function(v) CFG.AutoReset = v end })
+secFarm:Slider({ Name = "Max Coins", Min = 10, Max = 100, Default = 50, Callback = function(v) CFG.MaxCoins = v end })
 
 local secMisc = TabMisc:CreateSection({ Name = "Miscellaneous" })
 secMisc:Toggle({ Name = "Anti-AFK", Default = false, Callback = function(v) CFG.AntiAFK = v end })
 
-Slate:Notify({ Title = "Liberium Hub", Description = "Claude Flight Engine Loaded", Icon = "check", Tone = "Success", Duration = 5 })
+Slate:Notify({ Title = "Liberium Hub", Description = "Загружено. Умный полет + Авто-ресет.", Icon = "check", Tone = "Success", Duration = 5 })
 player.CharacterRemoving:Connect(function() destroyAligns(); table.clear(originalCollide) end)
