@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v51 | Fully Audited (No Leaks, No Lag)
+-- LIBERIUM HUB | v52 | PulseHub Visual + Fixed ESP + Wall-Bypass Farm
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -11,10 +11,7 @@ local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- Очистка предыдущего запуска
-if getgenv().LiberiumCleanup then
-    pcall(getgenv().LiberiumCleanup)
-    getgenv().LiberiumCleanup = nil
-end
+if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
 local isRunning = true
 getgenv().LiberiumCleanup = function() isRunning = false end
 
@@ -34,6 +31,7 @@ local canFarmNow = false
 local currentSession = nil 
 local lastHealth = 100
 local ActiveMurderers = {}
+local ESPHighlights = {}
 
 -- ==========================================
 -- АНТИ-ФЛИНГ
@@ -56,7 +54,7 @@ end
 startAntiFling(1000)
 
 -- ==========================================
--- ТЕМЫ
+-- ТЕМЫ (PULSEHUB STYLE)
 -- ==========================================
 local Theme = {
     Background = Color3.fromRGB(8, 10, 9), Sidebar = Color3.fromRGB(13, 17, 15),
@@ -65,7 +63,6 @@ local Theme = {
     White = Color3.fromRGB(245, 250, 247), Muted = Color3.fromRGB(139, 157, 146),
     Track = Color3.fromRGB(42, 48, 44), Border = Color3.fromRGB(39, 58, 45),
 }
-
 local Themes = {
     Green = { Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 75, 30), Border = Color3.fromRGB(39, 58, 45) },
     Purple = { Green = Color3.fromRGB(170, 0, 255), GreenDark = Color3.fromRGB(70, 0, 120), Border = Color3.fromRGB(70, 40, 100) },
@@ -74,7 +71,7 @@ local Themes = {
 }
 
 -- ==========================================
--- UI БИБЛИОТЕКА (v51 Audited)
+-- UI БИБЛИОТЕКА
 -- ==========================================
 local Library = {}
 Library.__index = Library
@@ -108,51 +105,22 @@ local function ClearGui(container)
     end
 end
 
-local function CreateBackground(style, parent)
-    ClearGui(parent)
-    local base = New("Frame", { Name = "BgBase", Size = UDim2.fromScale(1,1), BackgroundColor3 = Color3.fromRGB(8, 10, 9), BorderSizePixel = 0 }, parent)
-    Round(base, 14)
-    if style == 1 then
-        New("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(10, 20, 15), Color3.fromRGB(8, 10, 9)), Rotation = 45 }, base)
-        local glow = New("Frame", { AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(300, 300), BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.85, BorderSizePixel = 0 }, base) Round(glow, 150)
-        local glow2 = New("Frame", { AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.new(1, 0, 1, 0), Size = UDim2.fromOffset(200, 200), BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.9, BorderSizePixel = 0 }, base) Round(glow2, 100)
-    elseif style == 2 then
-        base.BackgroundColor3 = Color3.fromRGB(5, 5, 8)
-        for i = 0, 10 do
-            local l1 = New("Frame", { Position = UDim2.new(0, 0, 0, i*46), Size = UDim2.new(1,0,0,1), BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.8, BorderSizePixel = 0 }, base)
-            local l2 = New("Frame", { Position = UDim2.new(0, i*72, 0, 0), Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.8, BorderSizePixel = 0 }, base)
-            TagTheme(l1, "BackgroundColor3", "Green") TagTheme(l2, "BackgroundColor3", "Green")
-        end
-    elseif style == 3 then
-        New("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(20, 25, 22), Color3.fromRGB(10, 12, 11)), Rotation = 90 }, base)
-        local glass = New("Frame", { Position = UDim2.fromOffset(20, 20), Size = UDim2.new(1, -40, 1, -40), BackgroundColor3 = Color3.fromRGB(255,255,255), BackgroundTransparency = 0.95, BorderSizePixel = 0 }, base) Round(glass, 10) local st = Stroke(glass, Theme.Green, 0.8, 1) TagTheme(st, "Color", "Green")
-    end
-end
-
 function Library.new(options)
     options = options or {}
     local self = setmetatable({}, Library)
     self.Tabs = {} self.ActiveTab = nil self.Connections = {} self.Visible = true
     
-    -- ФИКС 9: Очистка предыдущего GUI
     local oldGui = PlayerGui:FindFirstChild("LiberiumHubPremium")
     if oldGui then oldGui:Destroy() end
 
     local gui = New("ScreenGui", { Name = "LiberiumHubPremium", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 50, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, PlayerGui)
     self.Gui = gui
-
-    -- ФИКС 2: Трекер соединений
     function self:_Track(conn) table.insert(self.Connections, conn) end
-    function self:Destroy()
-        for _, conn in ipairs(self.Connections) do conn:Disconnect() end
-        table.clear(self.Connections)
-        self.Gui:Destroy()
-    end
 
+    -- Плавающая кнопка
     self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(50, 50), BackgroundColor3 = Theme.Background, Text = "M", TextColor3 = Theme.Green, TextSize = 24, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
     Round(self.OpenButton, 25) local os1 = Stroke(self.OpenButton, Theme.Green, 0.1, 1.5) TagTheme(os1, "Color", "Green") TagTheme(self.OpenButton, "TextColor3", "Green")
     
-    -- ФИКС 15: Мультитач и драг
     local fDrag, fStart, fPos, fMoved = false, nil, nil, false
     self:_Track(self.OpenButton.InputBegan:Connect(function(i) 
         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
@@ -173,11 +141,9 @@ function Library.new(options)
         if not fMoved then self:ToggleVisible() end 
     end))
 
+    -- Окно
     local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BorderSizePixel = 0, ClipsDescendants = true }, gui)
     self.Root = root Round(root, 14) local rs = Stroke(root, Theme.Green, 0.12, 1.3) TagTheme(rs, "Color", "Green")
-
-    self.BgContainer = New("Frame", { Name = "BgContainer", Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, ZIndex = 1 }, root)
-    CreateBackground(1, self.BgContainer) 
 
     local scale = New("UIScale", { Scale = 1 }, root) self.Scale = scale
     local function updateScale()
@@ -185,11 +151,10 @@ function Library.new(options)
         local viewport = camera.ViewportSize
         scale.Scale = math.max(0.38, math.min(1, (viewport.X - 24) / 720, (viewport.Y - 32) / 460))
     end
-    updateScale()
-    -- ФИКС 22: Биндимся к CurrentCamera
-    self:_Track(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(updateScale))
+    updateScale() self:_Track(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(updateScale))
     if workspace.CurrentCamera then self:_Track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
 
+    -- Сайдбар
     local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BorderSizePixel = 0, Size = UDim2.new(0, 184, 1, 0), ZIndex = 2 }, root)
     New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.65, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
     
@@ -202,22 +167,20 @@ function Library.new(options)
     self.Nav = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 76), Size = UDim2.new(1, -18, 1, -91) }, sidebar)
     New("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
 
+    -- Контент
     self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(184, 0), Size = UDim2.new(1, -184, 1, 0), ZIndex = 2 }, root)
-    
     local header = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(20, 10), Size = UDim2.new(1, -40, 0, 48) }, self.Content)
     self.PageTitle = MakeLabel(header, "Dashboard", 17, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(1, -100, 1, 0)
 
     local close = New("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(29, 29), BackgroundColor3 = Theme.Card, Text = "×", TextColor3 = Theme.Muted, TextSize = 18, Font = Enum.Font.GothamBold, AutoButtonColor = false }, header)
-    Round(close, 8) Stroke(close, Theme.Border, 0.2, 1)
-    close.Activated:Connect(function() self:ToggleVisible() end)
+    Round(close, 8) Stroke(close, Theme.Border, 0.2, 1) close.Activated:Connect(function() self:ToggleVisible() end)
 
+    -- ПИЛЛСЫ (Как в ПульсХабе)
     self.SubTabBar = New("ScrollingFrame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 66), Size = UDim2.new(1, -30, 0, 37), BorderSizePixel = 0, ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new() }, self.Content)
     New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7) }, self.SubTabBar)
-    
     self.PageHolder = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 108), Size = UDim2.new(1, -30, 1, -123), ClipsDescendants = true }, self.Content)
 
     local dragging, dragStart, startPosition, activeInput = false, nil, nil, nil
-    -- ФИКС 4: Мультитач для окна
     self:_Track(header.InputBegan:Connect(function(input) 
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
             dragging, dragStart, startPosition, activeInput = true, input.Position, root.Position, input 
@@ -226,7 +189,6 @@ function Library.new(options)
     self:_Track(UserInputService.InputChanged:Connect(function(input) 
         if dragging and input == activeInput then 
             local delta = input.Position - dragStart 
-            -- ФИКС 17: Клэмп по экрану
             local vp = workspace.CurrentCamera.ViewportSize
             local newX = math.clamp(startPosition.X.Offset + delta.X, -vp.X + 100, vp.X - 100)
             local newY = math.clamp(startPosition.Y.Offset + delta.Y, -vp.Y + 100, vp.Y - 100)
@@ -246,19 +208,12 @@ function Library:ChangeTheme(themeName)
     for _, obj in ipairs(self.Gui:GetDescendants()) do
         for _, prop in ipairs({"Color", "BackgroundColor3", "TextColor3"}) do
             local key = obj:GetAttribute("ThemeTarget_" .. prop)
-            if key and Theme[key] then 
-                -- ФИКС 18: Убран pcall вокруг твина
-                Tween(obj, 0.25, {[prop] = Theme[key]}) 
-            end
+            if key and Theme[key] then Tween(obj, 0.25, {[prop] = Theme[key]}) end
         end
     end
 end
 
-function Library:ChangeBackground(styleIdx)
-    CreateBackground(styleIdx, self.BgContainer)
-end
-
--- ФИКС 6: Ленивая загрузка страниц
+-- ВЫБОР ВКЛАДОК (Ленивая загрузка)
 function Library:_SelectTab(tab)
     if tab == self.ActiveTab then return end
     self.ActiveTab = tab self.PageTitle.Text = tab.Name
@@ -312,8 +267,6 @@ function Library:AddTab(name, icon)
     b.MouseEnter:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Hover, TextColor3 = Theme.White }) end end)
     b.MouseLeave:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 1, TextColor3 = Theme.Muted }) end end)
     b.Activated:Connect(function() self:_SelectTab(tab) end) 
-    
-    -- ФИКС 5: Не выбираем вкладку сразу, если она пустая
     if not self.ActiveTab then self.ActiveTab = tab self.PageTitle.Text = tab.Name end
     
     return setmetatable(tab, {__index = {
@@ -329,8 +282,7 @@ function Library:AddTab(name, icon)
                         AddSlider = function(sec, title, min, max, default, callback, description) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback, Description = description or "" }) end,
                         AddButton = function(sec, title, callback, description) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback, Description = description or "" }) end,
                         AddDropdown = function(sec, title, options, default, callback) 
-                            options = options or {"None"}
-                            if #options == 0 then options = {"None"} end
+                            options = options or {"None"} if #options == 0 then options = {"None"} end
                             return self:_AddItem(sec, { Kind = "Dropdown", Title = title, Options = options, Value = default or options[1], Callback = callback }) 
                         end,
                         AddPlayerList = function(sec, title, btnText, callback) return self:_AddItem(sec, { Kind = "PlayerList", Title = title, BtnText = btnText, Callback = callback }) end,
@@ -340,9 +292,9 @@ function Library:AddTab(name, icon)
         end,
     }})
 end
-
 function Library:_AddItem(section, item) table.insert(section.Items, item) return item end
 
+-- ВИЗУАЛ КАРТОЧЕК (2 Колонки как в ПульсХабе)
 function Library:_BuildSection(section, page)
     local holder = New("Frame", { Name = section.Name, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, page) 
     local heading = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 19) }, holder)
@@ -355,9 +307,12 @@ function Library:_BuildSection(section, page)
     local hasPlayerList = false
     for _, i in ipairs(section.Items) do if i.Kind == "PlayerList" then hasPlayerList = true break end end
     
-    -- ФИКС 12: Убрали UIGridLayout, чтобы не сплющивало слайдеры
-    if hasPlayerList then New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame)
-    else New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) end 
+    if hasPlayerList then 
+        New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame)
+    else 
+        -- ЖЕСТКАЯ СЕТКА 2 КОЛОНКИ
+        New("UIGridLayout", { CellSize = UDim2.new(0.5, -4, 0, 54), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) 
+    end
     
     for _, item in ipairs(section.Items) do self:_BuildItem(item, itemsFrame, hasPlayerList) end
 end
@@ -370,7 +325,6 @@ function Library:_BuildItem(item, parent, fullWidth)
         local list = New("ScrollingFrame", { BackgroundTransparency = 1, Size = UDim2.new(1, -20, 1, -20), Position = UDim2.fromOffset(10, 10), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Green }, container)
         TagTheme(list, "ScrollBarImageColor3", "Green")
         New("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, list)
-        
         local function updateList()
             ClearGui(list)
             for _, p in ipairs(Players:GetPlayers()) do
@@ -385,16 +339,13 @@ function Library:_BuildItem(item, parent, fullWidth)
             end
         end
         updateList() 
-        -- Трекаем коннекты, чтобы они умирали вместе с окном
-        local pAddConn = Players.PlayerAdded:Connect(function() if list.Parent then updateList() end end)
-        local pRemConn = Players.PlayerRemoving:Connect(function() if list.Parent then updateList() end end)
-        self:_Track(pAddConn) self:_Track(pRemConn)
+        self:_Track(Players.PlayerAdded:Connect(function() if list.Parent then updateList() end end))
+        self:_Track(Players.PlayerRemoving:Connect(function() if list.Parent then updateList() end end))
         return
     end
     
     local height = isSlider and 76 or (isDropdown and 52 or (isButton and 38 or 54))
-    -- ФИКС 12: Карточки теперь на всю ширину (чтобы слайдеры влезали)
-    local size = UDim2.new(1, 0, 0, height)
+    local size = fullWidth and UDim2.new(1, 0, 0, height) or UDim2.new(0.5, -4, 0, height)
     local card = New("Frame", { BackgroundColor3 = Theme.Card, BorderSizePixel = 0, Size = size }, parent) Round(card, 8) 
     local cardStroke = Stroke(card, Theme.Border, 0.25, 1) TagTheme(cardStroke, "Color", "Border")
     
@@ -428,14 +379,12 @@ function Library:_BuildItem(item, parent, fullWidth)
         
         local dragging = false
         local function setValue(value, silent)
-            local range = math.max(0.001, item.Max - item.Min) -- ФИКС 10: защита от деления на 0
+            local range = math.max(0.001, item.Max - item.Min) 
             local newVal = math.clamp(value, item.Min, item.Max) 
             local pct = (newVal - item.Min) / range
             fill.Size = UDim2.new(pct, 0, 1, 0)
             thumb.Position = UDim2.new(pct, 0, 0.5, 0)
             valueLabel.Text = tostring(math.floor(newVal + 0.5))
-            
-            -- ФИКС 8: Вызов колбэка только если значение изменилось
             if not silent and item.Value ~= newVal then 
                 item.Value = newVal
                 if item.Callback then task.spawn(item.Callback, item.Value) end 
@@ -444,12 +393,10 @@ function Library:_BuildItem(item, parent, fullWidth)
         end
         local function updateFromX(x) local pct = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1) setValue(item.Min + (item.Max - item.Min) * pct) end
         
-        -- ФИКС 4: Мультитач для слайдера
         local activeInput = nil
         hit.InputBegan:Connect(function(input) 
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
                 dragging = true activeInput = input 
-                -- ФИКС 13: Отключаем скролл при перетаскивании
                 if parent.Parent then parent.Parent.ScrollingEnabled = false end
                 updateFromX(input.Position.X) 
             end 
@@ -463,15 +410,12 @@ function Library:_BuildItem(item, parent, fullWidth)
                 if parent.Parent then parent.Parent.ScrollingEnabled = true end
             end 
         end))
-        
-        -- ФИКС 7: Тихий вызов при билде
         setValue(item.Value, true) 
         item.Set = setValue
     elseif item.Kind == "Button" then
         local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.Title, TextColor3 = Theme.White, TextSize = 12, Font = Enum.Font.GothamBold, Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false }, card)
         btn.Activated:Connect(function() 
             Tween(card, 0.1, { BackgroundColor3 = Theme.GreenDark }) 
-            -- ФИКС 20: Проверка, что карточка ещё существует
             task.delay(0.15, function() if card and card.Parent then Tween(card, 0.2, { BackgroundColor3 = Theme.Card }) end end) 
             if item.Callback then task.spawn(item.Callback) end 
         end)
@@ -488,74 +432,23 @@ end
 
 function Library:ToggleVisible()
     self.Visible = not self.Visible
-    -- ФИКС 21: Используем токен, чтобы старые таски не скрывали окно
     self._toggleToken = (self._toggleToken or 0) + 1
     local myToken = self._toggleToken
-    
     if self.Visible then 
-        self.Root.Visible = true self.Root.BackgroundTransparency = 1 
-        Tween(self.Root, 0.22, {BackgroundTransparency = 0}) 
-        self.OpenButton.Visible = false
+        self.Root.Visible = true self.Root.BackgroundTransparency = 1 Tween(self.Root, 0.22, {BackgroundTransparency = 0}) self.OpenButton.Visible = false
     else 
         Tween(self.Root, 0.18, {BackgroundTransparency = 1}) 
-        task.delay(0.2, function() 
-            if self.Root and self.Root.Parent and not self.Visible and self._toggleToken == myToken then 
-                self.Root.Visible = false self.OpenButton.Visible = true 
-            end 
-        end) 
+        task.delay(0.2, function() if self.Root and self.Root.Parent and not self.Visible and self._toggleToken == myToken then self.Root.Visible = false self.OpenButton.Visible = true end end) 
     end
 end
 
 -- ==========================================
--- ЛОГИКА (Фарм, Флинг, Телепорт)
+-- ЛОГИКА
 -- ==========================================
-task.spawn(function() 
-    while task.wait(0.5) and isRunning do 
-        pcall(function() 
-            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) 
-            if getData and getData:IsA("RemoteFunction") then 
-                local ok, data = pcall(function() return getData:InvokeServer() end) 
-                if ok and type(data) == "table" then roles = data end 
-            end 
-        end) 
-    end 
-end)
-
-local function getPlayerRole(plr) 
-    local rData = roles[plr.Name] 
-    if rData and rData.Role then return rData.Role end 
-    local char = plr.Character 
-    if char then 
-        if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end 
-        if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end 
-    end 
-    local bp = plr:FindFirstChild("Backpack") 
-    if bp then 
-        if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end 
-        if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end 
-    end 
-    return "Innocent" 
-end
-
-local function getRoleColor(plr) 
-    local role = getPlayerRole(plr) 
-    if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end 
-    if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end 
-    return Color3.fromRGB(50, 255, 100) 
-end
-
-local function canCollect() 
-    if not canFarmNow or not isRunning then return false end 
-    local s = currentSession 
-    if not s or s.destroyed or s.humanoid.Health <= 0 then return false end 
-    local myData = roles[Player.Name] 
-    if not myData or myData.Dead then return false end 
-    local r = myData.Role 
-    if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end 
-    local container = Workspace:FindFirstChild("CoinContainer", true) 
-    if not container or #container:GetChildren() == 0 then return false end 
-    return true 
-end
+task.spawn(function() while task.wait(0.5) and isRunning do pcall(function() local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) if getData and getData:IsA("RemoteFunction") then local ok, data = pcall(function() return getData:InvokeServer() end) if ok and type(data) == "table" then roles = data end end end) end end)
+local function getPlayerRole(plr) local rData = roles[plr.Name] if rData and rData.Role then return rData.Role end local char = plr.Character if char then if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end end local bp = plr:FindFirstChild("Backpack") if bp then if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end end return "Innocent" end
+local function getRoleColor(plr) local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end return Color3.fromRGB(50, 255, 100) end
+local function canCollect() if not canFarmNow or not isRunning then return false end local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 then return false end local myData = roles[Player.Name] if not myData or myData.Dead then return false end local r = myData.Role if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end local container = Workspace:FindFirstChild("CoinContainer", true) if not container or #container:GetChildren() == 0 then return false end return true end
 
 task.spawn(function()
     while task.wait(0.5) and isRunning do
@@ -573,33 +466,49 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function()
-    while task.wait(0.25) and isRunning do
-        if CFG.ESP then
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= Player and p.Character then
-                    local hl = p.Character:FindFirstChild("LibESP") or Instance.new("Highlight") hl.Name = "LibESP" hl.Parent = p.Character
-                    local hum = p.Character:FindFirstChildOfClass("Humanoid") local rData = roles[p.Name]
-                    local isDead = (not hum or hum.Health <= 0) or (rData and rData.Dead)
-                    if isDead then hl.Enabled = false
+-- ESP ФИКС (RenderStepped для 60фпс)
+RunService.RenderStepped:Connect(function()
+    if not isRunning then return end
+    if CFG.ESP then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Player and p.Character then
+                local hl = ESPHighlights[p]
+                if not hl or not hl.Parent then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "LibESP"
+                    hl.Parent = p.Character
+                    ESPHighlights[p] = hl
+                end
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                local rData = roles[p.Name]
+                local isDead = (not hum or hum.Health <= 0) or (rData and rData.Dead)
+                
+                if isDead then hl.Enabled = false
+                else
+                    hl.Enabled = true 
+                    hl.Adornee = p.Character -- Жестко привязываем каждый кадр
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.FillTransparency = 0.6 
+                    hl.OutlineTransparency = 0
+                    
+                    local c
+                    if rData and rData.Role then c = getRoleColor(p)
                     else
-                        hl.Enabled = true hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.FillTransparency = 0.5 hl.OutlineTransparency = 0.1
-                        local c
-                        if rData and rData.Role then c = getRoleColor(p)
-                        else
-                            local hasKnife = false local hasGun = false local bp = p:FindFirstChild("Backpack")
-                            if p.Character then if p.Character:FindFirstChild("Knife") then hasKnife = true end if p.Character:FindFirstChild("Gun") then hasGun = true end end
-                            if bp then if bp:FindFirstChild("Knife") then hasKnife = true end if bp:FindFirstChild("Gun") then hasGun = true end end
-                            if hasKnife then c = Color3.fromRGB(255, 50, 50)
-                            elseif hasGun then c = Color3.fromRGB(50, 120, 255)
-                            else c = Color3.fromRGB(200, 200, 200) end
-                        end
-                        hl.FillColor = c hl.OutlineColor = c
+                        local hasKnife = false local hasGun = false local bp = p:FindFirstChild("Backpack")
+                        if p.Character then if p.Character:FindFirstChild("Knife") then hasKnife = true end if p.Character:FindFirstChild("Gun") then hasGun = true end end
+                        if bp then if bp:FindFirstChild("Knife") then hasKnife = true end if bp:FindFirstChild("Gun") then hasGun = true end end
+                        if hasKnife then c = Color3.fromRGB(255, 50, 50)
+                        elseif hasGun then c = Color3.fromRGB(50, 120, 255)
+                        else c = Color3.fromRGB(200, 200, 200) end
                     end
+                    hl.FillColor = c hl.OutlineColor = c
                 end
             end
-        else
-            for _, p in ipairs(Players:GetPlayers()) do if p.Character then local hl = p.Character:FindFirstChild("LibESP") if hl then hl:Destroy() end end end
+        end
+    else
+        for p, hl in pairs(ESPHighlights) do
+            if hl then hl:Destroy() end
+            ESPHighlights[p] = nil
         end
     end
 end)
@@ -629,14 +538,7 @@ local function FlingTarget(targetRoot)
     if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
 end
 
-task.spawn(function() 
-    while task.wait(0.5) and isRunning do 
-        if CFG.AutoFling and currentSession and not currentSession.destroyed then 
-            local mRoot, mDist = getClosestMurderer(currentSession.root.Position) 
-            if mRoot and mDist < 50 then FlingTarget(mRoot) task.wait(2) end 
-        end 
-    end 
-end)
+task.spawn(function() while task.wait(0.5) and isRunning do if CFG.AutoFling and currentSession and not currentSession.destroyed then local mRoot, mDist = getClosestMurderer(currentSession.root.Position) if mRoot and mDist < 50 then FlingTarget(mRoot) task.wait(2) end end end end)
 
 local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
 local function resetHumanoid(s) local hum = s.humanoid if not hum.Parent then return end hum.PlatformStand = s.origPlatformStand hum.AutoRotate = s.origAutoRotate if hum.Health > 0 and s.root.Parent then local _, yaw = s.root.CFrame:ToOrientation() s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0) hum:ChangeState(Enum.HumanoidStateType.GettingUp) end end
@@ -656,13 +558,12 @@ local function bindCharacter(character)
     local bg = Instance.new("BodyGyro") bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root
     local s = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg, conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate, target = nil }
     currentSession = s
-    table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end)) 
-    table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
-    if humanoid.Health <= 0 then teardown(s) end 
-    task.wait(3) canFarmNow = true
+    table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end)) table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
+    if humanoid.Health <= 0 then teardown(s) end task.wait(3) canFarmNow = true
 end
 Player.CharacterAdded:Connect(bindCharacter) Player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end) if Player.Character then task.spawn(bindCharacter, Player.Character) end
 
+-- ФИКС ФАРМА (Пробиваем стены через Микро-Телепорты)
 local function flyTo(target)
     local s = currentSession 
     if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end 
@@ -688,10 +589,20 @@ local function flyTo(target)
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent and isRunning do
             RunService.Heartbeat:Wait() 
             if s.destroyed then break end
+            
             if (s.root.Position - lastPos).Magnitude < 0.4 then 
                 stuckCounter = stuckCounter + 1 
-                if stuckCounter > 30 then Blacklist[target] = true break end
-            else stuckCounter = 0 lastPos = s.root.Position end
+                if stuckCounter > 15 then 
+                    -- ТЕЛЕПОРТ СКВОЗЬ СТЕНУ (Микро-шаг)
+                    s.root.CFrame = CFrame.new(s.root.Position + (target.Position - s.root.Position).Unit * 4)
+                    s.bv.Velocity = Vector3.zero
+                    stuckCounter = 0
+                    task.wait(0.1) 
+                end
+            else 
+                stuckCounter = 0 
+                lastPos = s.root.Position 
+            end
             
             local pos = s.root.Position 
             local offset = target.Position - pos 
@@ -801,11 +712,6 @@ ThemeSec:AddButton("Green Theme", function() Window:ChangeTheme("Green") end)
 ThemeSec:AddButton("Purple Theme", function() Window:ChangeTheme("Purple") end)
 ThemeSec:AddButton("Red Theme", function() Window:ChangeTheme("Red") end)
 ThemeSec:AddButton("Blue Theme", function() Window:ChangeTheme("Blue") end)
-
-local BgSec = SettingsSub:AddSection("Backgrounds")
-BgSec:AddButton("Emerald Glow", function() Window:ChangeBackground(1) end)
-BgSec:AddButton("Cyber Grid", function() Window:ChangeBackground(2) end)
-BgSec:AddButton("Glass Minimal", function() Window:ChangeBackground(3) end)
 
 -- Инициализация первой вкладки
 Window:_SelectTab(Window.Tabs[1])
