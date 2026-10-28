@@ -1,141 +1,1256 @@
--- LOX.EXE + MOAN | Delta (client-side only)
+-- LIBERIUM HUB | v68 | FINAL (+ Overhead ESP 2.0)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
+local TextService = game:GetService("TextService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- ID стонов с robloxsong.com (загружен May 28, 2025)[reference:0]
-local SOUND_ID = "rbxassetid://79182291351823"
+local blur = Lighting:FindFirstChild("LiberiumBlur")
+if not blur then
+    blur = Instance.new("BlurEffect", Lighting)
+    blur.Name = "LiberiumBlur"
+end
+blur.Size = 15
 
--- очистка прошлых
-local oldGui = PlayerGui:FindFirstChild("LoxOverlay")
-if oldGui then oldGui:Destroy() end
-for _, v in ipairs(Workspace:GetChildren()) do
-    if v.Name == "LoxSound" then v:Destroy() end
+local uiToggle
+local NotificationManager
+local UIToggle
+local overheadTracker
+
+if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
+local isRunning = true
+getgenv().LiberiumCleanup = function()
+    isRunning = false
+    if blur then pcall(function() blur:Destroy() end) end
+    if uiToggle then pcall(function() uiToggle:Destroy() end) end
+    if NotificationManager then pcall(function() NotificationManager.Destroy() end) end
+    if overheadTracker then pcall(function() overheadTracker:Destroy() end) end
 end
 
--- ============ ЗВУК (ОЧЕНЬ ГРОМКО) ============
-local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local root = char:WaitForChild("HumanoidRootPart", 5)
+local CFG = { MaxSpeed = 20, AutoFarm = false, AutoFling = false, ESP = false, AvoidRadius = 20, AntiFling = true, AimMode = "Classic", Prediction = false, ProjSpeed = 100 }
+local roles = {}
+local currentSession = nil
+local canFarmNow = false
 
-if root then
-    local speaker = Instance.new("Part")
-    speaker.Name = "LoxSound"
-    speaker.Size = Vector3.new(1, 1, 1)
-    speaker.Transparency = 1
-    speaker.CanCollide = false
-    speaker.Anchored = true
-    speaker.CFrame = root.CFrame
-    speaker.Parent = Workspace
+local KILLER_ROLES = { Murderer = true, Zombie = true, Killer = true }
+local function isKillerRole(role) return KILLER_ROLES[role] == true end
 
-    local sound = Instance.new("Sound")
-    sound.SoundId = SOUND_ID
-    sound.Volume = 10 -- максимум
-    sound.PlaybackSpeed = 0.85 -- чуть медленнее = звучит глубже и «жирнее»
-    sound.RollOffMaxDistance = 500 -- слышно очень далеко
-    sound.RollOffMinDistance = 5
-    sound.RollOffMode = Enum.RollOffMode.Inverse
-    sound.Parent = speaker
-    sound:Play()
+-- ==========================================
+-- MODULES
+-- ==========================================
 
-    -- если звук не загрузился — пробуем резервный ID
-    sound.Loaded:Connect(function()
-        print("[LOX] Sound loaded OK")
-    end)
-
-    task.delay(1, function()
-        if not sound.IsLoaded then
-            warn("[LOX] Primary sound failed, trying backup...")
-            sound.SoundId = "rbxassetid://2054013600" -- резервный из pastebin
-            sound:Play()
+-- 1. CONFIG MANAGER
+local ConfigManager = (function()
+    local DEFAULT_FOLDER = "DashboardConfig" local DEFAULT_FILE = "settings"
+    local ConfigManager = {} ConfigManager.__index = ConfigManager
+    local function hasFunction(name) local ok, v = pcall(function() return getfenv()[name] end) return ok and typeof(v) == "function" end
+    local function callGlobal(name, ...) return getfenv()[name](...) end
+    local function isFiniteNumber(n) return n == n and n ~= math.huge and n ~= -math.huge end
+    local function isArray(t) local count = 0 for key in pairs(t) do if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end count += 1 end return count == #t end
+    local function sanitize(value, depth, seen)
+        local vType = typeof(value)
+        if vType == "string" or vType == "boolean" then return value
+        elseif vType == "number" then return isFiniteNumber(value) and value or nil
+        elseif vType == "Color3" then return { __type = "Color3", R = value.R, G = value.G, B = value.B }
+        elseif vType == "Vector2" then return { __type = "Vector2", X = value.X, Y = value.Y }
+        elseif vType == "table" then
+            if depth >= 32 or seen[value] then return nil end
+            seen[value] = true local res = {}
+            if isArray(value) then for i = 1, #value do res[i] = sanitize(value[i], depth + 1, seen) or false end
+            else for k, v in pairs(value) do if type(k) == "string" or type(k) == "number" then local c = sanitize(v, depth + 1, seen) if c ~= nil then res[tostring(k)] = c end end end end
+            seen[value] = nil return res
+        end return nil
+    end
+    local function restore(value, depth)
+        if type(value) ~= "table" or depth >= 32 then return value end
+        if value.__type == "Color3" then return Color3.new(value.R, value.G, value.B)
+        elseif value.__type == "Vector2" then return Vector2.new(value.X, value.Y) end
+        local res = {} for k, v in pairs(value) do res[k] = restore(v, depth + 1) end return res
+    end
+    function ConfigManager.new() local self = setmetatable({}, ConfigManager) self._folder = DEFAULT_FOLDER self._memory = {} self._canWrite = hasFunction("writefile") self._canRead = hasFunction("readfile") self._canMakeFolder = hasFunction("makefolder") self._canCheckFolder = hasFunction("isfolder") return self end
+    function ConfigManager:_normalizeName(fileName) local name = type(fileName) == "string" and fileName or DEFAULT_FILE name = name:gsub("[^%w_%-%.]", "_") if name == "" or name == "." or name == ".." then name = DEFAULT_FILE end if name:sub(-5):lower() ~= ".json" then name ..= ".json" end return name end
+    function ConfigManager:_path(name) return self._folder .. "/" .. name end
+    function ConfigManager:_ensureFolder() if not self._canMakeFolder then return end pcall(function() if not (hasFunction("isfolder") and callGlobal("isfolder", self._folder)) then callGlobal("makefolder", self._folder) end end) end
+    function ConfigManager:Save(tbl, fileName)
+        local clean = sanitize(tbl, 0, {}) if not clean then return false end
+        local ok, json = pcall(HttpService.JSONEncode, HttpService, clean) if not ok then return false end
+        local name = self:_normalizeName(fileName) self._memory[name] = json
+        if not self._canWrite then return false end self:_ensureFolder()
+        local okW = pcall(function() callGlobal("writefile", self:_path(name), json) end) return okW
+    end
+    function ConfigManager:Load(fileName)
+        local name = self:_normalizeName(fileName)
+        if self._canRead then
+            local ok, contents = pcall(function() local p = self:_path(name) if hasFunction("isfile") and not callGlobal("isfile", p) then return nil end return callGlobal("readfile", p) end)
+            if ok and type(contents) == "string" and contents ~= "" then
+                local okD, dec = pcall(HttpService.JSONDecode, HttpService, contents)
+                if okD and type(dec) == "table" then local okR, rest = pcall(restore, dec, 0) if okR and type(rest) == "table" then self._memory[name] = contents return rest end end
+            end
         end
-    end)
+        local cached = self._memory[name] if cached then local okD, dec = pcall(HttpService.JSONDecode, HttpService, cached) if okD then return restore(dec, 0) end end
+        return {}
+    end
+    return ConfigManager
+end)()
 
-    sound.Ended:Connect(function()
-        task.wait(0.5)
-        if speaker then speaker:Destroy() end
-    end)
+-- 2. INTERCEPT SOLVER
+local InterceptSolver = (function()
+    local API = {}
+    function API.solve(targetPos, targetVel, originPos, speed)
+        if speed <= 0 then return nil, nil end
+        local speedSq = speed * speed local velSq = targetVel:Dot(targetVel) local D = targetPos - originPos
+        local a = velSq - speedSq local h = D:Dot(targetVel) local c = D:Dot(D)
+        if c < 1e-6 then return targetPos, 0 end
+        local t
+        if math.abs(a) < 1e-6 then
+            if h >= 0 then return nil, nil end t = -c / (2 * h)
+        else
+            local disc = h * h - a * c if disc < 0 then return nil, nil end
+            local sign = if h >= 0 then 1 else -1 local q = -(h + sign * math.sqrt(disc))
+            local t1 = q / a local t2 = c / q
+            local best = math.huge
+            if t1 > 0 and t1 < best then best = t1 end
+            if t2 > 0 and t2 < best then best = t2 end
+            if best == math.huge then return nil, nil end
+            t = best
+        end
+        return targetPos + targetVel * t, t
+    end
+    return API
+end)()
 
-    task.delay(15, function()
-        if speaker then speaker:Destroy() end
-    end)
+-- 3. OBJECT TRACKER
+local ObjectTracker = (function()
+    local Tracker = {} Tracker.__index = Tracker
+    function Tracker:_add(inst) if self._index[inst] then return end local isModel = inst:IsA("Model") if not inst:IsA("BasePart") and not isModel then return end if not (self._filter and string.find(inst.Name, self._filter) or not self._filter) then return end local n = #self._objs + 1 self._objs[n] = inst self._isModel[n] = isModel self._index[inst] = n end
+    function Tracker:_remove(inst) local i = self._index[inst] if not i then return end local last = #self._objs if i ~= last then local moved = self._objs[last] self._objs[i] = moved self._isModel[i] = self._isModel[last] self._index[moved] = i end self._objs[last] = nil self._isModel[last] = nil self._index[inst] = nil end
+    function Tracker:_detach() for _, c in ipairs(self._folderConns) do c:Disconnect() end table.clear(self._folderConns) self._folder = nil table.clear(self._objs) table.clear(self._isModel) table.clear(self._index) end
+    function Tracker:_attach(folder) self:_detach() self._folder = folder table.insert(self._folderConns, folder.DescendantAdded:Connect(function(i) self:_add(i) end)) table.insert(self._folderConns, folder.DescendantRemoving:Connect(function(i) self:_remove(i) end)) table.insert(self._folderConns, folder.AncestryChanged:Connect(function() if folder.Parent ~= self._parent then self:_detach() end end)) for _, i in ipairs(folder:GetDescendants()) do self:_add(i) end end
+    function Tracker.new(folderName, nameFilter, options) local self = setmetatable({}, Tracker) self._folderName = folderName self._filter = nameFilter self._parent = (options and options.Parent) or Workspace self._objs = {} self._isModel = {} self._index = {} self._folder = nil self._folderConns = {} self._parentConn = self._parent.ChildAdded:Connect(function(child) if child.Name == self._folderName and self._folder == nil then self:_attach(child) end end) local ex = self._parent:FindFirstChild(folderName, true) if ex then self:_attach(ex) end return self end
+    function Tracker:GetClosest(origin, maxDist) if #self._objs == 0 then return nil, nil end local best, bestSq = nil, maxDist and maxDist^2 or math.huge for i = 1, #self._objs do local obj = self._objs[i] if obj.Parent then local p = self._isModel[i] and obj:GetPivot().Position or obj.Position local sq = (p - origin).Magnitude^2 if sq < bestSq then bestSq = sq best = obj end end end return best, bestSq and math.sqrt(bestSq) end
+    function Tracker:Destroy() self._parentConn:Disconnect() self:_detach() end
+    return Tracker
+end)()
+
+-- 4. ROLE HUD
+local RoleHUD = (function()
+    local API = {} API.__index = API
+    local C = { 
+        Murderer = Color3.fromRGB(255, 50, 50), Killer = Color3.fromRGB(255, 50, 50), Zombie = Color3.fromRGB(255, 50, 50),
+        Sheriff = Color3.fromRGB(50, 120, 255), 
+        Innocent = Color3.fromRGB(50, 255, 100), Survivor = Color3.fromRGB(50, 255, 100), Hero = Color3.fromRGB(50, 255, 100) 
+    }
+    function API.new(provider) local s = setmetatable({}, API) s._provider = provider s._hl = {} s._state = {} s._conns = {} s._running = false s._container = nil return s end
+    function API:_getHl(p) local hl = self._hl[p] if hl then return hl end hl = Instance.new("Highlight") hl.Name = "LibHUD" hl.Enabled = false hl.FillTransparency = 0.5 hl.OutlineTransparency = 0 hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = self._container self._hl[p] = hl self._state[p] = { Enabled = false, Color = nil } return hl end
+    function API:_setHidden(p) local hl = self._hl[p] if hl and self._state[p].Enabled then self._state[p].Enabled = false hl.Enabled = false end end
+    function API:_setVisible(p, color) local hl = self:_getHl(p) local st = self._state[p] if st.Color ~= color then st.Color = color hl.FillColor = color hl.OutlineColor = color end if not st.Enabled then st.Enabled = true hl.Enabled = true end end
+    function API:_update(p, tbl) 
+        local data = tbl[p.UserId] or tbl[tostring(p.UserId)] or tbl[p.Name] 
+        if type(data) ~= "table" then self:_setHidden(p) return end 
+        local color = C[data.Role] 
+        if not color then self:_setHidden(p) return end 
+        local char = p.Character local hum = char and char:FindFirstChildOfClass("Humanoid") 
+        if data.Dead == true or not hum or hum.Health <= 0 then self:_setHidden(p) return end 
+        local hl = self:_getHl(p) if hl.Adornee ~= char then hl.Adornee = char end 
+        self:_setVisible(p, color) 
+    end
+    function API:_step() local ok, tbl = pcall(self._provider) if not ok or type(tbl) ~= "table" then return end for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then self:_update(p, tbl) end end end
+    function API:Start() if self._running then return end self._running = true self._container = self._container or Instance.new("Folder") self._container.Name = "LibHUD" self._container.Parent = Workspace table.insert(self._conns, Players.PlayerRemoving:Connect(function(p) if self._hl[p] then self._hl[p]:Destroy() self._hl[p] = nil self._state[p] = nil end end)) task.spawn(function() while self._running do self:_step() task.wait(0.5) end end) end
+    function API:Stop() self._running = false for _, c in ipairs(self._conns) do c:Disconnect() end table.clear(self._conns) for p in pairs(self._hl) do self:_setHidden(p) end end
+    return API
+end)()
+
+-- 5. STABILIZER
+local Stabilizer = (function()
+    local CONFIG = { LinearThreshold = 1000, LinearSafe = 250, AngularThreshold = 1000, AngularSafe = 50, DampRate = 14, IgnoreVerticalInFreefall = true }
+    local ignored = setmetatable({}, {__mode = "k"}) local damping = setmetatable({}, {__mode = "k"}) local API = {}
+    local function damp(v, thr, sf, al, st, k, igY) local y = igY and v.Y or 0 local f = igY and Vector3.new(v.X,0,v.Z) or v local m = f.Magnitude if not st[k] then if m <= thr then return nil end st[k] = true end if m <= sf * 1.05 then st[k] = false return nil end local nm = m + (sf - m) * al local d = f.Unit * nm return igY and Vector3.new(d.X, y, d.Z) or d end
+    local function step(dt) local char = LocalPlayer.Character if not char then return end local root = char:FindFirstChild("HumanoidRootPart") if not root or ignored[char] then return end local st = damping[root] or {linear=false, angular=false} damping[root] = st local al = 1 - math.exp(-CONFIG.DampRate * dt) local hum = char:FindFirstChildOfClass("Humanoid") local ff = CONFIG.IgnoreVerticalInFreefall and hum and hum:GetState() == Enum.HumanoidStateType.Freefall local l = damp(root.AssemblyLinearVelocity, CONFIG.LinearThreshold, CONFIG.LinearSafe, al, st, "linear", ff) if l then root.AssemblyLinearVelocity = l end local a = damp(root.AssemblyAngularVelocity, CONFIG.AngularThreshold, CONFIG.AngularSafe, al, st, "angular", false) if a then root.AssemblyAngularVelocity = a end end
+    function API.Start() if not API._conn then API._conn = RunService.Heartbeat:Connect(step) end end
+    function API.Stop() if API._conn then API._conn:Disconnect() API._conn = nil end end
+    return API
+end)()
+
+-- 6. NOTIFICATION MANAGER
+NotificationManager = (function()
+    local NM = {}
+    local CONFIG = {
+        Width = 280, MinHeight = 48, MaxHeight = 140, VerticalPadding = 12, Padding = 10,
+        MarginRight = 16, MarginTop = 16, MaxVisible = 6, DefaultDuration = 4,
+        DisplayOrder = 1000, SlideDistance = 60,
+        Font = Enum.Font.GothamMedium, TextSize = 15, TextInsetLeft = 20, TextInsetRight = 12,
+        BackgroundColor = Color3.fromRGB(18, 18, 28), TextColor = Color3.fromRGB(240, 240, 250),
+        BackgroundTransparency = 0.2, StrokeTransparency = 0.35,
+        TweenIn = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        TweenOut = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+        Reflow = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+    }
+    local TYPES = { Info = Color3.fromRGB(140, 90, 255), Success = Color3.fromRGB(70, 210, 120), Error = Color3.fromRGB(240, 75, 90) }
+    local TYPE_LOOKUP = { info = "Info", success = "Success", error = "Error" }
+    local screenGui = nil
+    local stack = {}
+    local function getGui()
+        if screenGui and screenGui.Parent then return screenGui end
+        local pg = PlayerGui
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "NotificationManager"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = false
+        gui.DisplayOrder = CONFIG.DisplayOrder
+        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        gui.Parent = pg
+        screenGui = gui
+        return gui
+    end
+    local function measureHeight(text)
+        local ok, size = pcall(TextService.GetTextSize, TextService, text, CONFIG.TextSize, CONFIG.Font,
+            Vector2.new(CONFIG.Width - CONFIG.TextInsetLeft - CONFIG.TextInsetRight, 10000))
+        if not ok then return CONFIG.MinHeight end
+        return math.clamp(math.ceil(size.Y) + CONFIG.VerticalPadding * 2, CONFIG.MinHeight, CONFIG.MaxHeight)
+    end
+    local function play(entry, instance, info, goal)
+        if entry.Destroyed then return nil end
+        local tween = TweenService:Create(instance, info, goal)
+        entry.Tweens[tween] = true
+        tween.Completed:Once(function() entry.Tweens[tween] = nil end)
+        tween:Play()
+        return tween
+    end
+    local function cancelTweens(entry)
+        for tween in pairs(table.clone(entry.Tweens)) do pcall(function() tween:Cancel() end) end
+        table.clear(entry.Tweens)
+        entry.ReflowTween = nil
+    end
+    local function cancelTimer(entry)
+        if entry.Timer then pcall(task.cancel, entry.Timer) entry.Timer = nil end
+    end
+    local function destroyEntry(entry)
+        if entry.Destroyed then return end
+        entry.Destroyed = true
+        cancelTimer(entry) cancelTweens(entry)
+        for _, c in ipairs(entry.Connections) do c:Disconnect() end
+        table.clear(entry.Connections)
+        local i = table.find(stack, entry)
+        if i then table.remove(stack, i) end
+        entry.Slot:Destroy()
+    end
+    local function reflow()
+        local y = CONFIG.MarginTop
+        for _, entry in ipairs(stack) do
+            local target = UDim2.new(1, -CONFIG.MarginRight, 0, y)
+            if not entry.Placed then
+                entry.Placed = true
+                entry.Slot.Position = target
+            else
+                if entry.ReflowTween then entry.ReflowTween:Cancel() end
+                entry.ReflowTween = play(entry, entry.Slot, CONFIG.Reflow, { Position = target })
+            end
+            y += entry.Height + CONFIG.Padding
+        end
+    end
+    local function fade(entry, show)
+        local info = show and CONFIG.TweenIn or CONFIG.TweenOut
+        for _, t in ipairs(entry.Targets) do
+            play(entry, t[1], info, { [t[2]] = show and t[3] or 1 })
+        end
+    end
+    local function dismiss(entry)
+        if entry.Destroyed or entry.Dismissing then return end
+        entry.Dismissing = true
+        cancelTimer(entry) cancelTweens(entry)
+        play(entry, entry.Toast, CONFIG.TweenOut, { Position = UDim2.fromOffset(CONFIG.SlideDistance / 2, 0) })
+        fade(entry, false)
+        task.delay(CONFIG.TweenOut.Time + 0.05, function()
+            if entry.Destroyed then return end
+            destroyEntry(entry) reflow()
+        end)
+    end
+    local function createEntry(gui, text, typeName)
+        local accent = TYPES[typeName]
+        local height = measureHeight(text)
+        local slot = Instance.new("Frame")
+        slot.Name = "NotificationSlot"
+        slot.AnchorPoint = Vector2.new(1, 0)
+        slot.Size = UDim2.fromOffset(CONFIG.Width, height)
+        slot.BackgroundTransparency = 1
+        slot.BorderSizePixel = 0
+        slot.Parent = gui
+        local toast = Instance.new("Frame")
+        toast.Name = "Toast"
+        toast.Size = UDim2.fromScale(1, 1)
+        toast.Position = UDim2.fromOffset(CONFIG.SlideDistance, 0)
+        toast.BackgroundColor3 = CONFIG.BackgroundColor
+        toast.BackgroundTransparency = 1
+        toast.BorderSizePixel = 0
+        toast.Active = true
+        toast.Parent = slot
+        local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 10); corner.Parent = toast
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = accent; stroke.Thickness = 1.5; stroke.Transparency = 1
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; stroke.Parent = toast
+        local bar = Instance.new("Frame")
+        bar.Name = "Accent"; bar.AnchorPoint = Vector2.new(0, 0.5)
+        bar.Position = UDim2.new(0, 8, 0.5, 0); bar.Size = UDim2.new(0, 4, 1, -16)
+        bar.BackgroundColor3 = accent; bar.BackgroundTransparency = 1
+        bar.BorderSizePixel = 0; bar.Parent = toast
+        local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = bar
+        local label = Instance.new("TextLabel")
+        label.Name = "Message"; label.BackgroundTransparency = 1
+        label.Position = UDim2.fromOffset(CONFIG.TextInsetLeft, 0)
+        label.Size = UDim2.new(1, -(CONFIG.TextInsetLeft + CONFIG.TextInsetRight), 1, 0)
+        label.Font = CONFIG.Font; label.TextSize = CONFIG.TextSize
+        label.TextColor3 = CONFIG.TextColor; label.TextTransparency = 1
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.TextWrapped = true; label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.Text = text; label.Parent = toast
+        return {
+            Slot = slot, Toast = toast, Height = height, Placed = false,
+            Dismissing = false, Destroyed = false, Timer = nil, ReflowTween = nil,
+            Tweens = {}, Connections = {},
+            Targets = {
+                { toast, "BackgroundTransparency", CONFIG.BackgroundTransparency },
+                { stroke, "Transparency", CONFIG.StrokeTransparency },
+                { bar, "BackgroundTransparency", 0 },
+                { label, "TextTransparency", 0 },
+            },
+        }
+    end
+    function NM.Notify(text, notifType, duration)
+        local ok, result = pcall(function()
+            local message = tostring(text or "")
+            local typeName = TYPE_LOOKUP[string.lower(tostring(notifType or "info"))] or "Info"
+            local lifetime = math.max(0.5, tonumber(duration) or CONFIG.DefaultDuration)
+            local gui = getGui()
+            local entry = createEntry(gui, message, typeName)
+            table.insert(stack, 1, entry)
+            local active = 0
+            for _, other in ipairs(stack) do if not other.Dismissing then active += 1 end end
+            if active > CONFIG.MaxVisible then
+                for i = #stack, 1, -1 do
+                    if not stack[i].Dismissing then dismiss(stack[i]) break end
+                end
+            end
+            reflow()
+            play(entry, entry.Toast, CONFIG.TweenIn, { Position = UDim2.fromOffset(0, 0) })
+            fade(entry, true)
+            table.insert(entry.Connections, entry.Toast.InputBegan:Connect(function(input)
+                local it = input.UserInputType
+                if it == Enum.UserInputType.MouseButton1 or it == Enum.UserInputType.Touch then dismiss(entry) end
+            end))
+            entry.Timer = task.delay(lifetime, function()
+                entry.Timer = nil
+                dismiss(entry)
+            end)
+            return { Dismiss = function() dismiss(entry) end }
+        end)
+        if not ok then warn("[NotificationManager] " .. tostring(result)) return nil end
+        return result
+    end
+    function NM.Clear() for i = #stack, 1, -1 do destroyEntry(stack[i]) end end
+    function NM.Destroy() NM.Clear() if screenGui then screenGui:Destroy() screenGui = nil end end
+    return NM
+end)()
+
+-- 7. UI TOGGLE
+UIToggle = (function()
+    local UT = {}
+    UT.__index = UT
+    local DEFAULTS = {
+        Keybind = Enum.KeyCode.RightShift, ButtonSize = 48, DragThreshold = 6,
+        DisplayOrder = 999999, ZIndex = 1000, AlwaysShowButton = false,
+        AccentColor = Color3.fromRGB(140, 90, 255), Parent = nil, OnToggle = nil,
+    }
+    local PRESS_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    function UT:_connect(signal, callback)
+        local c = signal:Connect(function(...)
+            local ok, err = pcall(callback, ...)
+            if not ok then warn("[UIToggle] " .. tostring(err)) end
+        end)
+        table.insert(self._connections, c)
+        return c
+    end
+    function UT:_tweenScale(target)
+        if not self._scale then return end
+        if self._scaleTween then self._scaleTween:Cancel() end
+        local t = TweenService:Create(self._scale, PRESS_TWEEN, { Scale = target })
+        self._scaleTween = t; t:Play()
+    end
+    function UT:_setButtonPosition(position)
+        local gui, button = self._gui, self._button
+        if not (gui and button) then return end
+        local maxX = math.max(0, gui.AbsoluteSize.X - button.AbsoluteSize.X)
+        local maxY = math.max(0, gui.AbsoluteSize.Y - button.AbsoluteSize.Y)
+        button.Position = UDim2.fromOffset(math.clamp(position.X, 0, maxX), math.clamp(position.Y, 0, maxY))
+    end
+    function UT:_refreshIcon()
+        if self._slash then self._slash.Visible = not self._mainGui.Enabled end
+        if self._stroke then self._stroke.Transparency = self._mainGui.Enabled and 0.2 or 0.6 end
+    end
+    function UT:_buildButton()
+        local opts = self._options
+        local size = opts.ButtonSize
+        local z = opts.ZIndex
+        local parent = opts.Parent or PlayerGui
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "UIToggleButton"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = true
+        gui.DisplayOrder = opts.DisplayOrder
+        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        gui.Enabled = UserInputService.TouchEnabled or opts.AlwaysShowButton
+        gui.Parent = parent
+        self._gui = gui
+        local button = Instance.new("TextButton")
+        button.Name = "ToggleButton"; button.AutoButtonColor = false; button.Text = ""
+        button.AnchorPoint = Vector2.new(0, 0)
+        button.Position = UDim2.new(0, 16, 0.5, -size / 2)
+        button.Size = UDim2.fromOffset(size, size)
+        button.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+        button.BackgroundTransparency = 0.2
+        button.BorderSizePixel = 0; button.ZIndex = z; button.Parent = gui
+        self._button = button
+        local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = button
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = opts.AccentColor; stroke.Thickness = 2
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; stroke.Parent = button
+        self._stroke = stroke
+        local scale = Instance.new("UIScale"); scale.Parent = button; self._scale = scale
+        local eye = Instance.new("Frame")
+        eye.Name = "Eye"; eye.AnchorPoint = Vector2.new(0.5, 0.5)
+        eye.Position = UDim2.fromScale(0.5, 0.5); eye.Size = UDim2.fromOffset(26, 16)
+        eye.BackgroundTransparency = 1; eye.Active = false; eye.ZIndex = z + 1; eye.Parent = button
+        local ec = Instance.new("UICorner"); ec.CornerRadius = UDim.new(1, 0); ec.Parent = eye
+        local es = Instance.new("UIStroke")
+        es.Color = Color3.new(1, 1, 1); es.Thickness = 2
+        es.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; es.Parent = eye
+        local pupil = Instance.new("Frame")
+        pupil.Name = "Pupil"; pupil.AnchorPoint = Vector2.new(0.5, 0.5)
+        pupil.Position = UDim2.fromScale(0.5, 0.5); pupil.Size = UDim2.fromOffset(8, 8)
+        pupil.BackgroundColor3 = Color3.new(1, 1, 1); pupil.BorderSizePixel = 0
+        pupil.Active = false; pupil.ZIndex = z + 2; pupil.Parent = eye
+        local pc = Instance.new("UICorner"); pc.CornerRadius = UDim.new(1, 0); pc.Parent = pupil
+        local slash = Instance.new("Frame")
+        slash.Name = "Slash"; slash.AnchorPoint = Vector2.new(0.5, 0.5)
+        slash.Position = UDim2.fromScale(0.5, 0.5); slash.Size = UDim2.fromOffset(3, 34)
+        slash.Rotation = -45; slash.BackgroundColor3 = opts.AccentColor
+        slash.BorderSizePixel = 0; slash.Active = false; slash.ZIndex = z + 3; slash.Parent = button
+        local sc = Instance.new("UICorner"); sc.CornerRadius = UDim.new(1, 0); sc.Parent = slash
+        self._slash = slash
+        self:_refreshIcon()
+        self:_bindButtonInput()
+        self:_connect(gui:GetPropertyChangedSignal("AbsoluteSize"), function()
+            self:_setButtonPosition(button.AbsolutePosition)
+        end)
+        self:_connect(UserInputService:GetPropertyChangedSignal("TouchEnabled"), function()
+            gui.Enabled = UserInputService.TouchEnabled or opts.AlwaysShowButton
+        end)
+    end
+    function UT:_bindButtonInput()
+        local button = self._button
+        local threshold = self._options.DragThreshold
+        local activeInput = nil
+        local dragStart = Vector3.zero
+        local buttonStart = Vector2.zero
+        local moved = false
+        self:_connect(button.InputBegan, function(input)
+            if activeInput then return end
+            local it = input.UserInputType
+            if it ~= Enum.UserInputType.MouseButton1 and it ~= Enum.UserInputType.Touch then return end
+            activeInput = input; dragStart = input.Position
+            buttonStart = button.AbsolutePosition; moved = false
+            self:_tweenScale(0.9)
+        end)
+        self:_connect(UserInputService.InputChanged, function(input)
+            if not activeInput then return end
+            local isTouch = input == activeInput
+            local isMouseDrag = activeInput.UserInputType == Enum.UserInputType.MouseButton1
+                and input.UserInputType == Enum.UserInputType.MouseMovement
+            if not (isTouch or isMouseDrag) then return end
+            local delta = input.Position - dragStart
+            if not moved and delta.Magnitude >= threshold then moved = true end
+            if moved then self:_setButtonPosition(buttonStart + Vector2.new(delta.X, delta.Y)) end
+        end)
+        self:_connect(UserInputService.InputEnded, function(input)
+            if not activeInput then return end
+            local isTouch = input == activeInput
+            local isMouseUp = activeInput.UserInputType == Enum.UserInputType.MouseButton1
+                and input.UserInputType == Enum.UserInputType.MouseButton1
+            if not (isTouch or isMouseUp) then return end
+            local wasTap = not moved
+            activeInput = nil; moved = false
+            self:_tweenScale(1)
+            if wasTap then self:Toggle() end
+        end)
+    end
+    function UT.new(mainGui, options)
+        local opts = table.clone(DEFAULTS)
+        for k, v in pairs(options or {}) do opts[k] = v end
+        local self = setmetatable({
+            _mainGui = mainGui, _options = opts, _connections = {}, _destroyed = false,
+            _gui = nil, _button = nil, _stroke = nil, _slash = nil, _scale = nil, _scaleTween = nil,
+        }, UT)
+        self:_connect(UserInputService.InputBegan, function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.KeyCode == opts.Keybind then self:Toggle() end
+        end)
+        self:_connect(mainGui:GetPropertyChangedSignal("Enabled"), function()
+            self:_refreshIcon()
+            if typeof(opts.OnToggle) == "function" then opts.OnToggle(mainGui.Enabled) end
+        end)
+        self:_connect(mainGui.Destroying, function() self:Destroy() end)
+        local ok, err = pcall(self._buildButton, self)
+        if not ok then warn("[UIToggle] button build failed: " .. tostring(err)) end
+        return self
+    end
+    function UT:SetVisible(visible)
+        if self._destroyed then return end
+        pcall(function() self._mainGui.Enabled = visible end)
+    end
+    function UT:Toggle()
+        if self._destroyed then return end
+        self:SetVisible(not self._mainGui.Enabled)
+    end
+    function UT:Destroy()
+        if self._destroyed then return end
+        self._destroyed = true
+        for _, c in ipairs(self._connections) do c:Disconnect() end
+        table.clear(self._connections)
+        if self._scaleTween then self._scaleTween:Cancel() self._scaleTween = nil end
+        if self._gui then self._gui:Destroy() end
+        self._gui, self._button, self._stroke, self._slash, self._scale = nil, nil, nil, nil, nil
+        self._options.OnToggle = nil
+    end
+    return UT
+end)()
+
+-- 8. OVERHEAD TRACKER (ESP 2.0)
+OverheadTracker = (function()
+    local OT = {}
+    OT.__index = OT
+    local RED = Color3.fromRGB(255, 70, 70)
+    local BLUE = Color3.fromRGB(70, 140, 255)
+    local GREEN = Color3.fromRGB(70, 220, 110)
+    local UNKNOWN_COLOR = Color3.fromRGB(200, 200, 210)
+
+    local DEFAULT_ROLE_COLORS = {
+        murderer = RED, killer = RED, zombie = RED,
+        sheriff = BLUE, hero = BLUE,
+        innocent = GREEN, survivor = GREEN,
+    }
+    local DEFAULTS = {
+        MaxDistance = 150, UpdateInterval = 0.2, AlwaysOnTop = true, AutoStart = true,
+        LabelSize = Vector2.new(130, 24), HeadOffset = Vector3.new(0, 2.5, 0),
+        TextSize = 14, Font = Enum.Font.GothamBold, DistanceUnit = "m", StudsPerUnit = 1,
+        MaxStackLevels = 4, StackDirection = 1, ShowUnknownRoles = true, RoleColors = nil,
+    }
+    local function byDepth(a, b) return a.Depth < b.Depth end
+    local function setShown(entry, shown)
+        if entry.Shown ~= shown then entry.Shown = shown entry.Gui.Enabled = shown end
+    end
+    local function applyLevel(entry, level, direction)
+        if entry.Level ~= level then
+            entry.Level = level
+            entry.Gui.SizeOffset = Vector2.new(0, level * direction)
+        end
+    end
+    local function createEntry(head, opts)
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "OverheadTracker"; gui.Adornee = head; gui.AlwaysOnTop = opts.AlwaysOnTop
+        gui.Size = UDim2.fromOffset(opts.LabelSize.X, opts.LabelSize.Y)
+        gui.StudsOffset = opts.HeadOffset; gui.LightInfluence = 0
+        gui.ResetOnSpawn = false; gui.ClipsDescendants = false
+        gui.Active = false; gui.Enabled = false; gui.Parent = head
+        local label = Instance.new("TextLabel")
+        label.Name = "Label"; label.Size = UDim2.fromScale(1, 1)
+        label.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+        label.BackgroundTransparency = 0.45; label.BorderSizePixel = 0
+        label.Font = opts.Font; label.TextSize = opts.TextSize
+        label.TextColor3 = UNKNOWN_COLOR; label.TextXAlignment = Enum.TextXAlignment.Center
+        label.TextYAlignment = Enum.TextYAlignment.Center; label.Text = ""; label.Parent = gui
+        local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 6); corner.Parent = label
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = UNKNOWN_COLOR; stroke.Thickness = 1.5
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; stroke.Parent = label
+        return {
+            Gui = gui, Label = label, Stroke = stroke, Head = head,
+            Shown = false, Level = 0, LastRole = nil, LastDistance = nil, Color = nil,
+            ScreenX = 0, ScreenY = 0, AdjY = 0, Depth = 0,
+        }
+    end
+    function OT.new(getRoleFunction, options)
+        local opts = table.clone(DEFAULTS)
+        for key, value in pairs(options or {}) do opts[key] = value end
+        local roleColors = table.clone(DEFAULT_ROLE_COLORS)
+        if opts.RoleColors then
+            for role, color in pairs(opts.RoleColors) do roleColors[string.lower(role)] = color end
+        end
+        local self = setmetatable({
+            _getRoles = getRoleFunction, _options = opts, _roleColors = roleColors,
+            _colorCache = {}, _records = {}, _connections = {}, _heartbeat = nil,
+            _elapsed = 0, _visible = true, _destroyed = false, _lastRoles = {},
+            _warnedProvider = false, _warnedUpdate = false, _scratch = {},
+        }, OT)
+        table.insert(self._connections, Players.PlayerAdded:Connect(function(player) self:_trackPlayer(player) end))
+        table.insert(self._connections, Players.PlayerRemoving:Connect(function(player) self:_untrackPlayer(player) end))
+        for _, player in ipairs(Players:GetPlayers()) do self:_trackPlayer(player) end
+        if opts.AutoStart then self:Start() end
+        return self
+    end
+    function OT:_isCurrent(record, generation) return not self._destroyed and self._records[record.Player] == record and record.Generation == generation end
+    function OT:_clearCharacter(record)
+        record.Generation += 1
+        for _, connection in ipairs(record.CharConnections) do connection:Disconnect() end
+        table.clear(record.CharConnections)
+        local entry = record.Entry
+        if entry then record.Entry = nil entry.Gui:Destroy() end
+    end
+    function OT:_setupCharacter(record, character)
+        self:_clearCharacter(record)
+        local generation = record.Generation
+        task.spawn(function()
+            local ok, err = pcall(function()
+                local head = character:WaitForChild("Head", 10)
+                if not head or not self:_isCurrent(record, generation) then return end
+                local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+                if not self:_isCurrent(record, generation) then return end
+                if humanoid and humanoid.Health <= 0 then return end
+                record.Entry = createEntry(head, self._options)
+                if humanoid then
+                    table.insert(record.CharConnections, humanoid.Died:Once(function()
+                        if self:_isCurrent(record, generation) then self:_clearCharacter(record) end
+                    end))
+                end
+            end)
+            if not ok then warn("[OverheadTracker] Character setup failed: " .. tostring(err)) end
+        end)
+    end
+    function OT:_trackPlayer(player)
+        if player == LocalPlayer or self._records[player] or self._destroyed then return end
+        local record = { Player = player, Entry = nil, Generation = 0, PlayerConnections = {}, CharConnections = {} }
+        self._records[player] = record
+        table.insert(record.PlayerConnections, player.CharacterAdded:Connect(function(character) self:_setupCharacter(record, character) end))
+        table.insert(record.PlayerConnections, player.CharacterRemoving:Connect(function() self:_clearCharacter(record) end))
+        if player.Character then self:_setupCharacter(record, player.Character) end
+    end
+    function OT:_untrackPlayer(player)
+        local record = self._records[player]
+        if not record then return end
+        self._records[player] = nil
+        self:_clearCharacter(record)
+        for _, connection in ipairs(record.PlayerConnections) do connection:Disconnect() end
+        table.clear(record.PlayerConnections)
+    end
+    function OT:_fetchRoles()
+        local ok, result = pcall(self._getRoles)
+        if ok and type(result) == "table" then self._lastRoles = result return result end
+        if not ok and not self._warnedProvider then
+            self._warnedProvider = true
+            warn("[OverheadTracker] Role provider errored: " .. tostring(result))
+        end
+        return self._lastRoles
+    end
+    function OT:_colorFor(roleText)
+        local color = self._colorCache[roleText]
+        if not color then
+            color = self._roleColors[string.lower(roleText)] or UNKNOWN_COLOR
+            self._colorCache[roleText] = color
+        end
+        return color
+    end
+    function OT:_update()
+        local opts = self._options
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local origin = root and root.Position or camera.CFrame.Position
+        local roles = self:_fetchRoles()
+        local maxDistance = opts.MaxDistance
+        local invUnit = 1 / opts.StudsPerUnit
+        local unit = opts.DistanceUnit
+        local onScreenEntries = self._scratch
+        table.clear(onScreenEntries)
+        for _, record in pairs(self._records) do
+            local entry = record.Entry
+            if entry then
+                local head = entry.Head
+                if not head.Parent then
+                    self:_clearCharacter(record)
+                    continue
+                end
+                local position = head.Position
+                local distance = (position - origin).Magnitude
+                local data = roles[record.Player.UserId]
+                local role = type(data) == "table" and data.Role or data
+                if distance > maxDistance or (role == nil and not opts.ShowUnknownRoles) then
+                    setShown(entry, false)
+                    applyLevel(entry, 0, opts.StackDirection)
+                    continue
+                end
+                local roleText = role == nil and "Unknown" or tostring(role)
+                local displayDistance = math.floor(distance * invUnit + 0.5)
+                if entry.LastRole ~= roleText or entry.LastDistance ~= displayDistance then
+                    entry.LastRole = roleText
+                    entry.LastDistance = displayDistance
+                    entry.Label.Text = string.format("%s [%d%s]", roleText, displayDistance, unit)
+                end
+                local color = self:_colorFor(roleText)
+                if entry.Color ~= color then
+                    entry.Color = color
+                    entry.Label.TextColor3 = color
+                    entry.Stroke.Color = color
+                end
+                setShown(entry, true)
+                local screen, onScreen = camera:WorldToViewportPoint(position)
+                if onScreen then
+                    entry.ScreenX = screen.X
+                    entry.ScreenY = screen.Y
+                    entry.Depth = screen.Z
+                    table.insert(onScreenEntries, entry)
+                else
+                    applyLevel(entry, 0, opts.StackDirection)
+                end
+            end
+        end
+        local count = #onScreenEntries
+        if count == 0 then return end
+        table.sort(onScreenEntries, byDepth)
+        local width, height = opts.LabelSize.X, opts.LabelSize.Y
+        local maxLevels = opts.MaxStackLevels
+        for i = 1, count do
+            local entry = onScreenEntries[i]
+            local level = 0
+            while level < maxLevels do
+                local y = entry.ScreenY - level * height
+                local blocked = false
+                for j = 1, i - 1 do
+                    local other = onScreenEntries[j]
+                    if math.abs(entry.ScreenX - other.ScreenX) < width and math.abs(y - other.AdjY) < height then
+                        blocked = true
+                        break
+                    end
+                end
+                if not blocked then break end
+                level += 1
+            end
+            entry.AdjY = entry.ScreenY - level * height
+            applyLevel(entry, level, opts.StackDirection)
+        end
+    end
+    function OT:_onHeartbeat(dt)
+        self._elapsed += dt
+        if self._elapsed < self._options.UpdateInterval then return end
+        self._elapsed = 0
+        if not self._visible then return end
+        local ok, err = pcall(self._update, self)
+        if not ok and not self._warnedUpdate then
+            self._warnedUpdate = true
+            warn("[OverheadTracker] Update failed: " .. tostring(err))
+        end
+    end
+    function OT:_hideAll()
+        for _, record in pairs(self._records) do
+            local entry = record.Entry
+            if entry then setShown(entry, false) end
+        end
+    end
+    function OT:Start()
+        if self._destroyed or self._heartbeat then return end
+        self._elapsed = self._options.UpdateInterval
+        self._heartbeat = RunService.Heartbeat:Connect(function(dt) self:_onHeartbeat(dt) end)
+    end
+    function OT:Stop()
+        if self._heartbeat then self._heartbeat:Disconnect() self._heartbeat = nil end
+        self:_hideAll()
+    end
+    function OT:SetVisible(visible)
+        if self._destroyed then return end
+        self._visible = visible
+        if visible then
+            self._elapsed = self._options.UpdateInterval
+        else
+            self:_hideAll()
+        end
+    end
+    function OT:SetMaxDistance(studs)
+        if type(studs) == "number" and studs > 0 then
+            self._options.MaxDistance = studs
+            self._elapsed = self._options.UpdateInterval
+        end
+    end
+    function OT:Destroy()
+        if self._destroyed then return end
+        self._destroyed = true
+        if self._heartbeat then self._heartbeat:Disconnect() self._heartbeat = nil end
+        for _, connection in ipairs(self._connections) do connection:Disconnect() end
+        table.clear(self._connections)
+        for player in pairs(table.clone(self._records)) do self:_untrackPlayer(player) end
+        table.clear(self._scratch)
+        table.clear(self._colorCache)
+        self._lastRoles = {}
+        self._getRoles = function() return {} end
+    end
+    return OT
+end)()
+
+-- 9. DROPDOWN
+local Dropdown = (function()
+    local Theme = { Surface = Color3.fromHex("#15151b"), SurfaceHover = Color3.fromHex("#1d1d26"), Glass = Color3.fromHex("#17171f"), Background = Color3.fromHex("#0c0c0f"), Accent = Color3.fromHex("#8c64ff"), Stroke = Color3.fromHex("#2a2a36"), Text = Color3.fromHex("#f0f0f5"), TextDim = Color3.fromHex("#b4b4c3"), SubText = Color3.fromHex("#7d7d8f"), Font = Enum.Font.GothamMedium, TextSize = 13 }
+    local OP = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out) local CL = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In) local FA = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local function create(c, p, ch) local i = Instance.new(c) local pa = p.Parent for k, v in p do if k~="Parent" then i[k]=v end end if ch then for _, x in ch do x.Parent = i end end i.Parent = pa return i end
+    local function tween(i, inf, g) local t = TweenService:Create(i, inf, g) t:Play() return t end
+    local function bindF(g, fn) local h = false g.InputBegan:Connect(function(inp) local t = inp.UserInputType if t == Enum.UserInputType.MouseMovement then h=true fn("hover") elseif t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then fn("press") end end) g.InputEnded:Connect(function(inp) local t = inp.UserInputType if t == Enum.UserInputType.MouseMovement then h=false fn("idle") elseif t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then fn(h and "hover" or "idle") end end) end
+    local layers = setmetatable({}, {__mode="k"})
+    local function getRoot(gui) 
+        local e = layers[gui] if e and e.Parent then return e end 
+        local h = gui.Parent if not h then return nil end 
+        local l = Instance.new("ScreenGui") l.Name="DropLayer" l.ResetOnSpawn=false l.ScreenInsets=gui.ScreenInsets l.DisplayOrder=gui.DisplayOrder+100 l.ZIndexBehavior=Enum.ZIndexBehavior.Sibling l.Enabled=gui.Enabled 
+        local origScale = gui:FindFirstChildOfClass("UIScale")
+        if origScale then
+            local lScale = Instance.new("UIScale", l) lScale.Scale = origScale.Scale
+            origScale:GetPropertyChangedSignal("Scale"):Connect(function() lScale.Scale = origScale.Scale end)
+        end
+        local r = create("Frame",{Name="Root",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,Parent=l}) 
+        l.Parent=h 
+        gui:GetPropertyChangedSignal("Enabled"):Connect(function() l.Enabled=gui.Enabled end) 
+        gui.Destroying:Connect(function() l:Destroy() end) 
+        layers[gui]=r 
+        return r 
+    end
+    local D = {} D.__index = D
+    function D.new(parent, name, opts, def, cb)
+        local s = setmetatable({}, D) s.Name=name s.Callback=cb s.Value=nil s.IsOpen=false s._opts={} s._btns={} s._selIdx=nil s._openConns={} s._token=0 s._touch=UserInputService.TouchEnabled s._itemH=s._touch and 38 or 30 s._headH=s._touch and 40 or 34
+        s.Frame = create("Frame", {Name="DD_"..name,Size=UDim2.new(1,0,0,s._headH),BackgroundTransparency=1,Parent=parent})
+        s.Label = create("TextLabel", {Name="Label",Size=UDim2.new(0.42,-6,1,0),BackgroundTransparency=1,Font=Theme.Font,TextSize=Theme.TextSize,TextColor3=Theme.Text,TextXAlignment=Enum.TextXAlignment.Left,Text=name,Parent=s.Frame})
+        s.Header = create("TextButton", {Name="Header",AnchorPoint=Vector2.new(1,0),Position=UDim2.fromScale(1,0),Size=UDim2.new(0.58,0,1,0),BackgroundColor3=Theme.Surface,BorderSizePixel=0,Text="",Parent=s.Frame})
+        create("UICorner", {CornerRadius=UDim.new(0,6),Parent=s.Header}) s._stroke = create("UIStroke",{Color=Theme.Stroke,Thickness=1,Parent=s.Header})
+        s.ValLabel = create("TextLabel", {Name="Value",Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-34,1,0),BackgroundTransparency=1,Font=Theme.Font,TextSize=Theme.TextSize,TextColor3=Theme.SubText,TextXAlignment=Enum.TextXAlignment.Left,Text="Select...",Parent=s.Header})
+        s.Chevron = create("TextLabel", {Name="Chevron",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(12,12),BackgroundTransparency=1,Font=Theme.Font,TextSize=9,TextColor3=Theme.SubText,Text="▼",Parent=s.Header})
+        bindF(s.Header, function(st) s:_paintHead(st) end)
+        s._blocker = create("TextButton", {Name="Blocker",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text="",ZIndex=1}) s._blocker.Activated:Connect(function() s:Close() end)
+        s._list = create("CanvasGroup", {Name="List",BackgroundColor3=Theme.Surface,BackgroundTransparency=0.1,GroupTransparency=1,Size=UDim2.fromOffset(0,0),ZIndex=2})
+        create("UICorner", {CornerRadius=UDim.new(0,8),Parent=s._list}) create("UIStroke", {Color=Theme.Accent,Transparency=0.2,Thickness=1.5,Parent=s._list}) create("UIGradient", {Color=ColorSequence.new(Theme.Glass,Theme.Background),Rotation=90,Parent=s._list})
+        s._scroll = create("ScrollingFrame", {Name="Scroll",BackgroundTransparency=1,Active=true,ScrollingDirection=Enum.ScrollingDirection.Y,ScrollBarThickness=s._touch and 4 or 3,ScrollBarImageColor3=Theme.Accent,CanvasSize=UDim2.new(),Parent=s._list})
+        create("UIListLayout", {Padding=UDim.new(0,2),SortOrder=Enum.SortOrder.LayoutOrder,Parent=s._scroll})
+        create("UIPadding", {PaddingTop=UDim.new(0,4),PaddingBottom=UDim.new(0,4),PaddingLeft=UDim.new(0,4),PaddingRight=UDim.new(0,8),Parent=s._scroll})
+        s:SetOptions(opts or {}) if def ~= nil then s:Set(def, true) end
+        s.Header.Activated:Connect(function() s:Toggle() end)
+        s.Frame.Destroying:Connect(function() s:Destroy() end)
+        return s
+    end
+    function D:_paintHead(st) local op = self.IsOpen local ac = op or st~="idle" tween(self.Header, FA, {BackgroundColor3=(st=="idle") and Theme.Surface or Theme.SurfaceHover}) tween(self._stroke, FA, {Color=ac and Theme.Accent or Theme.Stroke, Transparency=op and 0.15 or (ac and 0.5 or 0)}) end
+    function D:_paintOpt(idx, st, inst) local b = self._btns[idx] if not b then return end local sel = idx == self._selIdx local tr if st=="press" then tr=0.7 elseif st=="hover" then tr=sel and 0.78 or 0.93 else tr=sel and 0.85 or 1 end local tc = sel and Theme.Accent or (st=="idle" and Theme.TextDim or Theme.Text) if inst then b.BackgroundTransparency=tr b.TextColor3=tc else tween(b,FA,{BackgroundTransparency=tr,TextColor3=tc}) end end
+    function D:_refreshOpts() for i in self._btns do self:_paintOpt(i, "idle", true) end end
+    function D:_updateHead() if self.Value ~= nil then self.ValLabel.Text=tostring(self.Value) self.ValLabel.TextColor3=Theme.Text else self.ValLabel.Text="Select..." self.ValLabel.TextColor3=Theme.SubText end end
+    function D:_select(idx) self._selIdx=idx self.Value=self._opts[idx] self:_updateHead() self:_refreshOpts() end
+    function D:_fire(val) if typeof(self.Callback)~="function" then return end task.spawn(function() local ok, err = pcall(self.Callback, val) if not ok then warn("Dropdown err:", err) end end) end
+    function D:Set(val, sil) local idx = table.find(self._opts, val) if not idx then return false end self:_select(idx) if not sil then self:_fire(self.Value) end return true end
+    function D:SetOptions(opts, keep)
+        if self.IsOpen then self:Close(true) end
+        for _, b in self._btns do b:Destroy() end table.clear(self._btns)
+        self._opts = table.clone(opts or {})
+        for i, o in self._opts do
+            local b = create("TextButton", {Name="O_"..i,LayoutOrder=i,Size=UDim2.new(1,0,0,self._itemH),BackgroundColor3=Theme.Accent,BackgroundTransparency=1,Text=tostring(o),TextColor3=Theme.TextDim,TextXAlignment=Enum.TextXAlignment.Left,Parent=self._scroll})
+            create("UICorner", {CornerRadius=UDim.new(0,5),Parent=b}) create("UIPadding", {PaddingLeft=UDim.new(0,10),PaddingRight=UDim.new(0,10),Parent=b})
+            bindF(b, function(st) self:_paintOpt(i, st) end)
+            b.Activated:Connect(function() self:_select(i) self:Close() self:_fire(self.Value) end)
+            self._btns[i] = b
+        end
+        self._selIdx = (keep~=false and self.Value~=nil) and table.find(self._opts, self.Value) or nil if not self._selIdx then self.Value=nil end
+        self:_updateHead() self:_refreshOpts()
+    end
+    function D:Open()
+        if self.IsOpen or #self._opts==0 then return end
+        local gui = self.Header:FindFirstAncestorWhichIsA("ScreenGui") local root = gui and getRoot(gui) if not root then return end
+        self.IsOpen=true self._token+=1
+        local hPos = self.Header.AbsolutePosition - root.AbsolutePosition local hSize = self.Header.AbsoluteSize
+        local ch = #self._opts*self._itemH + math.max(#self._opts-1,0)*2 + 8
+        local capped = math.min(ch, 6*self._itemH + 5*2 + 8)
+        local spaceB = root.AbsoluteSize.Y - (hPos.Y + hSize.Y) - 4 - 8
+        local spaceA = hPos.Y - 4 - 8
+        local up = capped > spaceB and spaceA > spaceB
+        local h = math.min(capped, math.max(up and spaceA or spaceB, self._itemH+8))
+        local w = math.min(hSize.X, root.AbsoluteSize.X - 16)
+        local x = math.clamp(hPos.X, 8, math.max(8, root.AbsoluteSize.X - w - 8))
+        local y = up and (hPos.Y - 4) or (hPos.Y + hSize.Y + 4)
+        self._list.AnchorPoint=Vector2.new(0, up and 1 or 0) self._list.Position=UDim2.fromOffset(x,y) self._list.Size=UDim2.fromOffset(w,0) self._list.GroupTransparency=1
+        self._scroll.AnchorPoint=Vector2.new(0, up and 1 or 0) self._scroll.Position=UDim2.fromScale(0, up and 1 or 0) self._scroll.Size=UDim2.new(1,0,0,h) self._scroll.CanvasSize=UDim2.fromOffset(0,ch)
+        self._blocker.Parent=root self._list.Parent=root
+        tween(self._list, OP, {Size=UDim2.fromOffset(w,h),GroupTransparency=0}) tween(self.Chevron, OP, {Rotation=180}) self:_paintHead("idle")
+    end
+    function D:Close(inst)
+        if not self.IsOpen then return end
+        self.IsOpen=false self._token+=1 local tk = self._token
+        self._blocker.Parent=nil tween(self.Chevron, CL, {Rotation=0}) self:_paintHead("idle")
+        if inst then self._list.Parent=nil return end
+        local tw = tween(self._list, CL, {Size=UDim2.fromOffset(self._list.Size.X.Offset,0),GroupTransparency=1})
+        tw.Completed:Connect(function() if self._token==tk then self._list.Parent=nil end end)
+    end
+    function D:Toggle() if self.IsOpen then self:Close() else self:Open() end end
+    function D:Destroy() self:Close(true) self._blocker:Destroy() self._list:Destroy() self.Frame:Destroy() end
+    return D
+end)()
+
+-- ==========================================
+-- UI LIBRARY
+-- ==========================================
+local THEME = { Background = Color3.fromHex("0c0c0f"), Element = Color3.fromRGB(30, 30, 42), Accent = Color3.fromRGB(140, 100, 255), Text = Color3.fromRGB(235, 235, 245), SubText = Color3.fromRGB(150, 150, 170), Stroke = Color3.fromRGB(255, 255, 255) }
+local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local function tween(i, inf, p) local t = TweenService:Create(i, inf, p) t:Play() return t end
+local function create(c, p, ch) local i = Instance.new(c) for k, v in pairs(p or {}) do i[k]=v end for _, x in ipairs(ch or {}) do x.Parent=i end return i end
+local function corner(r) return create("UICorner", {CornerRadius=UDim.new(0,r)}) end
+local function stroke(t, tr) return create("UIStroke", {Color=THEME.Stroke,Thickness=t,Transparency=tr,ApplyStrokeMode=Enum.ApplyStrokeMode.Border}) end
+local function pad(p) return create("UIPadding", {PaddingTop=UDim.new(0,p),PaddingBottom=UDim.new(0,p),PaddingLeft=UDim.new(0,p),PaddingRight=UDim.new(0,p)}) end
+local function label(p) p.BackgroundTransparency=1 p.Font=p.Font or Enum.Font.GothamMedium p.TextSize=p.TextSize or 13 p.TextColor3=p.TextColor3 or THEME.Text p.TextXAlignment=p.TextXAlignment or Enum.TextXAlignment.Left return create("TextLabel", p) end
+local function hover(b, t, id, ov) b.MouseEnter:Connect(function() tween(t,FAST,{BackgroundTransparency=ov}) end) b.MouseLeave:Connect(function() tween(t,FAST,{BackgroundTransparency=id}) end) end
+
+local Win, Tab, Sub, Sec = {}, {}, {}, {}
+Win.__index, Tab.__index, Sub.__index, Sec.__index = Win, Tab, Sub, Sec
+local Lib = {}
+
+function Lib.new(title)
+    local s = setmetatable({Tabs={}, Conns={}}, Win)
+    local old = PlayerGui:FindFirstChild("GlassUI") if old then old:Destroy() end
+    s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=true,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,Parent=PlayerGui})
+    s.Scale = create("UIScale", {Parent=s.Gui})
+    local function upd() local cam = workspace.CurrentCamera if cam then s.Scale.Scale = math.clamp(math.min(cam.ViewportSize.X/760, cam.ViewportSize.Y/500), 0.5, 1) end end
+    upd() if workspace.CurrentCamera then table.insert(s.Conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(upd)) end
+    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(720,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.45,Parent=s.Gui}, {corner(12), stroke(1,0.8)})
+    s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(4,4),Size=UDim2.new(1,-8,1,-8),BackgroundColor3=THEME.Background,BackgroundTransparency=0.6,ClipsDescendants=true,Parent=s.Main}, {corner(10), stroke(2,0.9)})
+    s.Title = create("Frame", {Size=UDim2.new(1,0,0,40),BackgroundTransparency=1,Parent=s.Inner}, {label({Text=title or "Interface",Font=Enum.Font.GothamBold,TextSize=15,Position=UDim2.fromOffset(16,0),Size=UDim2.new(1,-32,1,0)})})
+    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,40),Size=UDim2.new(0,160,1,-40),BackgroundTransparency=1,ScrollBarThickness=0,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,4),SortOrder=Enum.SortOrder.LayoutOrder})})
+    s.Content = create("Frame", {Position=UDim2.fromOffset(160,40),Size=UDim2.new(1,-160,1,-40),BackgroundTransparency=1,Parent=s.Inner})
+    local dr, ds, sp
+    table.insert(s.Conns, s.Title.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr,ds,sp=true,i.Position,s.Main.Position end end))
+    table.insert(s.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then local d=(i.Position-ds)/s.Scale.Scale s.Main.Position=UDim2.new(sp.X.Scale,sp.X.Offset+d.X,sp.Y.Scale,sp.Y.Offset+d.Y) end end))
+    table.insert(s.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
+    return s
 end
-
--- ============ ТЕКСТ "ЛОХ" ============
-local gui = Instance.new("ScreenGui")
-gui.Name = "LoxOverlay"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.DisplayOrder = 9999
-gui.Parent = PlayerGui
-
-local bg = Instance.new("Frame")
-bg.Size = UDim2.fromScale(1, 1)
-bg.BackgroundColor3 = Color3.new(0, 0, 0)
-bg.BackgroundTransparency = 0.35
-bg.BorderSizePixel = 0
-bg.Parent = gui
-
-local flash = Instance.new("Frame")
-flash.Size = UDim2.fromScale(1, 1)
-flash.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-flash.BackgroundTransparency = 1
-flash.BorderSizePixel = 0
-flash.Parent = gui
-
-local txt = Instance.new("TextLabel")
-txt.AnchorPoint = Vector2.new(0.5, 0.5)
-txt.Position = UDim2.fromScale(0.5, 0.5)
-txt.Size = UDim2.fromScale(1, 1)
-txt.BackgroundTransparency = 1
-txt.Text = "ЛОХ"
-txt.Font = Enum.Font.GothamBlack
-txt.TextSize = 220
-txt.TextColor3 = Color3.fromRGB(255, 60, 60)
-txt.Parent = gui
-
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.new(0, 0, 0)
-stroke.Thickness = 8
-stroke.Parent = txt
-
-local cam = Workspace.CurrentCamera
-local function rescale()
-    if not cam then return end
-    local vp = cam.ViewportSize
-    txt.TextSize = math.floor(math.min(vp.X, vp.Y) * 0.42)
+function Win:_Select(t)
+    if self.Active==t then return end self.Active=t
+    for _, v in ipairs(self.Tabs) do local a = v==t tween(v.Btn,FAST,{BackgroundTransparency=a and 0.8 or 1}) tween(v.Lbl,FAST,{TextColor3=a and THEME.Text or THEME.SubText}) if not a then v.Cont.Visible=false v.Cont.GroupTransparency=1 end end
+    t.Cont.Position=UDim2.fromOffset(0,8) t.Cont.Visible=true tween(t.Cont,SLOW,{GroupTransparency=0,Position=UDim2.fromOffset(0,0)})
 end
-rescale()
-if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(rescale) end
+function Win:AddTab(name, icon)
+    local t = setmetatable({Win=self,Name=name,Subs={}}, Tab)
+    t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,36),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Parent=self.Side}, {corner(8)})
+    label({Text=icon or "•",TextSize=15,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromOffset(8,0),Size=UDim2.new(0,22,1,0),Parent=t.Btn})
+    t.Lbl = label({Text=name,TextColor3=THEME.SubText,Position=UDim2.fromOffset(38,0),Size=UDim2.new(1,-44,1,0),Parent=t.Btn})
+    t.Btn.MouseEnter:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=0.92}) end end) t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
+    t.Btn.Activated:Connect(function() self:_Select(t) end)
+    t.Cont = create("CanvasGroup", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,GroupTransparency=1,Parent=self.Content})
+    t.SubBar = create("Frame", {Size=UDim2.new(1,0,0,32),BackgroundTransparency=1,Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6)})})
+    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,36),Size=UDim2.new(1,0,1,-36),BackgroundTransparency=1,Parent=t.Cont})
+    table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
+end
+function Tab:_SelectSub(s) if self.ActiveSub==s then return end self.ActiveSub=s for _, v in ipairs(self.Subs) do local a = v==s tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.9,TextColor3=a and THEME.Text or THEME.SubText}) if not a then v.Page.Visible=false v.Page.GroupTransparency=1 end end s.Page.Visible=true tween(s.Page,SLOW,{GroupTransparency=0}) end
+function Tab:AddSubTab(name)
+    local s = setmetatable({Tab=self,Name=name}, Sub)
+    s.Btn = create("TextButton", {Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=THEME.SubText,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.9,AutomaticSize=Enum.AutomaticSize.X,Size=UDim2.new(0,0,1,0),Parent=self.SubBar}, {corner(6), create("UIPadding", {PaddingLeft=UDim.new(0,12),PaddingRight=UDim.new(0,12)})})
+    s.Page = create("CanvasGroup", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,GroupTransparency=1,Parent=self.PageHolder})
+    s.Scroll = create("ScrollingFrame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ScrollBarThickness=3,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Page}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,8)})})
+    s.Btn.Activated:Connect(function() self:_SelectSub(s) end) table.insert(self.Subs, s) if #self.Subs==1 then self:_SelectSub(s) end return s
+end
+function Sub:AddSection(name)
+    local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
+    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.45,Parent=self.Scroll}, {corner(8), stroke(1,0.9), pad(10), create("UIListLayout", {Padding=UDim.new(0,6)})})
+    label({Text=string.upper(name),Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.Accent,Size=UDim2.new(1,0,0,16),Parent=s.Frame}) return s
+end
+function Sec:AddToggle(name, def, cb)
+    local st = def==true
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,32),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.6,Parent=self.Frame}, {corner(6)})
+    label({Text=name,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-70,1,0),Parent=r})
+    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(38,20),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70),Parent=r}, {corner(10)})
+    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(14,14),BackgroundColor3=Color3.new(1,1,1),Parent=t}, {corner(7)})
+    hover(r,r,0.6,0.4)
+    local obj = {}
+    function obj:Set(v, s) st = v and true or false tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70)}) tween(k,FAST,{Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0)}) if not s and cb then task.spawn(cb,st) end end
+    r.Activated:Connect(function() obj:Set(not st) end) return obj
+end
+function Sec:AddSlider(name, mn, mx, def, cb, inc)
+    inc = inc or 1 local val = math.clamp(def or mn, mn, mx)
+    local r = create("Frame", {Size=UDim2.new(1,0,0,44),BackgroundColor3=THEME.Element,BackgroundTransparency=0.6,Parent=self.Frame}, {corner(6)})
+    label({Text=name,Position=UDim2.fromOffset(10,4),Size=UDim2.new(1,-80,0,18),Parent=r})
+    local vl = label({Text=tostring(val),TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,4),Size=UDim2.fromOffset(60,18),Parent=r})
+    local t = create("TextButton", {Position=UDim2.new(0,10,1,-14),Size=UDim2.new(1,-20,0,6),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(55,55,70),Parent=r}, {corner(3)})
+    local f = create("Frame", {Size=UDim2.fromScale((val-mn)/(mx-mn),1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(3)})
+    hover(r,r,0.6,0.4)
+    local obj = {}
+    function obj:Set(v, s) v = math.clamp(math.floor(v/inc+0.5)*inc, mn, mx) val=v vl.Text=tostring(math.round(v*1000)/1000) tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale((v-mn)/(mx-mn),1)}) if not s and cb then task.spawn(cb,v) end end
+    local dr = false
+    local function fromX(x) local a = math.clamp((x-t.AbsolutePosition.X)/t.AbsoluteSize.X,0,1) obj:Set(mn+(mx-mn)*a) end
+    t.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=true fromX(i.Position.X) end end)
+    table.insert(self.Win.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then fromX(i.Position.X) end end))
+    table.insert(self.Win.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
+    return obj
+end
+function Sec:AddButton(name, cb)
+    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamMedium,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.75,Size=UDim2.new(1,0,0,32),Parent=self.Frame}, {corner(6), stroke(1,0.88)})
+    hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
+    b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
+end
+function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
 
--- вспышка
-TweenService:Create(flash, TweenInfo.new(0.15), {BackgroundTransparency = 0.6}):Play()
-task.delay(0.15, function()
-    TweenService:Create(flash, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+-- ==========================================
+-- GAME LOGIC & INIT
+-- ==========================================
+local Config = ConfigManager.new()
+local SavedData = Config:Load("settings")
+for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
+
+task.spawn(function() 
+    while task.wait(1) and isRunning do 
+        pcall(function() 
+            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) 
+            if getData and getData:IsA("RemoteFunction") then 
+                local ok, data = pcall(function() return getData:InvokeServer() end) 
+                if ok and type(data) == "table" then roles = data end 
+            end 
+        end) 
+    end 
 end)
 
--- тряска ~1.5 сек
-local shaking = true
-local t0 = tick()
+local function getClosestMurderer(pos) 
+    local cr, cd = nil, math.huge 
+    for _, p in ipairs(Players:GetPlayers()) do 
+        if p ~= LocalPlayer and p.Character then 
+            local r = roles[p.UserId] or roles[tostring(p.UserId)] or roles[p.Name] 
+            if r and isKillerRole(r.Role) then 
+                local pr = p.Character:FindFirstChild("HumanoidRootPart") 
+                if pr then 
+                    local d = (pr.Position - pos).Magnitude 
+                    if d < cd then cr, cd = pr, d end 
+                end 
+            end 
+        end 
+    end 
+    return cr, cd 
+end
+
+local function FlingTarget(tr)
+    local s = currentSession
+    if not s or s.destroyed or s.humanoid.Health <= 0 or not tr or not tr.Parent then return end
+    local mr = s.root
+    local oc = mr.CFrame local oa = mr.Anchored
+    mr.Anchored = true
+    local sp, pu
+    local ok, err = pcall(function()
+        if setnetworkowner then pcall(setnetworkowner, tr, LocalPlayer) end
+        mr.CFrame = tr.CFrame
+        sp = Instance.new("BodyAngularVelocity")
+        sp.AngularVelocity = Vector3.new(1e5, 1e5, 1e5)
+        sp.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+        sp.Parent = tr
+        pu = Instance.new("BodyVelocity")
+        pu.Velocity = Vector3.new(1e5, 1e5, 1e5)
+        pu.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        pu.Parent = tr
+        task.wait(0.1)
+    end)
+    if sp then sp:Destroy() end
+    if pu then pu:Destroy() end
+    mr.CFrame = oc
+    mr.Anchored = oa
+    if not ok then warn("[FlingTarget]", err) end
+end
+
+task.spawn(function() while task.wait(0.5) and isRunning do if CFG.AutoFling and currentSession and not currentSession.destroyed then local m, d = getClosestMurderer(currentSession.root.Position) if m and d < 50 then FlingTarget(m) task.wait(2) end end end end)
+
+local aimMarker = Instance.new("Part")
+aimMarker.Name = "LibAimMarker"
+aimMarker.Size = Vector3.new(1,1,1)
+aimMarker.Color = Color3.fromRGB(255, 50, 50)
+aimMarker.Material = Enum.Material.Neon
+aimMarker.CanCollide = false
+aimMarker.Anchored = true
+aimMarker.Parent = Workspace
+aimMarker.Transparency = 1
+
 task.spawn(function()
-    while shaking and gui.Parent do
-        local t = tick() - t0
-        local amp = math.max(0, 8 - t * 6)
-        local ox = math.sin(t * 90) * amp
-        local oy = math.cos(t * 70) * amp * 0.6
-        txt.Position = UDim2.new(0.5, ox, 0.5, oy)
-        task.wait()
+    while task.wait(0.1) and isRunning do
+        if CFG.Prediction and currentSession and currentSession.root then
+            local m, d = getClosestMurderer(currentSession.root.Position)
+            if m then
+                local camPos = workspace.CurrentCamera.CFrame.Position
+                local aimPos, t = InterceptSolver.solve(m.Position, m.AssemblyLinearVelocity, camPos, CFG.ProjSpeed)
+                if aimPos then
+                    aimMarker.CFrame = CFrame.new(aimPos)
+                    aimMarker.Transparency = 0.5
+                else
+                    aimMarker.Transparency = 1
+                end
+            else
+                aimMarker.Transparency = 1
+            end
+        else
+            aimMarker.Transparency = 1
+        end
     end
 end)
-task.delay(1.5, function() shaking = false end)
 
--- держим 5 сек, потом плавно убираем
-task.delay(5, function()
-    shaking = false
-    local f1 = TweenService:Create(txt, TweenInfo.new(0.5), {TextTransparency = 1})
-    local f2 = TweenService:Create(bg, TweenInfo.new(0.5), {BackgroundTransparency = 1})
-    f1:Play() f2:Play()
-    f1.Completed:Connect(function() if gui then gui:Destroy() end end)
+local function bindCharacter(char)
+    if currentSession then currentSession.destroyed = true end canFarmNow = false 
+    local root = char:WaitForChild("HumanoidRootPart", 10) local hum = char:WaitForChild("Humanoid", 10) 
+    if not (root and hum) or LocalPlayer.Character ~= char then return end
+    local s = { character = char, root = root, humanoid = hum, destroyed = false } currentSession = s
+    hum.Died:Connect(function() s.destroyed = true if currentSession == s then currentSession = nil end end)
+    char.AncestryChanged:Connect(function(_, par) if par == nil then s.destroyed = true if currentSession == s then currentSession = nil end end end)
+    task.wait(3) canFarmNow = true 
+end
+LocalPlayer.CharacterAdded:Connect(bindCharacter) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
+
+local coinTracker = ObjectTracker.new("CoinContainer", "^Coin", { Parent = Workspace, Recursive = true })
+
+local function glideTo(target, speed)
+    local s = currentSession 
+    if not s or s.destroyed or not s.root or not s.root.Parent or not s.humanoid or s.humanoid.Health <= 0 or not target.Parent then return false end
+    local char = s.character local root = s.root local hum = s.humanoid
+    local targetPos = target:IsA("BasePart") and target.Position or target:GetPivot().Position
+    local origAnchored = root.Anchored
+    local origCanCollide = root.CanCollide
+    local origPS = hum.PlatformStand
+    root.Anchored = true
+    hum.PlatformStand = true
+    root.CanCollide = false
+    local parts = {}
+    for _, d in ipairs(char:GetDescendants()) do 
+        if d:IsA("BasePart") then d.CanCollide = false parts[#parts+1] = d end 
+    end
+    local dist = (targetPos - root.Position).Magnitude
+    local travelTime = math.max(dist / speed, 0.1)
+    local info = TweenInfo.new(travelTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local goal = { CFrame = CFrame.lookAt(targetPos, targetPos + (targetPos - root.Position)) }
+    if dist < 0.1 then goal.CFrame = CFrame.new(targetPos) end
+    local tween = TweenService:Create(root, info, goal)
+    tween:Play()
+    local arrived = false
+    local startT = tick()
+    while isRunning do
+        RunService.Heartbeat:Wait()
+        if s.destroyed or hum.Health <= 0 then break end
+        if (root.Position - targetPos).Magnitude <= 3 then arrived = true break end
+        if tick() - startT > 8 then break end
+    end
+    tween:Cancel()
+    root.Anchored = origAnchored
+    root.CanCollide = origCanCollide
+    for _, p in ipairs(parts) do if p and p.Parent then p.CanCollide = true end end
+    if hum.Parent and hum.Health > 0 then hum.PlatformStand = origPS hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    if arrived then
+        pcall(function()
+            if typeof(firetouchinterest) == "function" then 
+                firetouchinterest(root, target, 0) 
+                firetouchinterest(target, root, 0)
+                task.wait(0.02)
+                firetouchinterest(root, target, 1) 
+                firetouchinterest(target, root, 1)
+            end
+        end)
+    end
+    return arrived
+end
+
+local function collectSession() 
+    while CFG.AutoFarm and canFarmNow and isRunning do 
+        local root = currentSession and currentSession.root
+        if not root then break end
+        local target = coinTracker:GetClosest(root.Position, 100)
+        if not target then task.wait(0.5) continue end
+        if glideTo(target, CFG.MaxSpeed) then
+            task.wait(0.15)
+        else 
+            task.wait(0.1) 
+        end
+    end 
+end
+task.spawn(function() while true and isRunning do if CFG.AutoFarm then collectSession() end task.wait(1) end end)
+
+-- ==========================================
+-- UI INIT
+-- ==========================================
+local roleHUD = RoleHUD.new(function() return roles end)
+overheadTracker = OverheadTracker.new(function() return roles end, {
+    MaxDistance = 150,
+    UpdateInterval = 0.2,
+    AutoStart = false,
+})
+
+local win = Lib.new("LIBERIUM HUB")
+
+local tFarm = win:AddTab("Farm", "💰")
+local sFarm = tFarm:AddSubTab("Coins")
+local secF = sFarm:AddSection("Settings")
+secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end)
+secF:AddSlider("Farm Speed", 10, 24, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
+
+local tVis = win:AddTab("Visuals", "👁")
+local sVis = tVis:AddSubTab("ESP")
+local secV = sVis:AddSection("Players")
+secV:AddToggle("Player ESP", CFG.ESP, function(v) 
+    CFG.ESP = v 
+    if v then 
+        roleHUD:Start() 
+        overheadTracker:SetVisible(true)
+        NotificationManager.Notify("ESP Enabled", "Success", 2)
+    else 
+        roleHUD:Stop() 
+        overheadTracker:SetVisible(false)
+        NotificationManager.Notify("ESP Disabled", "Info", 2)
+    end 
 end)
+
+local tCom = win:AddTab("Combat", "⚔")
+local sCom = tCom:AddSubTab("Fling")
+local secC = sCom:AddSection("Actions")
+secC:AddToggle("Auto Fling", CFG.AutoFling, function(v) CFG.AutoFling = v end)
+secC:AddButton("Manual Fling", function() 
+    if not currentSession or currentSession.destroyed or not currentSession.root then return end
+    local m = getClosestMurderer(currentSession.root.Position) 
+    if m then FlingTarget(m) end 
+end)
+secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
+
+local sAim = tCom:AddSubTab("Aim")
+local secA = sAim:AddSection("Prediction")
+secA:AddToggle("Show Aim Prediction", CFG.Prediction, function(v) CFG.Prediction = v end)
+secA:AddSlider("Projectile Speed", 50, 500, CFG.ProjSpeed, function(v) CFG.ProjSpeed = v end)
+secA:AddDropdown("Aim Mode", {"Classic", "Silent", "Flick"}, CFG.AimMode, function(v) CFG.AimMode = v end)
+
+local tSet = win:AddTab("Settings", "⚙")
+local sSet = tSet:AddSubTab("Config")
+local secS = sSet:AddSection("Configuration")
+secS:AddButton("Save Settings", function() 
+    local ok = Config:Save(CFG, "settings")
+    if ok then 
+        NotificationManager.Notify("Config saved!", "Success", 3)
+    else 
+        NotificationManager.Notify("Saved to memory only", "Info", 3)
+    end
+end)
+
+-- ==========================================
+-- HOOKUP
+-- ==========================================
+uiToggle = UIToggle.new(win.Gui, {
+    Keybind = Enum.KeyCode.RightShift,
+    AccentColor = THEME.Accent,
+    OnToggle = function(visible)
+        NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5)
+    end,
+})
+
+task.delay(0.8, function()
+    if NotificationManager then
+        NotificationManager.Notify("Liberium Hub v68 ready", "Success", 2.5)
+    end
+end)
+
+if CFG.AntiFling then Stabilizer.Start() end
