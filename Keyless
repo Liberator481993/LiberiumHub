@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v44 | Ultimate UI + Physics + PlayerList + Dropdown
+-- LIBERIUM HUB | v45 | Delta Teleport-Farm + Code-Gen Background
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -28,37 +28,8 @@ local currentSession = nil
 local lastHealth = 100
 
 -- ==========================================
--- КОД ОТ КЛОДА (Physics & Prediction)
+-- АНТИ-ФЛИНГ ОТ КЛОДА
 -- ==========================================
-local function predictAimPosition(targetRoot, shooterPos, projectileSpeed)
-    local targetPos = targetRoot.Position
-    local velocity = targetRoot.AssemblyLinearVelocity
-    local d = targetPos - shooterPos
-    local a = velocity:Dot(velocity) - projectileSpeed * projectileSpeed
-    local b = 2 * d:Dot(velocity)
-    local c = d:Dot(d)
-    local t
-    if math.abs(a) < 1e-6 then
-        if math.abs(b) > 1e-6 then
-            local candidate = -c / b
-            if candidate > 0 then t = candidate end
-        end
-    else
-        local disc = b * b - 4 * a * c
-        if disc >= 0 then
-            local sqrtDisc = math.sqrt(disc)
-            local inv = 1 / (2 * a)
-            local t1 = (-b - sqrtDisc) * inv
-            local t2 = (-b + sqrtDisc) * inv
-            if t1 > 0 and t2 > 0 then t = math.min(t1, t2)
-            elseif t1 > 0 then t = t1
-            elseif t2 > 0 then t = t2 end
-        end
-    end
-    if not t then return nil, nil end
-    return targetPos + velocity * t, t
-end
-
 local function startAntiFling(threshold)
     local limitSq = (threshold or 1000) ^ 2
     RunService.Heartbeat:Connect(function()
@@ -74,10 +45,10 @@ local function startAntiFling(threshold)
         end
     end)
 end
-startAntiFling(1000) -- Включаем защиту от флинга
+startAntiFling(1000)
 
 -- ==========================================
--- ТЕМЫ И ФОНЫ
+-- ТЕМЫ
 -- ==========================================
 local Theme = {
     Background = Color3.fromRGB(8, 10, 9), Sidebar = Color3.fromRGB(13, 17, 15),
@@ -93,7 +64,6 @@ local Themes = {
     Red = { Green = Color3.fromRGB(255, 40, 40), GreenDark = Color3.fromRGB(120, 0, 0), Border = Color3.fromRGB(100, 40, 40) },
     Blue = { Green = Color3.fromRGB(0, 170, 255), GreenDark = Color3.fromRGB(0, 70, 120), Border = Color3.fromRGB(40, 70, 100) },
 }
-local Backgrounds = { "rbxassetid://8992266418", "rbxassetid://1316045217", "rbxassetid://4984519725" }
 
 -- ==========================================
 -- UI БИБЛИОТЕКА
@@ -137,6 +107,7 @@ function Library.new(options)
     local gui = New("ScreenGui", { Name = "LiberiumHubPremium", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 50, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, PlayerGui)
     self.Gui = gui
 
+    -- Плавающая кнопка
     self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(50, 50), BackgroundColor3 = Theme.Background, Text = "⚔", TextColor3 = Theme.Green, TextSize = 28, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
     Round(self.OpenButton, 25) Stroke(self.OpenButton, Theme.Green, 0.1, 1.5)
     
@@ -149,7 +120,19 @@ function Library.new(options)
     local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BorderSizePixel = 0, ClipsDescendants = true }, gui)
     self.Root = root Round(root, 14) Stroke(root, Theme.Green, 0.12, 1.3)
 
-    self.BgImage = New("ImageLabel", { BackgroundTransparency = 1, ImageTransparency = 0.85, Image = Backgrounds[1], ScaleType = Enum.ScaleType.Crop, Size = UDim2.fromScale(1,1) }, root) Round(self.BgImage, 14)
+    -- КОД-ГЕНЕРАЦИЯ ФОНА (Без картинок)
+    local bgGradient = New("UIGradient", { 
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 25, 20)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(8, 10, 9)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 25, 20)),
+        }),
+        Rotation = 45 
+    }, root)
+    
+    -- Свечение в углу
+    local glow = New("Frame", { AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(-50, -50), Size = UDim2.fromOffset(200, 200), BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.9, BorderSizePixel = 0 }, root)
+    Round(glow, 100)
 
     local scale = New("UIScale", { Scale = 1 }, root) self.Scale = scale
     local function updateScale()
@@ -197,21 +180,12 @@ function Library:ChangeTheme(themeName)
     Theme.Green = t.Green Theme.GreenDark = t.GreenDark Theme.Border = t.Border
     for _, obj in ipairs(self.Gui:GetDescendants()) do
         if obj:IsA("UIStroke") then
-            if obj.Color == Color3.fromRGB(0, 255, 65) or obj.Color == Color3.fromRGB(170, 0, 255) or obj.Color == Color3.fromRGB(255, 40, 40) or obj.Color == Color3.fromRGB(0, 170, 255) then
-                Tween(obj, 0.3, {Color = Theme.Green})
-            end
+            if obj.Color == Themes.Green.Green or obj.Color == Themes.Purple.Green or obj.Color == Themes.Red.Green or obj.Color == Themes.Blue.Green then Tween(obj, 0.3, {Color = Theme.Green}) end
         elseif obj:IsA("Frame") and (obj.Name == "Fill" or obj.Name == "Track") then
             Tween(obj, 0.3, {BackgroundColor3 = Theme.Green})
-        elseif obj:IsA("TextLabel") and (obj.TextColor3 == Color3.fromRGB(0, 255, 65) or obj.TextColor3 == Color3.fromRGB(170, 0, 255) or obj.TextColor3 == Color3.fromRGB(255, 40, 40) or obj.TextColor3 == Color3.fromRGB(0, 170, 255)) then
+        elseif obj:IsA("TextLabel") and (obj.TextColor3 == Themes.Green.Green or obj.TextColor3 == Themes.Purple.Green or obj.TextColor3 == Themes.Red.Green or obj.TextColor3 == Themes.Blue.Green) then
             Tween(obj, 0.3, {TextColor3 = Theme.Green})
         end
-    end
-end
-function Library:ChangeBackground(idx)
-    if Backgrounds[idx] then
-        Tween(self.BgImage, 0.3, {ImageTransparency = 1}) task.wait(0.31)
-        self.BgImage.Image = Backgrounds[idx]
-        Tween(self.BgImage, 0.3, {ImageTransparency = 0.85})
     end
 end
 
@@ -228,8 +202,7 @@ function Library:_SelectTab(tab)
     for _, sub in ipairs(tab.SubTabs) do
         local b = MakeButton(self.SubTabBar, sub.Name, UDim2.fromOffset(94, 34))
         b.TextSize = 11 b.BackgroundColor3 = Theme.Card
-        local st = Stroke(b, Theme.Green, 1, 1)
-        sub.Button = b sub.Stroke = st
+        local st = Stroke(b, Theme.Green, 1, 1) sub.Button = b sub.Stroke = st
         b.Activated:Connect(function() self:_SelectSub(tab, sub) end)
 
         local page = New("ScrollingFrame", { Name = sub.Name .. "Page", BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(10, 8), Size = UDim2.new(1, -20, 1, -16), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Green, Visible = false }, self.PageHolder)
@@ -442,26 +415,39 @@ local function bindCharacter(character)
     if humanoid.Health <= 0 then teardown(s) end task.wait(3) canFarmNow = true
 end
 Player.CharacterAdded:Connect(bindCharacter) Player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end) if Player.Character then task.spawn(bindCharacter, Player.Character) end
-local function setNoclip(char, state) if not char then return end for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then if state then if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end d.CanCollide = false else if originalCollide[d] ~= nil then d.CanCollide = originalCollide[d] originalCollide[d] = nil end end end end end
 
+-- ФИКС ФАРМА НА ДЕЛЬТЕ (Телепорт, без врезания в стены)
 local function flyTo(target)
     local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end s.target = target
-    local arrived = false local startTime = os.clock() local lastPos = s.root.Position local stuckCounter = 0
+    local arrived = false local startTime = os.clock()
     local ok, err = pcall(function()
-        s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true setNoclip(s.character, true)
-        local f = s.root.AssemblyMass * CFG.ForcePerMass s.bv.MaxForce = Vector3.new(f, f, f) s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
+        s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent do
-            RunService.Heartbeat:Wait() if s.destroyed then break end s.root.CanCollide = false
-            if (s.root.Position - lastPos).Magnitude < 0.5 then stuckCounter = stuckCounter + 1 if stuckCounter > 10 then s.root.CFrame = CFrame.new(target.Position + Vector3.new(0, 2, 0)) s.root.AssemblyLinearVelocity = Vector3.zero stuckCounter = 0 end
-            else stuckCounter = 0 lastPos = s.root.Position end
+            RunService.Heartbeat:Wait() if s.destroyed then break end
+            
+            -- ТЕЛЕПОРТ К КОНФЕТЕ (Игнорирует стены)
+            local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude
+            if dist <= 5 then arrived = true break end
+            
             local mRoot, mDist = getClosestMurderer(s.root.Position)
-            if mRoot and mDist < CFG.AvoidRadius then Blacklist[target] = true local escapeDir = (s.root.Position - mRoot.Position).Unit s.bv.Velocity = Vector3.new(escapeDir.X, 0.8, escapeDir.Z) * (CFG.MaxSpeed * 1.5) task.wait(0.3)
-            else local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude if dist <= 5 then arrived = true break end s.bv.Velocity = offset.Unit * math.min(CFG.MaxSpeed, dist * CFG.Gain) local flat = Vector3.new(offset.X, 0, offset.Z) if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end end
-            if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end if not canCollect() then break end
+            if mRoot and mDist < CFG.AvoidRadius then 
+                Blacklist[target] = true 
+                local escapeDir = (s.root.Position - mRoot.Position).Unit 
+                s.root.CFrame = s.root.CFrame + (escapeDir * 15) -- Телепорт от маньяка
+                task.wait(0.3)
+            else 
+                -- Прямой телепорт в сторону монеты (без физики)
+                local step = math.min(dist, 8) -- Максимум 8 стадов за кадр
+                s.root.CFrame = CFrame.new(pos + offset.Unit * step)
+            end
+            
+            if os.clock() - startTime > 2.5 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end 
+            if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end 
+            if not canCollect() then break end
         end
     end)
     if not ok then warn("flyTo error:", err) end
-    if not s.destroyed then releaseForces(s) s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero setNoclip(s.character, false) resetHumanoid(s) end
+    if not s.destroyed then resetHumanoid(s) end
     s.target = nil return arrived
 end
 local COIN_PRIMARY = "Coin_Server" local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true } local coinCache, coinCacheTime, coinContainer = {}, 0, nil
@@ -480,7 +466,7 @@ Player.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureControlle
 -- ==========================================
 local Window = Library.new({ Title = "LIBERIUM HUB", Subtitle = "MM2 PREMIUM" })
 
--- Teleport (5-й скрин)
+-- Teleport
 local TeleportTab = Window:AddTab("Teleport", "📍")
 local TpRoles = TeleportTab:AddSubTab("TP Role")
 local TpRoleSec = TpRoles:AddSection("Roles")
@@ -496,7 +482,7 @@ TpPlayerSec:AddPlayerList("Target Player", "TP", function(targetPlayer)
     end
 end)
 
--- Sheriff (4-й скрин)
+-- Sheriff
 local SheriffTab = Window:AddTab("Sheriff", "🛡")
 local SheriffSub = SheriffTab:AddSubTab("Main")
 local SheriffSec = SheriffSub:AddSection("Sheriff")
@@ -507,7 +493,7 @@ AimSec:AddToggle("Silent Aim", false, function(state) print("Silent Aim:", state
 AimSec:AddDropdown("AimBot Type", {"Classic", "Silent", "Flick"}, "Classic", function(val) print("Aim Type:", val) end)
 AimSec:AddSlider("Flick Speed", 1, 10, 6, function(val) print("Flick Speed:", val) end)
 
--- Combat (Флинг)
+-- Combat
 local CombatTab = Window:AddTab("Combat", "⚔")
 local CombatSub = CombatTab:AddSubTab("Murderer")
 local CombatSec = CombatSub:AddSection("Fling")
@@ -516,7 +502,7 @@ CombatSec:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(
 CombatSec:AddSlider("Avoid Radius", 0, 30, 20, function(val) CFG.AvoidRadius = val end)
 CombatSec:AddToggle("Anti-Fling (Self)", true, function(state) CFG.AntiFling = state end)
 
--- Farm (6-й скрин)
+-- Farm
 local FarmTab = Window:AddTab("Farm", "💰")
 local FarmSub = FarmTab:AddSubTab("Coin")
 local FarmSec = FarmSub:AddSection("Settings")
@@ -539,8 +525,3 @@ ThemeSec:AddButton("Green Theme", function() Window:ChangeTheme("Green") end)
 ThemeSec:AddButton("Purple Theme", function() Window:ChangeTheme("Purple") end)
 ThemeSec:AddButton("Red Theme", function() Window:ChangeTheme("Red") end)
 ThemeSec:AddButton("Blue Theme", function() Window:ChangeTheme("Blue") end)
-
-local BgSec = SettingsSub:AddSection("Backgrounds")
-BgSec:AddButton("Background 1 (Neon)", function() Window:ChangeBackground(1) end)
-BgSec:AddButton("Background 2 (Abstract)", function() Window:ChangeBackground(2) end)
-BgSec:AddButton("Background 3 (Cyber)", function() Window:ChangeBackground(3) end)
