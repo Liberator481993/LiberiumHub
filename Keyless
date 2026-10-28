@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v52 | PulseHub Visual + Fixed ESP + Wall-Bypass Farm
+-- LIBERIUM HUB | v54 | Modern Glass Dashboard
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
+local Lighting = game:GetService("Lighting")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -57,21 +58,21 @@ startAntiFling(1000)
 -- ТЕМЫ (PULSEHUB STYLE)
 -- ==========================================
 local Theme = {
-    Background = Color3.fromRGB(8, 10, 9), Sidebar = Color3.fromRGB(13, 17, 15),
-    Card = Color3.fromRGB(19, 24, 22), Hover = Color3.fromRGB(27, 38, 30),
-    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 75, 30),
+    Background = Color3.fromRGB(15, 15, 18), Sidebar = Color3.fromRGB(20, 20, 24),
+    Card = Color3.fromRGB(28, 28, 33), Hover = Color3.fromRGB(35, 35, 42),
+    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 150, 40),
     White = Color3.fromRGB(245, 250, 247), Muted = Color3.fromRGB(139, 157, 146),
-    Track = Color3.fromRGB(42, 48, 44), Border = Color3.fromRGB(39, 58, 45),
+    Track = Color3.fromRGB(45, 45, 52), Border = Color3.fromRGB(50, 50, 60),
 }
 local Themes = {
-    Green = { Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 75, 30), Border = Color3.fromRGB(39, 58, 45) },
+    Green = { Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 150, 40), Border = Color3.fromRGB(50, 50, 60) },
     Purple = { Green = Color3.fromRGB(170, 0, 255), GreenDark = Color3.fromRGB(70, 0, 120), Border = Color3.fromRGB(70, 40, 100) },
     Red = { Green = Color3.fromRGB(255, 40, 40), GreenDark = Color3.fromRGB(120, 0, 0), Border = Color3.fromRGB(100, 40, 40) },
     Blue = { Green = Color3.fromRGB(0, 170, 255), GreenDark = Color3.fromRGB(0, 70, 120), Border = Color3.fromRGB(40, 70, 100) },
 }
 
 -- ==========================================
--- UI БИБЛИОТЕКА
+-- UI БИБЛИОТЕКА (GLASS DASHBOARD)
 -- ==========================================
 local Library = {}
 Library.__index = Library
@@ -84,7 +85,7 @@ local function New(className, properties, parent)
 end
 local function Tween(object, duration, properties)
     if not object then return end
-    local animation = TweenService:Create(object, TweenInfo.new(duration or 0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties)
+    local animation = TweenService:Create(object, TweenInfo.new(duration or 0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties)
     animation:Play() return animation
 end
 local function Round(object, radius) New("UICorner", { CornerRadius = UDim.new(0, radius or 8) }, object) end
@@ -110,6 +111,10 @@ function Library.new(options)
     local self = setmetatable({}, Library)
     self.Tabs = {} self.ActiveTab = nil self.Connections = {} self.Visible = true
     
+    -- Размытие фона
+    local blur = Lighting:FindFirstChild("LiberiumBlur") or New("BlurEffect", {Name = "LiberiumBlur", Size = 0}, Lighting)
+    Tween(blur, 0.3, {Size = 12})
+
     local oldGui = PlayerGui:FindFirstChild("LiberiumHubPremium")
     if oldGui then oldGui:Destroy() end
 
@@ -117,15 +122,13 @@ function Library.new(options)
     self.Gui = gui
     function self:_Track(conn) table.insert(self.Connections, conn) end
 
-    -- Плавающая кнопка
+    -- Кнопка вызова
     self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(50, 50), BackgroundColor3 = Theme.Background, Text = "M", TextColor3 = Theme.Green, TextSize = 24, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
-    Round(self.OpenButton, 25) local os1 = Stroke(self.OpenButton, Theme.Green, 0.1, 1.5) TagTheme(os1, "Color", "Green") TagTheme(self.OpenButton, "TextColor3", "Green")
+    Round(self.OpenButton, 25) local os1 = Stroke(self.OpenButton, Theme.Green, 0.2, 1.5) TagTheme(os1, "Color", "Green") TagTheme(self.OpenButton, "TextColor3", "Green")
     
     local fDrag, fStart, fPos, fMoved = false, nil, nil, false
     self:_Track(self.OpenButton.InputBegan:Connect(function(i) 
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
-            fDrag, fStart, fPos, fMoved = true, i.Position, self.OpenButton.Position, false 
-        end 
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag, fStart, fPos, fMoved = true, i.Position, self.OpenButton.Position, false end 
     end))
     self:_Track(UserInputService.InputChanged:Connect(function(i) 
         if fDrag and i == fStart then 
@@ -134,16 +137,12 @@ function Library.new(options)
             self.OpenButton.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y)
         end 
     end))
-    self:_Track(UserInputService.InputEnded:Connect(function(i) 
-        if fDrag and i == fStart then fDrag = false end 
-    end))
-    self:_Track(self.OpenButton.Activated:Connect(function() 
-        if not fMoved then self:ToggleVisible() end 
-    end))
+    self:_Track(UserInputService.InputEnded:Connect(function(i) if fDrag and i == fStart then fDrag = false end end))
+    self:_Track(self.OpenButton.Activated:Connect(function() if not fMoved then self:ToggleVisible() end end))
 
-    -- Окно
-    local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BorderSizePixel = 0, ClipsDescendants = true }, gui)
-    self.Root = root Round(root, 14) local rs = Stroke(root, Theme.Green, 0.12, 1.3) TagTheme(rs, "Color", "Green")
+    -- Окно (Glass)
+    local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.15, BorderSizePixel = 0, ClipsDescendants = true }, gui)
+    self.Root = root Round(root, 16) local rs = Stroke(root, Theme.Green, 0.8, 1.5) TagTheme(rs, "Color", "Green")
 
     local scale = New("UIScale", { Scale = 1 }, root) self.Scale = scale
     local function updateScale()
@@ -155,31 +154,34 @@ function Library.new(options)
     if workspace.CurrentCamera then self:_Track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
 
     -- Сайдбар
-    local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BorderSizePixel = 0, Size = UDim2.new(0, 184, 1, 0), ZIndex = 2 }, root)
-    New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.65, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
+    local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BackgroundTransparency = 0.2, BorderSizePixel = 0, Size = UDim2.new(0, 180, 1, 0) }, root)
+    Round(sidebar, 16)
+    New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.8, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
     
-    local logo = New("Frame", { BackgroundColor3 = Color3.fromRGB(8, 40, 19), Position = UDim2.fromOffset(15, 19), Size = UDim2.fromOffset(38, 38), BorderSizePixel = 0 }, sidebar) Round(logo, 10) local lst = Stroke(logo, Theme.Green, 0.2, 1) TagTheme(lst, "Color", "Green")
+    local logo = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.9, Position = UDim2.fromOffset(15, 19), Size = UDim2.fromOffset(38, 38), BorderSizePixel = 0 }, sidebar) Round(logo, 10)
     local logoText = MakeLabel(logo, "L", 24, Theme.Green, Enum.Font.GothamBold) logoText.TextXAlignment = Enum.TextXAlignment.Center TagTheme(logoText, "TextColor3", "Green")
     
-    local brand = MakeLabel(sidebar, options.Title or "LIBERIUM HUB", 16, Theme.White, Enum.Font.GothamBold) brand.Position = UDim2.fromOffset(61, 19) brand.Size = UDim2.new(1, -66, 0, 22)
-    local subtitle = MakeLabel(sidebar, "P R E M I U M   U I", 9, Theme.Muted, Enum.Font.Gotham) subtitle.Position = UDim2.fromOffset(62, 42) subtitle.Size = UDim2.new(1, -66, 0, 13)
+    local brand = MakeLabel(sidebar, options.Title or "LIBERIUM HUB", 16, Theme.White, Enum.Font.GothamBold) brand.Position = UDim2.fromOffset(61, 19)
+    local subtitle = MakeLabel(sidebar, "PREMIUM UI", 9, Theme.Muted, Enum.Font.GothamBold) subtitle.Position = UDim2.fromOffset(62, 42)
 
     self.Nav = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 76), Size = UDim2.new(1, -18, 1, -91) }, sidebar)
     New("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
 
     -- Контент
-    self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(184, 0), Size = UDim2.new(1, -184, 1, 0), ZIndex = 2 }, root)
+    self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(180, 0), Size = UDim2.new(1, -180, 1, 0) }, root)
     local header = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(20, 10), Size = UDim2.new(1, -40, 0, 48) }, self.Content)
-    self.PageTitle = MakeLabel(header, "Dashboard", 17, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(1, -100, 1, 0)
-
+    self.PageTitle = MakeLabel(header, "Dashboard", 20, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(1, -100, 1, 0)
+    
     local close = New("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(29, 29), BackgroundColor3 = Theme.Card, Text = "×", TextColor3 = Theme.Muted, TextSize = 18, Font = Enum.Font.GothamBold, AutoButtonColor = false }, header)
-    Round(close, 8) Stroke(close, Theme.Border, 0.2, 1) close.Activated:Connect(function() self:ToggleVisible() end)
+    Round(close, 8) Stroke(close, Theme.Green, 0.8, 1) close.Activated:Connect(function() self:ToggleVisible() end)
 
-    -- ПИЛЛСЫ (Как в ПульсХабе)
+    -- Таблетки (Pills)
     self.SubTabBar = New("ScrollingFrame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 66), Size = UDim2.new(1, -30, 0, 37), BorderSizePixel = 0, ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new() }, self.Content)
     New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7) }, self.SubTabBar)
+    
     self.PageHolder = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 108), Size = UDim2.new(1, -30, 1, -123), ClipsDescendants = true }, self.Content)
 
+    -- Драг окна
     local dragging, dragStart, startPosition, activeInput = false, nil, nil, nil
     self:_Track(header.InputBegan:Connect(function(input) 
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
@@ -189,15 +191,10 @@ function Library.new(options)
     self:_Track(UserInputService.InputChanged:Connect(function(input) 
         if dragging and input == activeInput then 
             local delta = input.Position - dragStart 
-            local vp = workspace.CurrentCamera.ViewportSize
-            local newX = math.clamp(startPosition.X.Offset + delta.X, -vp.X + 100, vp.X - 100)
-            local newY = math.clamp(startPosition.Y.Offset + delta.Y, -vp.Y + 100, vp.Y - 100)
-            root.Position = UDim2.new(startPosition.X.Scale, newX, startPosition.Y.Scale, newY) 
+            root.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y) 
         end 
     end))
-    self:_Track(UserInputService.InputEnded:Connect(function(input) 
-        if dragging and input == activeInput then dragging = false activeInput = nil end 
-    end))
+    self:_Track(UserInputService.InputEnded:Connect(function(input) if dragging and input == activeInput then dragging = false activeInput = nil end end))
 
     return self
 end
@@ -213,27 +210,23 @@ function Library:ChangeTheme(themeName)
     end
 end
 
--- ВЫБОР ВКЛАДОК (Ленивая загрузка)
 function Library:_SelectTab(tab)
     if tab == self.ActiveTab then return end
     self.ActiveTab = tab self.PageTitle.Text = tab.Name
     for _, t in ipairs(self.Tabs) do
         local active = t == tab
-        Tween(t.Button, 0.18, { BackgroundTransparency = active and 0 or 1, TextColor3 = active and Theme.White or Theme.Muted })
-        Tween(t.Stroke, 0.18, {Transparency = active and 0.05 or 1})
-        for _, sub in ipairs(t.SubTabs) do
-            if sub.Page then sub.Page.Visible = (t == tab and sub == tab.SubTabs[1]) end
-        end
+        Tween(t.Button, 0.2, { BackgroundColor3 = active and Theme.Card or Theme.Sidebar, TextColor3 = active and Theme.White or Theme.Muted })
+        for _, sub in ipairs(t.SubTabs) do if sub.Page then sub.Page.Visible = (t == tab and sub == tab.SubTabs[1]) end end
     end
-    ClearGui(self.SubTabBar)
     
+    ClearGui(self.SubTabBar)
     for _, sub in ipairs(tab.SubTabs) do
-        local b = New("TextButton", { BackgroundColor3 = Theme.Card, Text = sub.Name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamMedium, TextSize = 12, Size = UDim2.fromOffset(94, 34), AutoButtonColor = false }, self.SubTabBar)
-        Round(b, 17) local st = Stroke(b, Theme.Border, 1, 1) sub.Button = b sub.Stroke = st
+        local b = New("TextButton", { BackgroundColor3 = Theme.Card, Text = sub.Name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamBold, TextSize = 11, Size = UDim2.fromOffset(90, 30), AutoButtonColor = false }, self.SubTabBar)
+        Round(b, 15) local st = Stroke(b, Theme.Green, 1, 1) sub.Button = b sub.Stroke = st
         b.Activated:Connect(function() self:_SelectSub(tab, sub) end)
 
         if not sub.Page then
-            local page = New("ScrollingFrame", { Name = sub.Name .. "Page", BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 1, 0), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Green, Visible = false }, self.PageHolder)
+            local page = New("ScrollingFrame", { Name = sub.Name .. "Page", BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 1, 0), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Green, Visible = false }, self.PageHolder)
             TagTheme(page, "ScrollBarImageColor3", "Green")
             New("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, page) 
             New("UIPadding", { PaddingBottom = UDim.new(0, 10), PaddingRight = UDim.new(0, 4) }, page)
@@ -249,8 +242,8 @@ function Library:_SelectSub(tab, sub)
     for _, s in ipairs(tab.SubTabs) do
         if s.Button then 
             local active = s == sub 
-            Tween(s.Button, 0.18, { BackgroundColor3 = active and Theme.GreenDark or Theme.Card, TextColor3 = active and Theme.White or Theme.Muted }) 
-            Tween(s.Stroke, 0.18, { Color = active and Theme.Green or Theme.Border, Transparency = active and 0 or 1 }) 
+            Tween(s.Button, 0.2, { BackgroundColor3 = active and Theme.Green or Theme.Card, TextColor3 = active and Theme.Background or Theme.Muted }) 
+            Tween(s.Stroke, 0.2, { Transparency = active and 0 or 1 }) 
         end
         if s.Page then s.Page.Visible = s == sub end
     end
@@ -259,12 +252,11 @@ end
 
 function Library:AddTab(name, icon)
     local tab = { Window = self, Name = name, Icon = icon or "•", SubTabs = {} }
-    local b = New("TextButton", { BackgroundColor3 = Theme.Sidebar, Size = UDim2.new(1, 0, 0, 35), Text = "  " .. (icon or "•") .. "   " .. name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1, AutoButtonColor = false }, self.Nav)
+    local b = New("TextButton", { BackgroundColor3 = Theme.Sidebar, Size = UDim2.new(1, 0, 0, 35), Text = "  " .. (icon or "•") .. "   " .. name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamSemibold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 0, AutoButtonColor = false }, self.Nav)
     b.LayoutOrder = #self.Tabs + 1 Round(b, 8) New("UIPadding", { PaddingLeft = UDim.new(0, 10) }, b)
-    local st = Stroke(b, Theme.Green, 1, 1) tab.Button, tab.Stroke = b, st table.insert(self.Tabs, tab)
-    TagTheme(st, "Color", "Green")
+    tab.Button = b table.insert(self.Tabs, tab)
     
-    b.MouseEnter:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Hover, TextColor3 = Theme.White }) end end)
+    b.MouseEnter:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Card, TextColor3 = Theme.White }) end end)
     b.MouseLeave:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 1, TextColor3 = Theme.Muted }) end end)
     b.Activated:Connect(function() self:_SelectTab(tab) end) 
     if not self.ActiveTab then self.ActiveTab = tab self.PageTitle.Text = tab.Name end
@@ -278,14 +270,13 @@ function Library:AddTab(name, icon)
                     local section = { Sub = s, Name = sectionName, Items = {} }
                     table.insert(s.Sections, section)
                     return setmetatable(section, {__index = {
-                        AddToggle = function(sec, title, default, callback, description) return self:_AddItem(sec, { Kind = "Toggle", Title = title, Value = default == true, Callback = callback, Description = description or "" }) end,
-                        AddSlider = function(sec, title, min, max, default, callback, description) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback, Description = description or "" }) end,
-                        AddButton = function(sec, title, callback, description) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback, Description = description or "" }) end,
+                        AddToggle = function(sec, title, default, callback) return self:_AddItem(sec, { Kind = "Toggle", Title = title, Value = default == true, Callback = callback }) end,
+                        AddSlider = function(sec, title, min, max, default, callback) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback }) end,
+                        AddButton = function(sec, title, callback) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback }) end,
                         AddDropdown = function(sec, title, options, default, callback) 
                             options = options or {"None"} if #options == 0 then options = {"None"} end
                             return self:_AddItem(sec, { Kind = "Dropdown", Title = title, Options = options, Value = default or options[1], Callback = callback }) 
                         end,
-                        AddPlayerList = function(sec, title, btnText, callback) return self:_AddItem(sec, { Kind = "PlayerList", Title = title, BtnText = btnText, Callback = callback }) end,
                     }})
                 end,
             }})
@@ -294,131 +285,58 @@ function Library:AddTab(name, icon)
 end
 function Library:_AddItem(section, item) table.insert(section.Items, item) return item end
 
--- ВИЗУАЛ КАРТОЧЕК (2 Колонки как в ПульсХабе)
 function Library:_BuildSection(section, page)
     local holder = New("Frame", { Name = section.Name, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, page) 
     local heading = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 19) }, holder)
-    local headingText = MakeLabel(heading, string.upper(section.Name), 11, Theme.White, Enum.Font.GothamBold) headingText.Size = UDim2.new(0, #section.Name * 7, 1, 0)
-    local line = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.2, Position = UDim2.new(0, #section.Name * 7 + 8, 0, 9), Size = UDim2.new(1, -(#section.Name * 7 + 16), 0, 1), BorderSizePixel = 0 }, heading)
-    TagTheme(line, "BackgroundColor3", "Green")
+    local headingText = MakeLabel(heading, string.upper(section.Name), 11, Theme.Muted, Enum.Font.GothamBold)
     
     local itemsFrame = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 25), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, holder)
+    New("UIGridLayout", { CellSize = UDim2.new(0.5, -5, 0, 54), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) 
     
-    local hasPlayerList = false
-    for _, i in ipairs(section.Items) do if i.Kind == "PlayerList" then hasPlayerList = true break end end
-    
-    if hasPlayerList then 
-        New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame)
-    else 
-        -- ЖЕСТКАЯ СЕТКА 2 КОЛОНКИ
-        New("UIGridLayout", { CellSize = UDim2.new(0.5, -4, 0, 54), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) 
-    end
-    
-    for _, item in ipairs(section.Items) do self:_BuildItem(item, itemsFrame, hasPlayerList) end
+    for _, item in ipairs(section.Items) do self:_BuildItem(item, itemsFrame) end
 end
 
-function Library:_BuildItem(item, parent, fullWidth)
-    local isSlider = item.Kind == "Slider" local isButton = item.Kind == "Button" local isDropdown = item.Kind == "Dropdown" local isPlayerList = item.Kind == "PlayerList"
+function Library:_BuildItem(item, parent)
+    local isSlider = item.Kind == "Slider"
+    local height = isSlider and 76 or 54
+    local card = New("Frame", { BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.1, BorderSizePixel = 0, Size = UDim2.new(0.5, -5, 0, height) }, parent) 
+    Round(card, 10) local st = Stroke(card, Theme.Green, 0.9) TagTheme(st, "Color", "Border")
     
-    if isPlayerList then
-        local container = New("Frame", { BackgroundColor3 = Theme.Card, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 220) }, parent) Round(container, 8) local st = Stroke(container, Theme.Border, 0.25, 1) TagTheme(st, "Color", "Border")
-        local list = New("ScrollingFrame", { BackgroundTransparency = 1, Size = UDim2.new(1, -20, 1, -20), Position = UDim2.fromOffset(10, 10), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Green }, container)
-        TagTheme(list, "ScrollBarImageColor3", "Green")
-        New("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, list)
-        local function updateList()
-            ClearGui(list)
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= Player then
-                    local row = New("Frame", { BackgroundColor3 = Theme.Background, Size = UDim2.new(1, 0, 0, 40), LayoutOrder = 1 }, list) Round(row, 6)
-                    local img = New("ImageLabel", { BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Position = UDim2.fromOffset(4, 4), Image = "rbxthumb://type=AvatarHeadShot&id="..p.UserId.."&w=48&h=48" }, row) Round(img, 16)
-                    MakeLabel(row, p.Name, 12, Theme.White).Position = UDim2.fromOffset(42, 10)
-                    local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.BtnText, TextColor3 = Theme.Green, Font = Enum.Font.GothamBold, TextSize = 11, Size = UDim2.fromOffset(70, 24), Position = UDim2.new(1, -80, 0.5, -12), AutoButtonColor = false }, row)
-                    Round(btn, 6) TagTheme(btn, "TextColor3", "Green")
-                    btn.Activated:Connect(function() if item.Callback then item.Callback(p) end end)
-                end
-            end
-        end
-        updateList() 
-        self:_Track(Players.PlayerAdded:Connect(function() if list.Parent then updateList() end end))
-        self:_Track(Players.PlayerRemoving:Connect(function() if list.Parent then updateList() end end))
-        return
-    end
-    
-    local height = isSlider and 76 or (isDropdown and 52 or (isButton and 38 or 54))
-    local size = fullWidth and UDim2.new(1, 0, 0, height) or UDim2.new(0.5, -4, 0, height)
-    local card = New("Frame", { BackgroundColor3 = Theme.Card, BorderSizePixel = 0, Size = size }, parent) Round(card, 8) 
-    local cardStroke = Stroke(card, Theme.Border, 0.25, 1) TagTheme(cardStroke, "Color", "Border")
-    
-    if not isButton then
-        card.MouseEnter:Connect(function() Tween(card, 0.15, {BackgroundColor3 = Theme.Hover}) Tween(cardStroke, 0.15, {Transparency = 0.05}) end)
-        card.MouseLeave:Connect(function() Tween(card, 0.15, {BackgroundColor3 = Theme.Card}) Tween(cardStroke, 0.15, {Transparency = 0.25}) end)
-    end
+    card.MouseEnter:Connect(function() Tween(card, 0.15, {BackgroundTransparency = 0}) Tween(st, 0.15, {Transparency = 0.5}) end)
+    card.MouseLeave:Connect(function() Tween(card, 0.15, {BackgroundTransparency = 0.1}) Tween(st, 0.15, {Transparency = 0.9}) end)
 
-    local title = MakeLabel(card, item.Title, 12, Theme.White, Enum.Font.GothamMedium) title.Position = UDim2.fromOffset(10, 5) title.Size = UDim2.new(1, isSlider and -50 or -60, 0, 17)
-    if item.Description ~= "" and not isButton and not isDropdown then
-        local desc = MakeLabel(card, item.Description, 9, Theme.Muted) desc.Position = UDim2.fromOffset(10, 23) desc.Size = UDim2.new(1, -20, 0, 14)
-    end
+    local title = MakeLabel(card, item.Title, 12, Theme.White, Enum.Font.GothamMedium) title.Position = UDim2.fromOffset(10, 5) title.Size = UDim2.new(1, -50, 0, 17)
 
     if item.Kind == "Toggle" then
-        local track = New("Frame", { Name = "Track", BackgroundColor3 = item.Value and Theme.Green or Theme.Track, Position = UDim2.new(1, -45, 0, 15), Size = UDim2.fromOffset(34, 18), BorderSizePixel = 0 }, card) Round(track, 15)
+        local track = New("Frame", { BackgroundColor3 = item.Value and Theme.Green or Theme.Track, Position = UDim2.new(1, -45, 0, 15), Size = UDim2.fromOffset(34, 18), BorderSizePixel = 0 }, card) Round(track, 15)
         local thumb = New("Frame", { BackgroundColor3 = Theme.White, Position = UDim2.fromOffset(item.Value and 18 or 2, 2), Size = UDim2.fromOffset(14, 14), BorderSizePixel = 0 }, track) Round(thumb, 12)
         local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Size = UDim2.fromScale(1, 1) }, track)
-        local function setState(value)
-            item.Value = value Tween(track, 0.18, { BackgroundColor3 = value and Theme.Green or Theme.Track }) Tween(thumb, 0.18, { Position = UDim2.fromOffset(value and 18 or 2, 2) })
-            if value then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") else track:SetAttribute("ThemeTarget_BackgroundColor3", nil) end
-            if item.Callback then task.spawn(item.Callback, value) end
+        local function setState(val)
+            item.Value = val Tween(track, 0.18, { BackgroundColor3 = val and Theme.Green or Theme.Track }) Tween(thumb, 0.18, { Position = UDim2.fromOffset(val and 18 or 2, 2) })
+            if val then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") else track:SetAttribute("ThemeTarget_BackgroundColor3", nil) end
+            if item.Callback then task.spawn(item.Callback, val) end
         end
-        hit.Activated:Connect(function() setState(not item.Value) end) item.Set = setState
+        hit.Activated:Connect(function() setState(not item.Value) end) 
         if item.Value then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") end
     elseif item.Kind == "Slider" then
-        local valueLabel = MakeLabel(card, "", 11, Theme.Green, Enum.Font.GothamBold) valueLabel.Position = UDim2.new(1, -40, 0, 23) valueLabel.Size = UDim2.fromOffset(30, 17) valueLabel.TextXAlignment = Enum.TextXAlignment.Right TagTheme(valueLabel, "TextColor3", "Green")
-        local track = New("Frame", { Name = "Track", BackgroundColor3 = Theme.Track, Position = UDim2.new(0, 10, 0, 53), Size = UDim2.new(1, -50, 0, 4), BorderSizePixel = 0 }, card) Round(track, 5)
-        local fill = New("Frame", { Name = "Fill", BackgroundColor3 = Theme.Green, Size = UDim2.new(0, 0, 1, 0), BorderSizePixel = 0 }, track) Round(fill, 5) TagTheme(fill, "BackgroundColor3", "Green")
-        local thumb = New("Frame", { BackgroundColor3 = Theme.White, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(12, 12), BorderSizePixel = 0 }, track) Round(thumb, 10) Stroke(thumb, Theme.White, 0.35, 1)
+        local valLabel = MakeLabel(card, tostring(item.Value), 11, Theme.Green, Enum.Font.GothamBold) valLabel.Position = UDim2.new(1, -40, 0, 5) valLabel.Size = UDim2.fromOffset(30, 17) valLabel.TextXAlignment = Enum.TextXAlignment.Right TagTheme(valLabel, "TextColor3", "Green")
+        local track = New("Frame", { BackgroundColor3 = Theme.Track, Position = UDim2.new(0, 10, 0, 53), Size = UDim2.new(1, -50, 0, 4), BorderSizePixel = 0 }, card) Round(track, 5)
+        local fill = New("Frame", { BackgroundColor3 = Theme.Green, Size = UDim2.new((item.Value - item.Min)/(item.Max - item.Min), 0, 1, 0), BorderSizePixel = 0 }, track) Round(fill, 5) TagTheme(fill, "BackgroundColor3", "Green")
+        local thumb = New("Frame", { BackgroundColor3 = Theme.White, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(12, 12), BorderSizePixel = 0 }, track) Round(thumb, 10) Stroke(thumb, Theme.White, 0.35)
         local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.new(0, -5, 0, -12), Size = UDim2.new(1, 10, 0, 28) }, track)
         
         local dragging = false
-        local function setValue(value, silent)
-            local range = math.max(0.001, item.Max - item.Min) 
-            local newVal = math.clamp(value, item.Min, item.Max) 
-            local pct = (newVal - item.Min) / range
-            fill.Size = UDim2.new(pct, 0, 1, 0)
-            thumb.Position = UDim2.new(pct, 0, 0.5, 0)
-            valueLabel.Text = tostring(math.floor(newVal + 0.5))
-            if not silent and item.Value ~= newVal then 
-                item.Value = newVal
-                if item.Callback then task.spawn(item.Callback, item.Value) end 
-            end
-            item.Value = newVal
+        local function setVal(value)
+            local pct = math.clamp((value - item.Min) / math.max(0.001, item.Max - item.Min), 0, 1)
+            fill.Size = UDim2.new(pct, 0, 1, 0) thumb.Position = UDim2.new(pct, 0, 0.5, 0) valLabel.Text = tostring(math.floor(value))
+            item.Value = value if item.Callback then task.spawn(item.Callback, value) end
         end
-        local function updateFromX(x) local pct = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1) setValue(item.Min + (item.Max - item.Min) * pct) end
-        
-        local activeInput = nil
-        hit.InputBegan:Connect(function(input) 
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-                dragging = true activeInput = input 
-                if parent.Parent then parent.Parent.ScrollingEnabled = false end
-                updateFromX(input.Position.X) 
-            end 
-        end)
-        self:_Track(UserInputService.InputChanged:Connect(function(input) 
-            if dragging and input == activeInput then updateFromX(input.Position.X) end 
-        end))
-        self:_Track(UserInputService.InputEnded:Connect(function(input) 
-            if dragging and input == activeInput then 
-                dragging = false activeInput = nil 
-                if parent.Parent then parent.Parent.ScrollingEnabled = true end
-            end 
-        end))
-        setValue(item.Value, true) 
-        item.Set = setValue
+        hit.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true setVal(item.Min + math.clamp((input.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1) * (item.Max - item.Min)) end end)
+        self:_Track(UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then setVal(item.Min + math.clamp((input.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1) * (item.Max - item.Min)) end end))
+        self:_Track(UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end))
     elseif item.Kind == "Button" then
         local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.Title, TextColor3 = Theme.White, TextSize = 12, Font = Enum.Font.GothamBold, Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false }, card)
-        btn.Activated:Connect(function() 
-            Tween(card, 0.1, { BackgroundColor3 = Theme.GreenDark }) 
-            task.delay(0.15, function() if card and card.Parent then Tween(card, 0.2, { BackgroundColor3 = Theme.Card }) end end) 
-            if item.Callback then task.spawn(item.Callback) end 
-        end)
+        btn.Activated:Connect(function() Tween(card, 0.1, { BackgroundColor3 = Theme.GreenDark }) task.delay(0.15, function() Tween(card, 0.2, { BackgroundColor3 = Theme.Card }) end) if item.Callback then task.spawn(item.Callback) end end)
     elseif item.Kind == "Dropdown" then
         local selectBtn = New("TextButton", { BackgroundColor3 = Theme.Background, Position = UDim2.new(1, -90, 0, 12), Size = UDim2.fromOffset(80, 28), Text = item.Value, TextColor3 = Theme.White, TextSize = 11, Font = Enum.Font.GothamBold, AutoButtonColor = false }, card)
         Round(selectBtn, 6) local st = Stroke(selectBtn, Theme.Border, 0.5, 1) TagTheme(st, "Color", "Border")
@@ -432,211 +350,78 @@ end
 
 function Library:ToggleVisible()
     self.Visible = not self.Visible
-    self._toggleToken = (self._toggleToken or 0) + 1
-    local myToken = self._toggleToken
+    local blur = Lighting:FindFirstChild("LiberiumBlur")
     if self.Visible then 
-        self.Root.Visible = true self.Root.BackgroundTransparency = 1 Tween(self.Root, 0.22, {BackgroundTransparency = 0}) self.OpenButton.Visible = false
+        self.Root.Visible = true Tween(self.Root, 0.2, {BackgroundTransparency = 0.15}) self.OpenButton.Visible = false
+        if blur then Tween(blur, 0.3, {Size = 12}) end
     else 
-        Tween(self.Root, 0.18, {BackgroundTransparency = 1}) 
-        task.delay(0.2, function() if self.Root and self.Root.Parent and not self.Visible and self._toggleToken == myToken then self.Root.Visible = false self.OpenButton.Visible = true end end) 
+        Tween(self.Root, 0.2, {BackgroundTransparency = 1}) 
+        if blur then Tween(blur, 0.3, {Size = 0}) end
+        task.delay(0.2, function() if not self.Visible then self.Root.Visible = false self.OpenButton.Visible = true end end) 
     end
 end
 
 -- ==========================================
--- ЛОГИКА
+-- ЛОГИКА (Фарм, Флинг)
 -- ==========================================
 task.spawn(function() while task.wait(0.5) and isRunning do pcall(function() local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) if getData and getData:IsA("RemoteFunction") then local ok, data = pcall(function() return getData:InvokeServer() end) if ok and type(data) == "table" then roles = data end end end) end end)
 local function getPlayerRole(plr) local rData = roles[plr.Name] if rData and rData.Role then return rData.Role end local char = plr.Character if char then if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end end local bp = plr:FindFirstChild("Backpack") if bp then if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end end return "Innocent" end
 local function getRoleColor(plr) local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end return Color3.fromRGB(50, 255, 100) end
 local function canCollect() if not canFarmNow or not isRunning then return false end local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 then return false end local myData = roles[Player.Name] if not myData or myData.Dead then return false end local r = myData.Role if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end local container = Workspace:FindFirstChild("CoinContainer", true) if not container or #container:GetChildren() == 0 then return false end return true end
+task.spawn(function() while task.wait(0.5) and isRunning do local newMurderers = {} for _, plr in ipairs(Players:GetPlayers()) do if plr ~= Player and plr.Character then local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then local pRoot = plr.Character:FindFirstChild("HumanoidRootPart") if pRoot then table.insert(newMurderers, pRoot) end end end end ActiveMurderers = newMurderers end end)
 
-task.spawn(function()
-    while task.wait(0.5) and isRunning do
-        local newMurderers = {}
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= Player and plr.Character then
-                local role = getPlayerRole(plr)
-                if role == "Murderer" or role == "Zombie" then
-                    local pRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-                    if pRoot then table.insert(newMurderers, pRoot) end
-                end
-            end
-        end
-        ActiveMurderers = newMurderers
-    end
-end)
-
--- ESP ФИКС (RenderStepped для 60фпс)
 RunService.RenderStepped:Connect(function()
     if not isRunning then return end
     if CFG.ESP then
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= Player and p.Character then
                 local hl = ESPHighlights[p]
-                if not hl or not hl.Parent then
-                    hl = Instance.new("Highlight")
-                    hl.Name = "LibESP"
-                    hl.Parent = p.Character
-                    ESPHighlights[p] = hl
-                end
-                local hum = p.Character:FindFirstChildOfClass("Humanoid")
-                local rData = roles[p.Name]
-                local isDead = (not hum or hum.Health <= 0) or (rData and rData.Dead)
-                
+                if not hl or not hl.Parent then hl = Instance.new("Highlight") hl.Name = "LibESP" hl.Parent = p.Character ESPHighlights[p] = hl end
+                local hum = p.Character:FindFirstChildOfClass("Humanoid") local rData = roles[p.Name] local isDead = (not hum or hum.Health <= 0) or (rData and rData.Dead)
                 if isDead then hl.Enabled = false
-                else
-                    hl.Enabled = true 
-                    hl.Adornee = p.Character -- Жестко привязываем каждый кадр
-                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.FillTransparency = 0.6 
-                    hl.OutlineTransparency = 0
-                    
-                    local c
-                    if rData and rData.Role then c = getRoleColor(p)
-                    else
-                        local hasKnife = false local hasGun = false local bp = p:FindFirstChild("Backpack")
-                        if p.Character then if p.Character:FindFirstChild("Knife") then hasKnife = true end if p.Character:FindFirstChild("Gun") then hasGun = true end end
-                        if bp then if bp:FindFirstChild("Knife") then hasKnife = true end if bp:FindFirstChild("Gun") then hasGun = true end end
-                        if hasKnife then c = Color3.fromRGB(255, 50, 50)
-                        elseif hasGun then c = Color3.fromRGB(50, 120, 255)
-                        else c = Color3.fromRGB(200, 200, 200) end
-                    end
-                    hl.FillColor = c hl.OutlineColor = c
-                end
+                else hl.Enabled = true hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.FillTransparency = 0.6 hl.OutlineTransparency = 0
+                    local c if rData and rData.Role then c = getRoleColor(p) else local hasKnife = false local hasGun = false local bp = p:FindFirstChild("Backpack") if p.Character then if p.Character:FindFirstChild("Knife") then hasKnife = true end if p.Character:FindFirstChild("Gun") then hasGun = true end end if bp then if bp:FindFirstChild("Knife") then hasKnife = true end if bp:FindFirstChild("Gun") then hasGun = true end end if hasKnife then c = Color3.fromRGB(255, 50, 50) elseif hasGun then c = Color3.fromRGB(50, 120, 255) else c = Color3.fromRGB(200, 200, 200) end end
+                    hl.FillColor = c hl.OutlineColor = c end
             end
         end
-    else
-        for p, hl in pairs(ESPHighlights) do
-            if hl then hl:Destroy() end
-            ESPHighlights[p] = nil
-        end
-    end
+    else for p, hl in pairs(ESPHighlights) do if hl then hl:Destroy() end ESPHighlights[p] = nil end end
 end)
 
-local function getClosestMurderer(pos) 
-    local closestRoot, closestDist = nil, math.huge 
-    for _, pRoot in ipairs(ActiveMurderers) do 
-        if pRoot and pRoot.Parent then
-            local d = (pRoot.Position - pos).Magnitude 
-            if d < closestDist then closestRoot, closestDist = pRoot, d end 
-        end
-    end 
-    return closestRoot, closestDist 
-end
-
+local function getClosestMurderer(pos) local closestRoot, closestDist = nil, math.huge for _, pRoot in ipairs(ActiveMurderers) do if pRoot and pRoot.Parent then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end end return closestRoot, closestDist end
 local function FlingTarget(targetRoot)
     local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not targetRoot then return end
     local myRoot = s.root local oldCFrame = myRoot.CFrame local oldAnchored = myRoot.Anchored myRoot.Anchored = true
-    pcall(function()
-        if setnetworkowner then pcall(setnetworkowner, targetRoot, Player) end
-        myRoot.CFrame = targetRoot.CFrame
-        local spin = Instance.new("BodyAngularVelocity") spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5) spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) spin.Parent = targetRoot
-        local push = Instance.new("BodyVelocity") push.Velocity = Vector3.new(1e5, 1e5, 1e5) push.MaxForce = Vector3.new(1e9, 1e9, 1e9) push.Parent = targetRoot
-        task.wait(0.1) spin:Destroy() push:Destroy()
-    end)
-    myRoot.CFrame = oldCFrame myRoot.Anchored = oldAnchored
-    if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
+    pcall(function() if setnetworkowner then pcall(setnetworkowner, targetRoot, Player) end myRoot.CFrame = targetRoot.CFrame local spin = Instance.new("BodyAngularVelocity") spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5) spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) spin.Parent = targetRoot local push = Instance.new("BodyVelocity") push.Velocity = Vector3.new(1e5, 1e5, 1e5) push.MaxForce = Vector3.new(1e9, 1e9, 1e9) push.Parent = targetRoot task.wait(0.1) spin:Destroy() push:Destroy() end)
+    myRoot.CFrame = oldCFrame myRoot.Anchored = oldAnchored if s.bv then s.bv.Velocity = Vector3.zero s.bv.MaxForce = Vector3.zero end if s.bg then s.bg.MaxTorque = Vector3.zero s.bg.CFrame = oldCFrame end
 end
-
 task.spawn(function() while task.wait(0.5) and isRunning do if CFG.AutoFling and currentSession and not currentSession.destroyed then local mRoot, mDist = getClosestMurderer(currentSession.root.Position) if mRoot and mDist < 50 then FlingTarget(mRoot) task.wait(2) end end end end)
-
 local function releaseForces(s) s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero end
 local function resetHumanoid(s) local hum = s.humanoid if not hum.Parent then return end hum.PlatformStand = s.origPlatformStand hum.AutoRotate = s.origAutoRotate if hum.Health > 0 and s.root.Parent then local _, yaw = s.root.CFrame:ToOrientation() s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0) hum:ChangeState(Enum.HumanoidStateType.GettingUp) end end
-local function teardown(s)
-    if not s or s.destroyed then return end s.destroyed = true
-    for _, conn in s.conns do conn:Disconnect() end table.clear(s.conns) releaseForces(s)
-    if s.root.Parent then s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero end
-    resetHumanoid(s) s.bv:Destroy() s.bg:Destroy()
-    for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end table.clear(originalCollide)
-    if currentSession == s then currentSession = nil end
-end
-local function bindCharacter(character)
-    if currentSession then teardown(currentSession) end canFarmNow = false collectedCount = 0 table.clear(Blacklist) lastHealth = 100
-    local root = character:WaitForChild("HumanoidRootPart", 10) local humanoid = character:WaitForChild("Humanoid", 10)
-    if not (root and humanoid) or Player.Character ~= character then return end
-    local bv = Instance.new("BodyVelocity") bv.MaxForce = Vector3.zero bv.Velocity = Vector3.zero bv.P = 3000 bv.Parent = root
-    local bg = Instance.new("BodyGyro") bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root
-    local s = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg, conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate, target = nil }
-    currentSession = s
-    table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end)) table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end))
-    if humanoid.Health <= 0 then teardown(s) end task.wait(3) canFarmNow = true
-end
+local function teardown(s) if not s or s.destroyed then return end s.destroyed = true for _, conn in s.conns do conn:Disconnect() end table.clear(s.conns) releaseForces(s) if s.root.Parent then s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero end resetHumanoid(s) s.bv:Destroy() s.bg:Destroy() for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end table.clear(originalCollide) if currentSession == s then currentSession = nil end end
+local function bindCharacter(character) if currentSession then teardown(currentSession) end canFarmNow = false collectedCount = 0 table.clear(Blacklist) lastHealth = 100 local root = character:WaitForChild("HumanoidRootPart", 10) local humanoid = character:WaitForChild("Humanoid", 10) if not (root and humanoid) or Player.Character ~= character then return end local bv = Instance.new("BodyVelocity") bv.MaxForce = Vector3.zero bv.Velocity = Vector3.zero bv.P = 3000 bv.Parent = root local bg = Instance.new("BodyGyro") bg.MaxTorque = Vector3.zero bg.P = 6000 bg.D = 500 bg.CFrame = root.CFrame bg.Parent = root local s = { character = character, root = root, humanoid = humanoid, bv = bv, bg = bg, conns = {}, destroyed = false, origPlatformStand = humanoid.PlatformStand, origAutoRotate = humanoid.AutoRotate, target = nil } currentSession = s table.insert(s.conns, humanoid.Died:Connect(function() teardown(s) end)) table.insert(s.conns, character.AncestryChanged:Connect(function(_, parent) if parent == nil then teardown(s) end end)) if humanoid.Health <= 0 then teardown(s) end task.wait(3) canFarmNow = true end
 Player.CharacterAdded:Connect(bindCharacter) Player.CharacterRemoving:Connect(function(character) if currentSession and currentSession.character == character then teardown(currentSession) end end) if Player.Character then task.spawn(bindCharacter, Player.Character) end
-
--- ФИКС ФАРМА (Пробиваем стены через Микро-Телепорты)
 local function flyTo(target)
-    local s = currentSession 
-    if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end 
-    s.target = target
-    local arrived = false 
-    local startTime = os.clock() 
-    local lastPos = s.root.Position 
-    local stuckCounter = 0
+    local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not target.Parent then return false end s.target = target
+    local arrived = false local startTime = os.clock() local lastPos = s.root.Position local stuckCounter = 0
     local ok, err = pcall(function()
-        s.humanoid.AutoRotate = false 
-        s.humanoid.PlatformStand = true
-        for _, d in ipairs(s.character:GetDescendants()) do
-            if d:IsA("BasePart") then
-                if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end
-                d.CanCollide = false
-            end
-        end
-        local mass = s.root.AssemblyMass
-        local force = mass * CFG.ForcePerMass
-        s.bv.MaxForce = Vector3.new(force, force, force)
-        s.bv.P = 5000 
-        s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
+        s.humanoid.AutoRotate = false s.humanoid.PlatformStand = true
+        for _, d in ipairs(s.character:GetDescendants()) do if d:IsA("BasePart") then if originalCollide[d] == nil then originalCollide[d] = d.CanCollide end d.CanCollide = false end end
+        local mass = s.root.AssemblyMass local force = mass * CFG.ForcePerMass s.bv.MaxForce = Vector3.new(force, force, force) s.bv.P = 5000 s.bg.MaxTorque = Vector3.new(4e5, 4e5, 4e5)
         while not s.destroyed and s.humanoid.Health > 0 and target.Parent and isRunning do
-            RunService.Heartbeat:Wait() 
-            if s.destroyed then break end
-            
-            if (s.root.Position - lastPos).Magnitude < 0.4 then 
-                stuckCounter = stuckCounter + 1 
-                if stuckCounter > 15 then 
-                    -- ТЕЛЕПОРТ СКВОЗЬ СТЕНУ (Микро-шаг)
-                    s.root.CFrame = CFrame.new(s.root.Position + (target.Position - s.root.Position).Unit * 4)
-                    s.bv.Velocity = Vector3.zero
-                    stuckCounter = 0
-                    task.wait(0.1) 
-                end
-            else 
-                stuckCounter = 0 
-                lastPos = s.root.Position 
-            end
-            
-            local pos = s.root.Position 
-            local offset = target.Position - pos 
-            local dist = offset.Magnitude
-            if dist <= 4 then arrived = true break end
-            
+            RunService.Heartbeat:Wait() if s.destroyed then break end
+            if (s.root.Position - lastPos).Magnitude < 0.4 then stuckCounter = stuckCounter + 1 if stuckCounter > 15 then s.root.CFrame = CFrame.new(s.root.Position + (target.Position - s.root.Position).Unit * 4) s.bv.Velocity = Vector3.zero stuckCounter = 0 task.wait(0.1) end
+            else stuckCounter = 0 lastPos = s.root.Position end
+            local pos = s.root.Position local offset = target.Position - pos local dist = offset.Magnitude if dist <= 4 then arrived = true break end
             local mRoot, mDist = getClosestMurderer(s.root.Position)
-            if mRoot and mDist < CFG.AvoidRadius then 
-                Blacklist[target] = true 
-                local escOffset = s.root.Position - mRoot.Position
-                local escapeDir = (escOffset.Magnitude > 0.1) and escOffset.Unit or Vector3.new(1,0,1)
-                s.bv.Velocity = Vector3.new(escapeDir.X, 0.8, escapeDir.Z) * (CFG.MaxSpeed * 1.5) 
-                task.wait(0.3)
-            else 
-                local speed = math.min(CFG.MaxSpeed, dist * CFG.Gain)
-                if dist > 0.1 then s.bv.Velocity = offset.Unit * speed end
-                local flat = Vector3.new(offset.X, 0, offset.Z) 
-                if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end 
-            end
-            if os.clock() - startTime > 4.0 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end 
-            if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end 
-            if not canCollect() then break end
+            if mRoot and mDist < CFG.AvoidRadius then Blacklist[target] = true local escOffset = s.root.Position - mRoot.Position local escapeDir = (escOffset.Magnitude > 0.1) and escOffset.Unit or Vector3.new(1,0,1) s.bv.Velocity = Vector3.new(escapeDir.X, 0.8, escapeDir.Z) * (CFG.MaxSpeed * 1.5) task.wait(0.3)
+            else local speed = math.min(CFG.MaxSpeed, dist * CFG.Gain) if dist > 0.1 then s.bv.Velocity = offset.Unit * speed end local flat = Vector3.new(offset.X, 0, offset.Z) if flat.Magnitude > 0.5 then s.bg.CFrame = CFrame.lookAt(pos, pos + flat) end end
+            if os.clock() - startTime > 4.0 or s.humanoid.Health < lastHealth then Blacklist[target] = true break end if not target:IsDescendantOf(Workspace) then Blacklist[target] = true break end if not canCollect() then break end
         end
     end)
     if not ok then warn("flyTo error:", err) end
-    if not s.destroyed then 
-        s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero 
-        s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero 
-        for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end 
-        table.clear(originalCollide) resetHumanoid(s) 
-    end
+    if not s.destroyed then s.bv.MaxForce = Vector3.zero s.bv.Velocity = Vector3.zero s.bg.MaxTorque = Vector3.zero s.root.AssemblyLinearVelocity = Vector3.zero s.root.AssemblyAngularVelocity = Vector3.zero for p, c in pairs(originalCollide) do pcall(function() if p and p.Parent then p.CanCollide = c end end) end table.clear(originalCollide) resetHumanoid(s) end
     s.target = nil return arrived
 end
-
 local COIN_PRIMARY = "Coin_Server" local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true } local coinCache, coinCacheTime, coinContainer = {}, 0, nil
 local function findCoinContainer() return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true) end
 local function isCoinName(name) if name == COIN_PRIMARY then return true end if COIN_FALLBACK[name] then return true end if name == "CoinVisual" then return false end local n = string.lower(name) return string.find(n, "coin", 1, true) ~= nil or string.find(n, "candy", 1, true) ~= nil or string.find(n, "sweet", 1, true) ~= nil end
@@ -651,67 +436,48 @@ Player.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureControlle
 -- ==========================================
 -- НАПОЛНЕНИЕ UI
 -- ==========================================
-local Window = Library.new({ Title = "LIBERIUM HUB", Subtitle = "MM2 PREMIUM" })
+local Window = Library.new({ Title = "LIBERIUM HUB", Subtitle = "GLASS UI" })
 
 -- Teleport
 local TeleportTab = Window:AddTab("Teleport", "📍")
-local TpRoles = TeleportTab:AddSubTab("TP Role")
-local TpRoleSec = TpRoles:AddSection("Roles")
-TpRoleSec:AddButton("Teleport to Lobby", function() local spawn = Workspace:FindFirstChild("SpawnLocation", true) if spawn and currentSession then currentSession.root.CFrame = spawn.CFrame + Vector3.new(0, 3, 0) end end)
-TpRoleSec:AddButton("Teleport to Map", function() if currentSession then currentSession.root.CFrame = CFrame.new(0, 50, 0) end end)
-TpRoleSec:AddButton("Teleport to Murderer", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot and currentSession then currentSession.root.CFrame = mRoot.CFrame + Vector3.new(0, 2, 0) end end)
-
-local TpPlayers = TeleportTab:AddSubTab("TP Player")
-local TpPlayerSec = TpPlayers:AddSection("Players")
-TpPlayerSec:AddPlayerList("Target Player", "TP", function(targetPlayer)
-    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") and currentSession then
-        currentSession.root.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, 2, 0)
-    end
-end)
-
--- Sheriff
-local SheriffTab = Window:AddTab("Sheriff", "🛡")
-local SheriffSub = SheriffTab:AddSubTab("Main")
-local SheriffSec = SheriffSub:AddSection("Sheriff")
-SheriffSec:AddToggle("Auto Pickup Gun", false, function(state) print("Auto Pickup:", state) end)
-SheriffSec:AddButton("Pick Up Gun (Manual)", function() print("Pickup Gun") end)
-local AimSec = SheriffSub:AddSection("AimBot")
-AimSec:AddToggle("Silent Aim", false, function(state) print("Silent Aim:", state) end)
-AimSec:AddDropdown("AimBot Type", {"Classic", "Silent", "Flick"}, "Classic", function(val) print("Aim Type:", val) end)
-AimSec:AddSlider("Flick Speed", 1, 10, 6, function(val) print("Flick Speed:", val) end)
+local TpRoles = TeleportTab:AddSubTab("Roles")
+local TpRoleSec = TpRoles:AddSection("Actions")
+TpRoleSec:AddButton("To Lobby", function() local spawn = Workspace:FindFirstChild("SpawnLocation", true) if spawn and currentSession then currentSession.root.CFrame = spawn.CFrame + Vector3.new(0, 3, 0) end end)
+TpRoleSec:AddButton("To Map", function() if currentSession then currentSession.root.CFrame = CFrame.new(0, 50, 0) end end)
+TpRoleSec:AddButton("To Murderer", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot and currentSession then currentSession.root.CFrame = mRoot.CFrame + Vector3.new(0, 2, 0) end end)
 
 -- Combat
 local CombatTab = Window:AddTab("Combat", "⚔")
 local CombatSub = CombatTab:AddSubTab("Murderer")
 local CombatSec = CombatSub:AddSection("Fling")
-CombatSec:AddToggle("Auto Fling Murderer", false, function(state) CFG.AutoFling = state end)
+CombatSec:AddToggle("Auto Fling", false, function(v) CFG.AutoFling = v end)
 CombatSec:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end)
-CombatSec:AddSlider("Avoid Radius", 0, 30, 20, function(val) CFG.AvoidRadius = val end)
-CombatSec:AddToggle("Anti-Fling (Self)", true, function(state) CFG.AntiFling = state end)
+CombatSec:AddSlider("Avoid Radius", 0, 30, 20, function(v) CFG.AvoidRadius = v end)
+CombatSec:AddToggle("Anti-Fling", true, function(v) CFG.AntiFling = v end)
 
 -- Farm
 local FarmTab = Window:AddTab("Farm", "💰")
-local FarmSub = FarmTab:AddSubTab("Coin")
+local FarmSub = FarmTab:AddSubTab("Coins")
 local FarmSec = FarmSub:AddSection("Settings")
-FarmSec:AddToggle("Auto Farm Coins", false, function(state) CFG.AutoFarm = state if state then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end)
-FarmSec:AddSlider("Farm Speed", 10, 24, 20, function(val) CFG.MaxSpeed = val end)
-FarmSec:AddToggle("Auto Reset", false, function(state) CFG.AutoReset = state end)
-FarmSec:AddSlider("Max Coins", 40, 50, 50, function(val) CFG.MaxCoins = val end)
+FarmSec:AddToggle("Auto Farm", false, function(v) CFG.AutoFarm = v if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end)
+FarmSec:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end)
+FarmSec:AddToggle("Auto Reset", false, function(v) CFG.AutoReset = v end)
+FarmSec:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end)
 
 -- Visuals
 local VisualTab = Window:AddTab("Visuals", "👁")
 local VisualSub = VisualTab:AddSubTab("ESP")
 local VisualSec = VisualSub:AddSection("Players")
-VisualSec:AddToggle("Player ESP", false, function(state) CFG.ESP = state end)
+VisualSec:AddToggle("Player ESP", false, function(v) CFG.ESP = v end)
 
 -- Settings
 local SettingsTab = Window:AddTab("Settings", "⚙")
 local SettingsSub = SettingsTab:AddSubTab("Themes")
 local ThemeSec = SettingsSub:AddSection("Colors")
-ThemeSec:AddButton("Green Theme", function() Window:ChangeTheme("Green") end)
-ThemeSec:AddButton("Purple Theme", function() Window:ChangeTheme("Purple") end)
-ThemeSec:AddButton("Red Theme", function() Window:ChangeTheme("Red") end)
-ThemeSec:AddButton("Blue Theme", function() Window:ChangeTheme("Blue") end)
+ThemeSec:AddButton("Green", function() Window:ChangeTheme("Green") end)
+ThemeSec:AddButton("Purple", function() Window:ChangeTheme("Purple") end)
+ThemeSec:AddButton("Red", function() Window:ChangeTheme("Red") end)
+ThemeSec:AddButton("Blue", function() Window:ChangeTheme("Blue") end)
 
--- Инициализация первой вкладки
-Window:_SelectTab(Window.Tabs[1])
+-- Инициализация
+Window:_SelectTab(TeleportTab)
