@@ -1,557 +1,624 @@
--- LIBERIUM HUB | v59 | PulseHub Glide + Force Noclip Teleport
+-- LIBERIUM HUB | v62 | Final Masterpiece (Claude's Modules + My Logic)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
 local Lighting = game:GetService("Lighting")
 
-local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
 local isRunning = true
 getgenv().LiberiumCleanup = function() isRunning = false end
 
 -- ==========================================
--- КОНФИГ
+-- CONFIG
 -- ==========================================
 local CFG = { 
-    MaxSpeed = 20, Gain = 3, ForcePerMass = 1500, MaxCoins = 50, 
-    AutoReset = false, AutoFarm = false, AutoFling = false, 
+    MaxSpeed = 20, AutoFarm = false, AutoFling = false, 
     ESP = false, AntiAFK = false, AvoidRadius = 20, AntiFling = true
 }
-local collectedCount = 0
-local Blacklist = setmetatable({}, { __mode = "k" })
 local roles = {}
-local canFarmNow = false
-local currentSession = nil 
-local ActiveMurderers = {}
 local ESPHighlights = {}
+local currentSession = nil
+local canFarmNow = false
 
 -- ==========================================
--- АНТИ-ФЛИНГ
+-- 1. RATE LIMITER (От Клода)
 -- ==========================================
-local function startAntiFling(threshold)
-    local limitSq = (threshold or 1000) ^ 2
-    RunService.Heartbeat:Connect(function()
-        if not CFG.AntiFling or not isRunning then return end
-        local character = Player.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-        local lin = root.AssemblyLinearVelocity
-        local ang = root.AssemblyAngularVelocity
-        if lin.Dot(lin, lin) > limitSq or ang.Dot(ang, ang) > limitSq then
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end
-    end)
-end
-startAntiFling(1000)
+local RateLimiter = (function()
+    local clock = os.clock
+    local cooldowns = {}
+    local callsSinceSweep = 0
+    local SWEEP_EVERY = 256
+    local throttles = setmetatable({}, { __mode = "k" })
 
--- ==========================================
--- ТЕМЫ И СТЕКЛО
--- ==========================================
-local Theme = {
-    Background = Color3.fromRGB(12, 12, 15), Sidebar = Color3.fromRGB(18, 18, 22),
-    Card = Color3.fromRGB(24, 24, 30), Hover = Color3.fromRGB(32, 32, 40),
-    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 120, 30),
-    White = Color3.fromRGB(255, 255, 255), Muted = Color3.fromRGB(150, 150, 160),
-    Track = Color3.fromRGB(40, 40, 48), Border = Color3.fromRGB(45, 45, 55),
-    Red = Color3.fromRGB(255, 50, 50)
-}
-local Themes = {
-    Green = { Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 120, 30), Border = Color3.fromRGB(45, 45, 55) },
-    Purple = { Green = Color3.fromRGB(170, 0, 255), GreenDark = Color3.fromRGB(70, 0, 120), Border = Color3.fromRGB(70, 40, 100) },
-    Red = { Green = Color3.fromRGB(255, 40, 40), GreenDark = Color3.fromRGB(120, 0, 0), Border = Color3.fromRGB(100, 40, 40) },
-    Blue = { Green = Color3.fromRGB(0, 170, 255), GreenDark = Color3.fromRGB(0, 70, 120), Border = Color3.fromRGB(40, 70, 100) },
-}
-
--- ==========================================
--- UI БИБЛИОТЕКА
--- ==========================================
-local Library = {}
-Library.__index = Library
-
-local function New(className, properties, parent)
-    local object = Instance.new(className)
-    for key, value in pairs(properties or {}) do object[key] = value end
-    object.Parent = parent
-    return object
-end
-local function Tween(object, duration, properties)
-    if not object then return end
-    local animation = TweenService:Create(object, TweenInfo.new(duration or 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties)
-    animation:Play() return animation
-end
-local function Round(object, radius) New("UICorner", { CornerRadius = UDim.new(0, radius or 10) }, object) end
-local function Stroke(object, color, transparency, thickness) 
-    return New("UIStroke", { Color = color or Theme.Border, Transparency = transparency or 0, Thickness = thickness or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, object)
-end
-local function Gradient(parent, first, last, rotation) 
-    return New("UIGradient", { Color = ColorSequence.new(first, last), Rotation = rotation or 0 }, parent) 
-end
-local function TagTheme(obj, prop, key) obj[prop] = Theme[key] obj:SetAttribute("ThemeTarget_" .. prop, key) return obj end
-local function MakeLabel(parent, text, size, color, font)
-    return New("TextLabel", { BackgroundTransparency = 1, Text = text or "", TextSize = size or 12, TextColor3 = color or Theme.White, Font = font or Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, 0, 1, 0) }, parent)
-end
-local function ClearGui(container) for _, child in ipairs(container:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end end
-
-local function CreateGlassBackground(parent, radius)
-    local glass = New("ImageLabel", { Name = "GlassBackground", BackgroundTransparency = 1, Image = "rbxassetid://8992266418", ImageTransparency = 0.8, ImageColor3 = Color3.fromRGB(20, 20, 25), ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(100, 100, 100, 100), Size = UDim2.fromScale(1, 1), ZIndex = 0 }, parent)
-    Round(glass, radius)
-    return glass
-end
-
-function Library.new(options)
-    options = options or {}
-    local self = setmetatable({}, Library)
-    self.Tabs = {} self.ActiveTab = nil self.Connections = {} self.Visible = true
-    
-    local blur = Lighting:FindFirstChild("LiberiumBlur") or New("BlurEffect", {Name = "LiberiumBlur", Size = 0}, Lighting)
-    Tween(blur, 0.4, {Size = 15})
-
-    local oldGui = PlayerGui:FindFirstChild("LiberiumHubPremium")
-    if oldGui then oldGui:Destroy() end
-
-    local gui = New("ScreenGui", { Name = "LiberiumHubPremium", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 50, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, PlayerGui)
-    self.Gui = gui
-    function self:_Track(conn) table.insert(self.Connections, conn) end
-
-    self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Theme.Background, Text = "M", TextColor3 = Theme.Green, TextSize = 26, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
-    Round(self.OpenButton, 28) local os1 = Stroke(self.OpenButton, Theme.Green, 0.2, 2) TagTheme(os1, "Color", "Green") TagTheme(self.OpenButton, "TextColor3", "Green")
-    
-    local fDrag, fStart, fPos, fMoved = false, nil, nil, false
-    self:_Track(self.OpenButton.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag, fStart, fPos, fMoved = true, i.Position, self.OpenButton.Position, false end end))
-    self:_Track(UserInputService.InputChanged:Connect(function(i) if fDrag and i == fStart then local d = i.Position - fStart if d.Magnitude > 5 then fMoved = true end self.OpenButton.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y) end end))
-    self:_Track(UserInputService.InputEnded:Connect(function(i) if fDrag and i == fStart then fDrag = false end end))
-    self:_Track(self.OpenButton.Activated:Connect(function() if not fMoved then self:ToggleVisible() end end))
-
-    local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.3, BorderSizePixel = 0, ClipsDescendants = true }, gui)
-    self.Root = root Round(root, 18) 
-    Stroke(root, Color3.new(0,0,0), 0.6, 3) 
-    local rs2 = Stroke(root, Theme.Green, 0.7, 1.5) TagTheme(rs2, "Color", "Green")
-    CreateGlassBackground(root, 18)
-
-    local scale = New("UIScale", { Scale = 1 }, root) self.Scale = scale
-    local function updateScale()
-        local camera = workspace.CurrentCamera if not camera then return end
-        local viewport = camera.ViewportSize
-        scale.Scale = math.max(0.38, math.min(1, (viewport.X - 24) / 720, (viewport.Y - 32) / 460))
+    local function sweep(now)
+        for key, expiry in pairs(cooldowns) do if expiry <= now then cooldowns[key] = nil end end
     end
-    updateScale() self:_Track(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(updateScale))
-    if workspace.CurrentCamera then self:_Track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
 
-    local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BackgroundTransparency = 0.4, BorderSizePixel = 0, Size = UDim2.new(0, 190, 1, 0) }, root)
-    Round(sidebar, 18)
-    Gradient(sidebar, Color3.fromRGB(25,25,30), Color3.fromRGB(15,15,18), 90)
-    New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.9, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
-    
-    local logo = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.8, Position = UDim2.fromOffset(15, 19), Size = UDim2.fromOffset(40, 40), BorderSizePixel = 0 }, sidebar) Round(logo, 12)
-    local logoText = MakeLabel(logo, "L", 26, Theme.Green, Enum.Font.GothamBold) logoText.TextXAlignment = Enum.TextXAlignment.Center TagTheme(logoText, "TextColor3", "Green")
-    
-    local brand = MakeLabel(sidebar, options.Title or "LIBERIUM HUB", 17, Theme.White, Enum.Font.GothamBold) brand.Position = UDim2.fromOffset(65, 19)
-    local subtitle = MakeLabel(sidebar, "PREMIUM", 9, Theme.Muted, Enum.Font.GothamBold) subtitle.Position = UDim2.fromOffset(66, 42)
+    local API = {}
+    function API.Debounce(key, cooldown)
+        local now = clock()
+        callsSinceSweep += 1
+        if callsSinceSweep >= SWEEP_EVERY then callsSinceSweep = 0 sweep(now) end
+        local expiry = cooldowns[key]
+        if expiry and now < expiry then return false end
+        cooldowns[key] = now + cooldown
+        return true
+    end
+    function API.Throttle(fn, interval)
+        local state = { lastRun = -math.huge, pending = nil, thread = nil }
+        throttles[state] = true
+        local function trailing()
+            state.thread = nil
+            local args = state.pending
+            state.pending = nil
+            if not args then return end
+            state.lastRun = clock()
+            fn(table.unpack(args, 1, args.n))
+        end
+        local function wrapped(...)
+            local now = clock()
+            local elapsed = now - state.lastRun
+            if elapsed >= interval and not state.thread then
+                state.lastRun = now
+                state.pending = nil
+                return fn(...)
+            end
+            state.pending = table.pack(...)
+            if not state.thread then state.thread = task.delay(math.max(0, interval - elapsed), trailing) end
+        end
+        return wrapped, function() if state.thread then task.cancel(state.thread) state.thread = nil end state.pending = nil end
+    end
+    function API.Once(fn)
+        local called = false
+        return function(...)
+            if called then return end
+            called = true
+            return fn(...)
+        end
+    end
+    function API.Cleanup()
+        table.clear(cooldowns)
+        callsSinceSweep = 0
+        for state in pairs(throttles) do
+            if state.thread then task.cancel(state.thread) end
+            state.thread = nil state.pending = nil state.lastRun = -math.huge
+        end
+    end
+    return table.freeze(API)
+end)()
 
-    self.Nav = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 76), Size = UDim2.new(1, -20, 1, -91) }, sidebar)
-    New("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
+-- ==========================================
+-- 2. OBJECT TRACKER (От Клода - для фарма)
+-- ==========================================
+local ObjectTracker = (function()
+    local Workspace = game:GetService("Workspace")
+    local Tracker = {}
+    Tracker.__index = Tracker
 
-    self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(190, 0), Size = UDim2.new(1, -190, 1, 0) }, root)
-    local header = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(20, 10), Size = UDim2.new(1, -40, 0, 48) }, self.Content)
-    self.PageTitle = MakeLabel(header, "Dashboard", 22, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(1, -100, 1, 0)
-    
-    local close = New("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(34, 34), BackgroundColor3 = Theme.Card, Text = "×", TextColor3 = Theme.Muted, TextSize = 20, Font = Enum.Font.GothamBold, AutoButtonColor = false }, header)
-    Round(close, 17) local cst = Stroke(close, Theme.Green, 0.7, 1.5) TagTheme(cst, "Color", "Green")
-    close.MouseEnter:Connect(function() Tween(close, 0.2, {BackgroundColor3 = Theme.Red}) end)
-    close.MouseLeave:Connect(function() Tween(close, 0.2, {BackgroundColor3 = Theme.Card}) end)
-    close.Activated:Connect(function() self:ToggleVisible() end)
+    function Tracker:_passesFilter(inst)
+        local filter = self._filter
+        if filter == nil then return true end
+        if type(filter) == "function" then local ok, res = pcall(filter, inst) return ok and res == true end
+        return string.find(inst.Name, filter) ~= nil
+    end
 
-    self.SubTabBar = New("ScrollingFrame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 66), Size = UDim2.new(1, -30, 0, 37), BorderSizePixel = 0, ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new() }, self.Content)
-    New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, self.SubTabBar)
-    self.PageHolder = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 108), Size = UDim2.new(1, -30, 1, -123), ClipsDescendants = true }, self.Content)
+    function Tracker:_add(inst)
+        if self._index[inst] then return end
+        local isModel
+        if inst:IsA("BasePart") then isModel = false
+        elseif inst:IsA("Model") then isModel = true
+        else return end
+        if not self:_passesFilter(inst) then return end
+        local n = #self._objs + 1
+        self._objs[n] = inst self._isModel[n] = isModel self._index[inst] = n
+    end
 
-    local dragging, dragStart, startPosition, activeInput = false, nil, nil, nil
-    self:_Track(header.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging, dragStart, startPosition, activeInput = true, input.Position, root.Position, input end end))
-    self:_Track(UserInputService.InputChanged:Connect(function(input) if dragging and input == activeInput then local delta = input.Position - dragStart root.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y) end end))
-    self:_Track(UserInputService.InputEnded:Connect(function(input) if dragging and input == activeInput then dragging = false activeInput = nil end end))
+    function Tracker:_remove(inst)
+        local i = self._index[inst]
+        if not i then return end
+        local last = #self._objs
+        if i ~= last then
+            local moved = self._objs[last]
+            self._objs[i] = moved self._isModel[i] = self._isModel[last] self._index[moved] = i
+        end
+        self._objs[last] = nil self._isModel[last] = nil self._index[inst] = nil
+    end
 
+    function Tracker:_clearCache()
+        table.clear(self._objs) table.clear(self._isModel) table.clear(self._index)
+    end
+
+    function Tracker:_detach()
+        for _, conn in ipairs(self._folderConns) do conn:Disconnect() end
+        table.clear(self._folderConns) self._folder = nil self:_clearCache()
+    end
+
+    function Tracker:_attach(folder)
+        self:_detach() self._folder = folder
+        local conns = self._folderConns local recursive = self._recursive
+        if recursive then
+            table.insert(conns, folder.DescendantAdded:Connect(function(inst) self:_add(inst) end))
+            table.insert(conns, folder.DescendantRemoving:Connect(function(inst) self:_remove(inst) end))
+        else
+            table.insert(conns, folder.ChildAdded:Connect(function(inst) self:_add(inst) end))
+            table.insert(conns, folder.ChildRemoved:Connect(function(inst) self:_remove(inst) end))
+        end
+        table.insert(conns, folder.AncestryChanged:Connect(function()
+            if folder.Parent ~= self._parent then self:_detach() end
+        end))
+        for _, inst in ipairs(recursive and folder:GetDescendants() or folder:GetChildren()) do self:_add(inst) end
+    end
+
+    function Tracker.new(folderName, nameFilter, options)
+        local self = setmetatable({}, Tracker)
+        self._folderName = folderName self._filter = nameFilter
+        self._parent = (options and options.Parent) or Workspace
+        self._recursive = options ~= nil and options.Recursive == true
+        self._objs = {} self._isModel = {} self._index = {}
+        self._folder = nil self._folderConns = {} self._destroyed = false
+        self._parentConn = self._parent.ChildAdded:Connect(function(child)
+            if child.Name == self._folderName and self._folder == nil then self:_attach(child) end
+        end)
+        local existing = self._parent:FindFirstChild(folderName)
+        if existing then self:_attach(existing) end
+        return self
+    end
+
+    function Tracker:GetClosest(origin, maxDistance)
+        if self._destroyed then return nil, nil end
+        local objs, isModel = self._objs, self._isModel
+        local limitSq = maxDistance and (maxDistance * maxDistance) or math.huge
+        local bestObj, bestSq = nil, limitSq
+        for i = 1, #objs do
+            local obj = objs[i]
+            if obj.Parent then
+                local pos = isModel[i] and obj:GetPivot().Position or (obj :: BasePart).Position
+                local d = pos - origin
+                local sq = d.X * d.X + d.Y * d.Y + d.Z * d.Z
+                if sq < bestSq or (bestObj == nil and sq <= limitSq) then bestSq = sq bestObj = obj end
+            end
+        end
+        if bestObj then return bestObj, math.sqrt(bestSq) end
+        return nil, nil
+    end
+    function Tracker:Destroy() if self._destroyed then return end self._destroyed = true self._parentConn:Disconnect() self:_detach() end
+    return Tracker
+end)()
+
+-- ==========================================
+-- 3. STABILIZER (От Клода - анти-флинг)
+-- ==========================================
+local Stabilizer = (function()
+    local CONFIG = { LinearThreshold = 1000, LinearSafe = 250, AngularThreshold = 1000, AngularSafe = 50, DampRate = 14, IgnoreVerticalInFreefall = true }
+    local localPlayer = Players.LocalPlayer
+    local connection
+    local ignored = setmetatable({}, {__mode = "k"})
+    local damping = setmetatable({}, {__mode = "k"})
+    local API = {}
+
+    local function dampVector(vec, threshold, safe, alpha, state, key, ignoreY)
+        local y = ignoreY and vec.Y or 0
+        local flat = ignoreY and Vector3.new(vec.X, 0, vec.Z) or vec
+        local mag = flat.Magnitude
+        if not state[key] then if mag <= threshold then return nil end state[key] = true end
+        if mag <= safe * 1.05 then state[key] = false return nil end
+        local newMag = mag + (safe - mag) * alpha
+        local damped = flat.Unit * newMag
+        return ignoreY and Vector3.new(damped.X, y, damped.Z) or damped
+    end
+
+    local function step(dt)
+        local character = localPlayer.Character if not character then return end
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if not root or ignored[character] then return end
+        local state = damping[root] or {linear = false, angular = false} damping[root] = state
+        local alpha = 1 - math.exp(-CONFIG.DampRate * dt)
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local freefall = CONFIG.IgnoreVerticalInFreefall and humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall
+        local lin = dampVector(root.AssemblyLinearVelocity, CONFIG.LinearThreshold, CONFIG.LinearSafe, alpha, state, "linear", freefall)
+        if lin then root.AssemblyLinearVelocity = lin end
+        local ang = dampVector(root.AssemblyAngularVelocity, CONFIG.AngularThreshold, CONFIG.AngularSafe, alpha, state, "angular", false)
+        if ang then root.AssemblyAngularVelocity = ang end
+    end
+
+    function API.Start() if not connection then connection = RunService.Heartbeat:Connect(step) end end
+    function API.Stop() if connection then connection:Disconnect() connection = nil end end
+    return API
+end)()
+
+-- ==========================================
+-- 4. UI LIBRARY (Glassmorphic)
+-- ==========================================
+local THEME = {
+    Background = Color3.fromHex("0c0c0f"), Element = Color3.fromRGB(30, 30, 42),
+    Accent = Color3.fromRGB(140, 100, 255), Text = Color3.fromRGB(235, 235, 245),
+    SubText = Color3.fromRGB(150, 150, 170), Stroke = Color3.fromRGB(255, 255, 255),
+}
+local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+local function tween(inst, info, props) local t = TweenService:Create(inst, info, props) t:Play() return t end
+local function create(class, props, children) local inst = Instance.new(class) for k, v in pairs(props or {}) do inst[k] = v end for _, child in ipairs(children or {}) do child.Parent = inst end return inst end
+local function corner(r) return create("UICorner", {CornerRadius = UDim.new(0, r)}) end
+local function stroke(thickness, transparency) return create("UIStroke", {Color = THEME.Stroke, Thickness = thickness, Transparency = transparency, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}) end
+local function padding(p) return create("UIPadding", {PaddingTop = UDim.new(0, p), PaddingBottom = UDim.new(0, p), PaddingLeft = UDim.new(0, p), PaddingRight = UDim.new(0, p)}) end
+local function label(props) props.BackgroundTransparency = 1 props.Font = props.Font or Enum.Font.GothamMedium props.TextSize = props.TextSize or 13 props.TextColor3 = props.TextColor3 or THEME.Text props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left return create("TextLabel", props) end
+local function hover(button, target, idle, over) button.MouseEnter:Connect(function() tween(target, FAST, {BackgroundTransparency = over}) end) button.MouseLeave:Connect(function() tween(target, FAST, {BackgroundTransparency = idle}) end) end
+
+local Window, Tab, SubTab, Section = {}, {}, {}, {}
+Window.__index, Tab.__index, SubTab.__index, Section.__index = Window, Tab, SubTab, Section
+local Library = {}
+
+function Library.new(title)
+    local self = setmetatable({Tabs = {}, Connections = {}}, Window)
+    local oldGui = PlayerGui:FindFirstChild("GlassUI") if oldGui then oldGui:Destroy() end
+    self.Gui = create("ScreenGui", {Name = "GlassUI", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = PlayerGui})
+    self.Scale = create("UIScale", {Parent = self.Gui})
+    local function updateScale() local cam = workspace.CurrentCamera if not cam then return end local v = cam.ViewportSize self.Scale.Scale = math.clamp(math.min(v.X / 760, v.Y / 500), 0.5, 1) end
+    updateScale() if workspace.CurrentCamera then table.insert(self.Connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
+    self.Main = create("Frame", {Name = "Main", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = THEME.Background, BackgroundTransparency = 0.12, Parent = self.Gui}, {corner(12), stroke(1, 0.8)})
+    self.Inner = create("Frame", {Name = "Inner", Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 1, -8), BackgroundColor3 = THEME.Background, BackgroundTransparency = 0.35, ClipsDescendants = true, Parent = self.Main}, {corner(10), stroke(2, 0.9)})
+    self.TitleBar = create("Frame", {Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, Parent = self.Inner}, {label({Text = title or "Interface", Font = Enum.Font.GothamBold, TextSize = 15, Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -32, 1, 0)})})
+    self.Sidebar = create("ScrollingFrame", {Position = UDim2.fromOffset(0, 40), Size = UDim2.new(0, 160, 1, -40), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), Parent = self.Inner}, {padding(8), create("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder})})
+    self.Content = create("Frame", {Position = UDim2.fromOffset(160, 40), Size = UDim2.new(1, -160, 1, -40), BackgroundTransparency = 1, Parent = self.Inner})
+    local dragging, dragStart, startPos
+    table.insert(self.Connections, self.TitleBar.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging, dragStart, startPos = true, input.Position, self.Main.Position end end))
+    table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then local d = (input.Position - dragStart) / self.Scale.Scale self.Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y) end end))
+    table.insert(self.Connections, UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end))
     return self
 end
 
-function Library:ChangeTheme(themeName)
-    local t = Themes[themeName] if not t then return end
-    Theme.Green = t.Green Theme.GreenDark = t.GreenDark Theme.Border = t.Border
-    for _, obj in ipairs(self.Gui:GetDescendants()) do
-        for _, prop in ipairs({"Color", "BackgroundColor3", "TextColor3"}) do
-            local key = obj:GetAttribute("ThemeTarget_" .. prop)
-            if key and Theme[key] then Tween(obj, 0.3, {[prop] = Theme[key]}) end
-        end
-    end
-end
-
-function Library:_SelectTab(tab)
-    if tab == self.ActiveTab then return end
-    self.ActiveTab = tab self.PageTitle.Text = tab.Name
+function Window:_SelectTab(tab)
+    if self.ActiveTab == tab then return end
+    self.ActiveTab = tab
     for _, t in ipairs(self.Tabs) do
         local active = t == tab
-        Tween(t.Button, 0.2, { BackgroundColor3 = active and Theme.Card or Theme.Sidebar, TextColor3 = active and Theme.White or Theme.Muted })
-        if t.Indicator then t.Indicator.Visible = active end
-        for _, sub in ipairs(t.SubTabs) do if sub.Page then sub.Page.Visible = (t == tab and sub == tab.SubTabs[1]) end end
+        tween(t.Button, FAST, {BackgroundTransparency = active and 0.8 or 1})
+        tween(t.NameLabel, FAST, {TextColor3 = active and THEME.Text or THEME.SubText})
+        if not active then t.Container.Visible = false t.Container.GroupTransparency = 1 end
     end
-    
-    ClearGui(self.SubTabBar)
-    for _, sub in ipairs(tab.SubTabs) do
-        local b = New("TextButton", { BackgroundColor3 = Theme.Card, Text = sub.Icon .. "  " .. sub.Name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamBold, TextSize = 12, Size = UDim2.fromOffset(90, 32), AutoButtonColor = false }, self.SubTabBar)
-        Round(b, 16) local st = Stroke(b, Theme.Green, 1, 1) sub.Button = b sub.Stroke = st
-        b.Activated:Connect(function() self:_SelectSub(tab, sub) end)
-
-        if not sub.Page then
-            local page = New("ScrollingFrame", { Name = sub.Name .. "Page", BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 1, 0), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Green, Visible = false }, self.PageHolder)
-            TagTheme(page, "ScrollBarImageColor3", "Green")
-            New("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, page) 
-            New("UIPadding", { PaddingBottom = UDim.new(0, 10), PaddingRight = UDim.new(0, 4) }, page)
-            sub.Page = page
-            for _, section in ipairs(sub.Sections) do self:_BuildSection(section, page) end
-        end
-    end
-    if tab.SubTabs[1] then self:_SelectSub(tab, tab.SubTabs[1]) end
+    tab.Container.Position = UDim2.fromOffset(0, 8) tab.Container.Visible = true
+    tween(tab.Container, SLOW, {GroupTransparency = 0, Position = UDim2.fromOffset(0, 0)})
 end
 
-function Library:_SelectSub(tab, sub)
-    tab.ActiveSub = sub
-    for _, s in ipairs(tab.SubTabs) do
-        if s.Button then 
-            local active = s == sub 
-            Tween(s.Button, 0.2, { BackgroundColor3 = active and Theme.Green or Theme.Card, TextColor3 = active and Theme.Background or Theme.Muted }) 
-            Tween(s.Stroke, 0.2, { Transparency = active and 0 or 1 }) 
-        end
-        if s.Page then s.Page.Visible = s == sub end
-    end
-    self.PageTitle.Text = tab.Name .. " / " .. sub.Name
+function Window:AddTab(name, icon)
+    local tab = setmetatable({Window = self, Name = name, SubTabs = {}}, Tab)
+    tab.Button = create("TextButton", {Name = name, Size = UDim2.new(1, 0, 0, 36), Text = "", AutoButtonColor = false, BackgroundColor3 = THEME.Accent, BackgroundTransparency = 1, Parent = self.Sidebar}, {corner(8)})
+    label({Text = icon or "•", TextSize = 15, TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(0, 22, 1, 0), Parent = tab.Button})
+    tab.NameLabel = label({Text = name, TextColor3 = THEME.SubText, Position = UDim2.fromOffset(38, 0), Size = UDim2.new(1, -44, 1, 0), Parent = tab.Button})
+    tab.Button.MouseEnter:Connect(function() if self.ActiveTab ~= tab then tween(tab.Button, FAST, {BackgroundTransparency = 0.92}) end end)
+    tab.Button.MouseLeave:Connect(function() if self.ActiveTab ~= tab then tween(tab.Button, FAST, {BackgroundTransparency = 1}) end end)
+    tab.Button.Activated:Connect(function() self:_SelectTab(tab) end)
+    tab.Container = create("CanvasGroup", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, GroupTransparency = 1, Parent = self.Content})
+    tab.SubBar = create("Frame", {Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, Parent = tab.Container}, {padding(4), create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder})})
+    tab.PageHolder = create("Frame", {Position = UDim2.fromOffset(0, 36), Size = UDim2.new(1, 0, 1, -36), BackgroundTransparency = 1, Parent = tab.Container})
+    table.insert(self.Tabs, tab) if #self.Tabs == 1 then self:_SelectTab(tab) end return tab
 end
 
-function Library:AddTab(name, icon)
-    local tab = { Window = self, Name = name, Icon = icon or "•", SubTabs = {} }
-    local b = New("TextButton", { BackgroundColor3 = Theme.Sidebar, Size = UDim2.new(1, 0, 0, 38), Text = "  " .. (icon or "•") .. "   " .. name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamSemibold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 0, AutoButtonColor = false }, self.Nav)
-    b.LayoutOrder = #self.Tabs + 1 Round(b, 10) New("UIPadding", { PaddingLeft = UDim.new(0, 12) }, b)
-    local ind = New("Frame", { BackgroundColor3 = Theme.Green, Size = UDim2.fromOffset(3, 22), Position = UDim2.new(0, 0, 0.5, -11), Visible = false }, b) Round(ind, 2)
-    tab.Button = b tab.Indicator = ind table.insert(self.Tabs, tab)
-    
-    b.MouseEnter:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Card, TextColor3 = Theme.White }) end end)
-    b.MouseLeave:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 1, TextColor3 = Theme.Muted }) end end)
-    b.Activated:Connect(function() self:_SelectTab(tab) end) 
-    if not self.ActiveTab then self.ActiveTab = tab self.PageTitle.Text = tab.Name if ind then ind.Visible = true end end
-    
-    return setmetatable(tab, {__index = {
-        AddSubTab = function(t, subName, subIcon)
-            local sub = { Tab = t, Name = subName, Icon = subIcon or "•", Sections = {} }
-            table.insert(t.SubTabs, sub)
-            return setmetatable(sub, {__index = {
-                AddSection = function(s, sectionName)
-                    local section = { Sub = s, Name = sectionName, Items = {} }
-                    table.insert(s.Sections, section)
-                    return setmetatable(section, {__index = {
-                        AddToggle = function(sec, title, default, callback, desc) return self:_AddItem(sec, { Kind = "Toggle", Title = title, Value = default == true, Callback = callback, Desc = desc or "" }) end,
-                        AddSlider = function(sec, title, min, max, default, callback, desc) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback, Desc = desc or "" }) end,
-                        AddButton = function(sec, title, callback, desc) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback, Desc = desc or "" }) end,
-                        AddDropdown = function(sec, title, options, default, callback) 
-                            options = options or {"None"} if #options == 0 then options = {"None"} end
-                            return self:_AddItem(sec, { Kind = "Dropdown", Title = title, Options = options, Value = default or options[1], Callback = callback, Desc = "" }) 
-                        end,
-                    }})
-                end,
-            }})
-        end,
-    }})
-end
-function Library:_AddItem(section, item) table.insert(section.Items, item) return item end
-
-function Library:_BuildSection(section, page)
-    local holder = New("Frame", { Name = section.Name, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, page) 
-    local heading = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22) }, holder)
-    local headingText = MakeLabel(heading, string.upper(section.Name), 11, Theme.Muted, Enum.Font.GothamBold)
-    
-    local itemsFrame = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 28), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, holder)
-    
-    if #section.Items == 1 then New("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame)
-    else New("UIGridLayout", { CellSize = UDim2.new(0.5, -5, 0, 66), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) end
-    
-    for _, item in ipairs(section.Items) do self:_BuildItem(item, itemsFrame, #section.Items == 1) end
+function Tab:_SelectSub(sub)
+    if self.ActiveSub == sub then return end
+    self.ActiveSub = sub
+    for _, s in ipairs(self.SubTabs) do
+        local active = s == sub
+        tween(s.Button, FAST, {BackgroundTransparency = active and 0.7 or 0.9, TextColor3 = active and THEME.Text or THEME.SubText})
+        if not active then s.Page.Visible = false s.Page.GroupTransparency = 1 end
+    end
+    sub.Page.Visible = true tween(sub.Page, SLOW, {GroupTransparency = 0})
 end
 
-function Library:_BuildItem(item, parent, isFullWidth)
-    local isSlider = item.Kind == "Slider" local isButton = item.Kind == "Button" local hasDesc = item.Desc ~= ""
-    local height = isSlider and 78 or (hasDesc and 66 or 56)
-    local size = isFullWidth and UDim2.new(1, 0, 0, height) or UDim2.new(0.5, -5, 0, height)
-    local card = New("Frame", { BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.15, BorderSizePixel = 0, Size = size }, parent) Round(card, 12) 
-    local st1 = Stroke(card, Color3.new(0,0,0), 0.6, 2) 
-    local st2 = Stroke(card, Theme.Green, 0.8, 1) TagTheme(st2, "Color", "Border")
-    
-    card.MouseEnter:Connect(function() Tween(card, 0.2, {BackgroundTransparency = 0, Size = size + UDim2.fromOffset(2, 2)}) Tween(st2, 0.2, {Transparency = 0.4}) end)
-    card.MouseLeave:Connect(function() Tween(card, 0.2, {BackgroundTransparency = 0.15, Size = size}) Tween(st2, 0.2, {Transparency = 0.8}) end)
-
-    local title = MakeLabel(card, item.Title, 13, Theme.White, Enum.Font.GothamMedium) title.Position = UDim2.fromOffset(12, 6) title.Size = UDim2.new(1, -55, 0, 17)
-    if hasDesc and not isButton then
-        local desc = MakeLabel(card, item.Desc, 10, Theme.Muted) desc.Position = UDim2.fromOffset(12, 25) desc.Size = UDim2.new(1, -24, 0, 14)
-    end
-
-    if item.Kind == "Toggle" then
-        local track = New("Frame", { BackgroundColor3 = item.Value and Theme.Green or Theme.Track, Position = UDim2.new(1, -48, 0, hasDesc and 24 or 18), Size = UDim2.fromOffset(38, 20), BorderSizePixel = 0 }, card) Round(track, 15)
-        local thumb = New("Frame", { BackgroundColor3 = Theme.White, Position = UDim2.fromOffset(item.Value and 20 or 2, 2), Size = UDim2.fromOffset(16, 16), BorderSizePixel = 0 }, track) Round(thumb, 12)
-        local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Size = UDim2.fromScale(1, 1) }, track)
-        local function setState(val)
-            item.Value = val Tween(track, 0.2, { BackgroundColor3 = val and Theme.Green or Theme.Track }) Tween(thumb, 0.2, { Position = UDim2.fromOffset(val and 20 or 2, 2) })
-            if val then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") else track:SetAttribute("ThemeTarget_BackgroundColor3", nil) end
-            if item.Callback then task.spawn(item.Callback, val) end
-        end
-        hit.Activated:Connect(function() setState(not item.Value) end) 
-        if item.Value then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") end
-    elseif item.Kind == "Slider" then
-        local valLabel = MakeLabel(card, tostring(item.Value), 12, Theme.Green, Enum.Font.GothamBold) valLabel.Position = UDim2.new(1, -45, 0, 6) valLabel.Size = UDim2.fromOffset(35, 17) valLabel.TextXAlignment = Enum.TextXAlignment.Right TagTheme(valLabel, "TextColor3", "Green")
-        local track = New("Frame", { BackgroundColor3 = Theme.Track, Position = UDim2.new(0, 12, 0, 58), Size = UDim2.new(1, -54, 0, 5), BorderSizePixel = 0 }, card) Round(track, 5)
-        local fill = New("Frame", { BackgroundColor3 = Theme.Green, Size = UDim2.new((item.Value - item.Min)/(item.Max - item.Min), 0, 1, 0), BorderSizePixel = 0 }, track) Round(fill, 5) TagTheme(fill, "BackgroundColor3", "Green")
-        local thumb = New("Frame", { BackgroundColor3 = Theme.White, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), BorderSizePixel = 0 }, track) Round(thumb, 10) Stroke(thumb, Theme.White, 0.2)
-        local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.new(0, -5, 0, -12), Size = UDim2.new(1, 10, 0, 30) }, track)
-        
-        local dragging = false
-        local function setVal(value)
-            local pct = math.clamp((value - item.Min) / math.max(0.001, item.Max - item.Min), 0, 1)
-            fill.Size = UDim2.new(pct, 0, 1, 0) thumb.Position = UDim2.new(pct, 0, 0.5, 0) valLabel.Text = tostring(math.floor(value))
-            item.Value = value if item.Callback then task.spawn(item.Callback, value) end
-        end
-        hit.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true setVal(item.Min + math.clamp((input.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1) * (item.Max - item.Min)) end end)
-        self:_Track(UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then setVal(item.Min + math.clamp((input.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1) * (item.Max - item.Min)) end end))
-        self:_Track(UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end))
-    elseif item.Kind == "Button" then
-        local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.Title, TextColor3 = Theme.White, TextSize = 13, Font = Enum.Font.GothamBold, Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false }, card)
-        btn.Activated:Connect(function() Tween(card, 0.1, { BackgroundColor3 = Theme.GreenDark }) task.delay(0.15, function() Tween(card, 0.2, { BackgroundColor3 = Theme.Card }) end) if item.Callback then task.spawn(item.Callback) end end)
-    end
+function Tab:AddSubTab(name)
+    local sub = setmetatable({Tab = self, Name = name}, SubTab)
+    sub.Button = create("TextButton", {Text = name, Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = THEME.SubText, AutoButtonColor = false, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = THEME.Accent, BackgroundTransparency = 0.9, Parent = self.SubBar}, {corner(6), create("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)})})
+    sub.Page = create("CanvasGroup", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, GroupTransparency = 1, Parent = self.PageHolder})
+    sub.Scroll = create("ScrollingFrame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = THEME.Accent, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), Parent = sub.Page}, {padding(8), create("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder})})
+    sub.Button.Activated:Connect(function() self:_SelectSub(sub) end)
+    table.insert(self.SubTabs, sub) if #self.SubTabs == 1 then self:_SelectSub(sub) end return sub
 end
 
-function Library:ToggleVisible()
-    self.Visible = not self.Visible
-    local blur = Lighting:FindFirstChild("LiberiumBlur")
-    if self.Visible then 
-        self.Root.Visible = true Tween(self.Root, 0.25, {BackgroundTransparency = 0.3}) self.OpenButton.Visible = false
-        if blur then Tween(blur, 0.4, {Size = 15}) end
-    else 
-        Tween(self.Root, 0.25, {BackgroundTransparency = 1}) 
-        if blur then Tween(blur, 0.4, {Size = 0}) end
-        task.delay(0.25, function() if not self.Visible then self.Root.Visible = false self.OpenButton.Visible = true end end) 
-    end
+function SubTab:AddSection(name)
+    local section = setmetatable({SubTab = self, Window = self.Tab.Window}, Section)
+    section.Frame = create("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = THEME.Element, BackgroundTransparency = 0.45, Parent = self.Scroll}, {corner(8), stroke(1, 0.9), padding(10), create("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder})})
+    label({Text = string.upper(name), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = THEME.Accent, Size = UDim2.new(1, 0, 0, 16), Parent = section.Frame})
+    return section
+end
+
+function Section:AddToggle(name, default, callback)
+    local state = default == true
+    local row = create("TextButton", {Text = "", AutoButtonColor = false, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = THEME.Element, BackgroundTransparency = 0.6, Parent = self.Frame}, {corner(6)})
+    label({Text = name, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -70, 1, 0), Parent = row})
+    local track = create("Frame", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(38, 20), BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(55, 55, 70), Parent = row}, {corner(10)})
+    local knob = create("Frame", {AnchorPoint = Vector2.new(0, 0.5), Size = UDim2.fromOffset(14, 14), Position = state and UDim2.new(1, -17, 0.5, 0) or UDim2.new(0, 3, 0.5, 0), BackgroundColor3 = Color3.new(1, 1, 1), Parent = track}, {corner(7)})
+    hover(row, row, 0.6, 0.4)
+    local object = {}
+    function object:Set(value, silent) state = value and true or false tween(track, FAST, {BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(55, 55, 70)}) tween(knob, FAST, {Position = state and UDim2.new(1, -17, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)}) if not silent and callback then task.spawn(callback, state) end end
+    row.Activated:Connect(function() object:Set(not state) end) return object
+end
+
+function Section:AddSlider(name, min, max, default, callback, increment)
+    increment = increment or 1 local value = math.clamp(default or min, min, max)
+    local row = create("Frame", {Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = THEME.Element, BackgroundTransparency = 0.6, Parent = self.Frame}, {corner(6)})
+    label({Text = name, Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -80, 0, 18), Parent = row})
+    local valueLabel = label({Text = tostring(value), TextColor3 = THEME.SubText, TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -70, 0, 4), Size = UDim2.fromOffset(60, 18), Parent = row})
+    local track = create("TextButton", {Text = "", AutoButtonColor = false, Position = UDim2.new(0, 10, 1, -14), Size = UDim2.new(1, -20, 0, 6), BackgroundColor3 = Color3.fromRGB(55, 55, 70), Parent = row}, {corner(3)})
+    local fill = create("Frame", {Size = UDim2.fromScale((value - min) / (max - min), 1), BackgroundColor3 = THEME.Accent, Parent = track}, {corner(3)})
+    hover(row, row, 0.6, 0.4)
+    local object = {}
+    function object:Set(v, silent) v = math.clamp(math.floor(v / increment + 0.5) * increment, min, max) value = v valueLabel.Text = tostring(math.round(v * 1000) / 1000) tween(fill, TweenInfo.new(0.08), {Size = UDim2.fromScale((v - min) / (max - min), 1)}) if not silent and callback then task.spawn(callback, v) end end
+    local dragging = false
+    local function fromX(x) local alpha = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1) object:Set(min + (max - min) * alpha) end
+    track.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true fromX(input.Position.X) end end)
+    table.insert(self.Window.Connections, UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then fromX(input.Position.X) end end))
+    table.insert(self.Window.Connections, UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end))
+    return object
+end
+
+function Section:AddButton(name, callback)
+    local btn = create("TextButton", {Text = name, Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = THEME.Text, AutoButtonColor = false, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = THEME.Accent, BackgroundTransparency = 0.75, Parent = self.Frame}, {corner(6), stroke(1, 0.88)})
+    hover(btn, btn, 0.75, 0.55) btn.MouseButton1Down:Connect(function() tween(btn, FAST, {BackgroundTransparency = 0.35}) end) btn.MouseButton1Up:Connect(function() tween(btn, FAST, {BackgroundTransparency = 0.55}) end)
+    btn.Activated:Connect(function() if RateLimiter.Debounce(btn, 0.5) and callback then task.spawn(callback) end end) return btn
 end
 
 -- ==========================================
--- ЛОГИКА
+-- 5. PLAYER LIST COMPONENT (От Клода)
 -- ==========================================
-task.spawn(function() while task.wait(0.5) and isRunning do pcall(function() local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) if getData and getData:IsA("RemoteFunction") then local ok, data = pcall(function() return getData:InvokeServer() end) if ok and type(data) == "table" then roles = data end end end) end end)
-local function getPlayerRole(plr) local rData = roles[plr.Name] if rData and rData.Role then return rData.Role end local char = plr.Character if char then if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end end local bp = plr:FindFirstChild("Backpack") if bp then if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end end return "Innocent" end
-local function getRoleColor(plr) local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end return Color3.fromRGB(50, 255, 100) end
-local function canCollect() if not canFarmNow or not isRunning then return false end local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 then return false end local myData = roles[Player.Name] if not myData or myData.Dead then return false end local r = myData.Role if not r or r == "Spectator" or r == "Lobby" or r == "None" then return false end local container = Workspace:FindFirstChild("CoinContainer", true) if not container or #container:GetChildren() == 0 then return false end return true end
-task.spawn(function() while task.wait(0.5) and isRunning do local newMurderers = {} for _, plr in ipairs(Players:GetPlayers()) do if plr ~= Player and plr.Character then local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then local pRoot = plr.Character:FindFirstChild("HumanoidRootPart") if pRoot then table.insert(newMurderers, pRoot) end end end end ActiveMurderers = newMurderers end end)
+local PlayerListComponent = (function()
+    local API = {}
+    API.__index = API
+    
+    local THEME_LIST = { Background = Color3.fromRGB(18, 18, 24), Row = Color3.fromRGB(30, 30, 42), Accent = Color3.fromRGB(140, 100, 255), Text = Color3.fromRGB(235, 235, 245), SubText = Color3.fromRGB(150, 150, 170) }
+    local DEFAULTS = { RowHeight = 52, SearchHeight = 34, Padding = 6, ButtonText = "Select", ExcludeLocalPlayer = false, AvatarSize = 150 }
+    
+    local function create(class, props, children) local inst = Instance.new(class) for k, v in pairs(props or {}) do inst[k] = v end for _, child in ipairs(children or {}) do child.Parent = inst end return inst end
+    local function corner(r) return create("UICorner", {CornerRadius = UDim.new(0, r)}) end
+    local function avatarUrl(userId, size) return string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=%d&h=%d", userId, size, size) end
 
-RunService.RenderStepped:Connect(function()
-    if not isRunning then return end
-    if CFG.ESP then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= Player and p.Character then
-                local hl = ESPHighlights[p]
-                if not hl or not hl.Parent then hl = Instance.new("Highlight") hl.Name = "LibESP" hl.Parent = p.Character ESPHighlights[p] = hl end
-                local hum = p.Character:FindFirstChildOfClass("Humanoid") local rData = roles[p.Name] local isDead = (not hum or hum.Health <= 0) or (rData and rData.Dead)
-                if isDead then hl.Enabled = false
-                else hl.Enabled = true hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.FillTransparency = 0.6 hl.OutlineTransparency = 0
-                    local c if rData and rData.Role then c = getRoleColor(p) else local hasKnife = false local hasGun = false local bp = p:FindFirstChild("Backpack") if p.Character then if p.Character:FindFirstChild("Knife") then hasKnife = true end if p.Character:FindFirstChild("Gun") then hasGun = true end end if bp then if bp:FindFirstChild("Knife") then hasKnife = true end if bp:FindFirstChild("Gun") then hasGun = true end end if hasKnife then c = Color3.fromRGB(255, 50, 50) elseif hasGun then c = Color3.fromRGB(50, 120, 255) else c = Color3.fromRGB(200, 200, 200) end end
-                    hl.FillColor = c hl.OutlineColor = c end
-            end
+    function API:_createRow()
+        local o = self._options
+        local frame = create("Frame", {Name = "Row", Size = UDim2.new(1, 0, 0, o.RowHeight), BackgroundColor3 = THEME_LIST.Row, BackgroundTransparency = 0.3, Visible = false, Parent = self._scroll}, {corner(8)})
+        local avatar = create("ImageLabel", {Name = "Avatar", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 8, 0.5, 0), Size = UDim2.fromOffset(o.RowHeight - 14, o.RowHeight - 14), BackgroundColor3 = THEME_LIST.Background, Image = "", Parent = frame}, {corner(100)})
+        local textLeft = o.RowHeight - 14 + 16
+        local displayLabel = create("TextLabel", {Name = "DisplayName", BackgroundTransparency = 1, Position = UDim2.new(0, textLeft, 0, 7), Size = UDim2.new(1, -(textLeft + 96), 0, 20), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = THEME_LIST.Text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = "", Parent = frame})
+        local userLabel = create("TextLabel", {Name = "Username", BackgroundTransparency = 1, Position = UDim2.new(0, textLeft, 0, 27), Size = UDim2.new(1, -(textLeft + 96), 0, 16), Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = THEME_LIST.SubText, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = "", Parent = frame})
+        local button = create("TextButton", {Name = "ActionButton", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(78, 30), BackgroundColor3 = THEME_LIST.Accent, BackgroundTransparency = 0.2, AutoButtonColor = true, Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = THEME_LIST.Text, Text = o.ButtonText, Parent = frame}, {corner(6)})
+        local row = { Frame = frame, Avatar = avatar, DisplayLabel = displayLabel, UserLabel = userLabel, Button = button, Player = nil, BoundUserId = nil }
+        row.Connection = button.Activated:Connect(function() local p = row.Player if p and p.Parent == Players then self._selected = p self._selectedEvent:Fire(p) end end)
+        table.insert(self._pool, row) return row
+    end
+
+    local function bindRow(row, player, avatarSize)
+        if row.BoundUserId ~= player.UserId then row.BoundUserId = player.UserId row.Avatar.Image = avatarUrl(player.UserId, avatarSize) end
+        local display, username = player.DisplayName, "@" .. player.Name
+        if row.DisplayLabel.Text ~= display then row.DisplayLabel.Text = display end
+        if row.UserLabel.Text ~= username then row.UserLabel.Text = username end
+        row.Player = player
+    end
+
+    function API:_collect()
+        local query = string.lower(self._searchBox.Text) local list = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            if self._removing[player] then continue end
+            if self._options.ExcludeLocalPlayer and player == Players.LocalPlayer then continue end
+            if query == "" or string.find(string.lower(player.DisplayName), query, 1, true) or string.find(string.lower(player.Name), query, 1, true) then table.insert(list, player) end
         end
-    else for p, hl in pairs(ESPHighlights) do if hl then hl:Destroy() end ESPHighlights[p] = nil end end
+        table.sort(list, function(a, b) local da, db = string.lower(a.DisplayName), string.lower(b.DisplayName) if da == db then return a.UserId < b.UserId end return da < db end)
+        return list
+    end
+
+    function API:_refresh()
+        if self._destroyed then return end
+        local list = self:_collect() local pool = self._pool local o = self._options
+        for i, player in ipairs(list) do
+            local row = pool[i] or self:_createRow()
+            bindRow(row, player, o.AvatarSize) row.Frame.LayoutOrder = i
+            if not row.Frame.Visible then row.Frame.Visible = true end
+        end
+        for i = #list + 1, #pool do local row = pool[i] if row.Frame.Visible then row.Frame.Visible = false end row.Player = nil end
+        self._count = #list
+    end
+
+    function API:_queueRefresh()
+        if self._refreshQueued or self._destroyed then return end
+        self._refreshQueued = true
+        task.defer(function() self._refreshQueued = false self:_refresh() end)
+    end
+
+    function API:_track(player)
+        if self._playerConns[player] then return end
+        self._playerConns[player] = player:GetPropertyChangedSignal("DisplayName"):Connect(function() self:_queueRefresh() end)
+    end
+
+    function API:_untrack(player)
+        local conn = self._playerConns[player] if conn then conn:Disconnect() self._playerConns[player] = nil end
+    end
+
+    function API.new(parent, options)
+        local self = setmetatable({}, API)
+        local o = table.clone(DEFAULTS) for k, v in pairs(options or {}) do if o[k] ~= nil then o[k] = v end end
+        self._options = o self._pool = {} self._connections = {} self._playerConns = {} self._removing = setmetatable({}, {__mode = "k"}) self._selected = nil self._count = 0 self._destroyed = false self._refreshQueued = false
+        self._selectedEvent = Instance.new("BindableEvent") self.Selected = self._selectedEvent.Event
+        self.Root = create("Frame", {Name = "PlayerList", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = parent})
+        self._searchBox = create("TextBox", {Name = "Search", Size = UDim2.new(1, 0, 0, o.SearchHeight), BackgroundColor3 = THEME_LIST.Row, BackgroundTransparency = 0.2, Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = THEME_LIST.Text, PlaceholderText = "Search players...", PlaceholderColor3 = THEME_LIST.SubText, TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, Text = "", Parent = self.Root}, {corner(8), create("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)})})
+        self._scroll = create("ScrollingFrame", {Name = "List", Position = UDim2.fromOffset(0, o.SearchHeight + o.Padding), Size = UDim2.new(1, 0, 1, -(o.SearchHeight + o.Padding)), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = THEME_LIST.Accent, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollingDirection = Enum.ScrollingDirection.Y, Parent = self.Root}, {create("UIListLayout", {Padding = UDim.new(0, o.Padding), SortOrder = Enum.SortOrder.LayoutOrder}), create("UIPadding", {PaddingRight = UDim.new(0, 6)})})
+        table.insert(self._connections, self._searchBox:GetPropertyChangedSignal("Text"):Connect(function() self:_queueRefresh() end))
+        table.insert(self._connections, Players.PlayerAdded:Connect(function(player) self:_track(player) self:_queueRefresh() end))
+        table.insert(self._connections, Players.PlayerRemoving:Connect(function(player) self._removing[player] = true self:_untrack(player) if self._selected == player then self._selected = nil end self:_queueRefresh() end))
+        for _, player in ipairs(Players:GetPlayers()) do self:_track(player) end
+        self:_refresh() return self
+    end
+    function API:Destroy() if self._destroyed then return end self._destroyed = true for _, conn in ipairs(self._connections) do conn:Disconnect() end for player in pairs(self._playerConns) do self:_untrack(player) end for _, row in ipairs(self._pool) do row.Connection:Disconnect() end self._selectedEvent:Destroy() self.Root:Destroy() table.clear(self._pool) table.clear(self._connections) end
+    return API
+end)()
+
+-- ==========================================
+-- 6. GAME LOGIC (Roles, ESP, Glide)
+-- ==========================================
+task.spawn(function() 
+    while task.wait(1) and isRunning do 
+        pcall(function() 
+            local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) 
+            if getData and getData:IsA("RemoteFunction") then 
+                local ok, data = pcall(function() return getData:InvokeServer() end) 
+                if ok and type(data) == "table" then roles = data end 
+            end 
+        end) 
+    end 
 end)
 
-local function getClosestMurderer(pos) local closestRoot, closestDist = nil, math.huge for _, pRoot in ipairs(ActiveMurderers) do if pRoot and pRoot.Parent then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end end return closestRoot, closestDist end
+local function getPlayerRole(plr) 
+    local rData = roles[plr.Name] 
+    if rData and rData.Role then return rData.Role end 
+    local char = plr.Character 
+    if char then 
+        if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end 
+        if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end 
+    end 
+    local bp = plr:FindFirstChild("Backpack") 
+    if bp then 
+        if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end 
+        if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end 
+    end 
+    return "Innocent" 
+end
+
+local function getRoleColor(plr) 
+    local role = getPlayerRole(plr) 
+    if role == "Murderer" or role == "Zombie" then return Color3.fromRGB(255, 50, 50) end 
+    if role == "Sheriff" then return Color3.fromRGB(50, 120, 255) end 
+    return Color3.fromRGB(50, 255, 100) 
+end
+
+task.spawn(function()
+    while task.wait(0.1) and isRunning do
+        if CFG.ESP then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character then
+                    local hl = ESPHighlights[p]
+                    if not hl or not hl.Parent then hl = Instance.new("Highlight") hl.Name = "LibESP" hl.Parent = p.Character ESPHighlights[p] = hl hl.Adornee = p.Character hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.FillTransparency = 0.6 hl.OutlineTransparency = 0 end
+                    local hum = p.Character:FindFirstChildOfClass("Humanoid") local rData = roles[p.Name] local isDead = (not hum or hum.Health <= 0) or (rData and rData.Dead)
+                    if isDead then if hl.Enabled then hl.Enabled = false end
+                    else if not hl.Enabled then hl.Enabled = true end local c = getRoleColor(p) if hl.FillColor ~= c then hl.FillColor = c hl.OutlineColor = c end end
+                end
+            end
+        else for p, hl in pairs(ESPHighlights) do if hl then hl:Destroy() end ESPHighlights[p] = nil end end
+    end
+end)
+
+local function getClosestMurderer(pos) local closestRoot, closestDist = nil, math.huge for _, plr in ipairs(Players:GetPlayers()) do if plr ~= LocalPlayer and plr.Character then local role = getPlayerRole(plr) if role == "Murderer" or role == "Zombie" then local pRoot = plr.Character:FindFirstChild("HumanoidRootPart") if pRoot then local d = (pRoot.Position - pos).Magnitude if d < closestDist then closestRoot, closestDist = pRoot, d end end end end end return closestRoot, closestDist end
 local function FlingTarget(targetRoot)
     local s = currentSession if not s or s.destroyed or s.humanoid.Health <= 0 or not targetRoot then return end
     local myRoot = s.root local oldCFrame = myRoot.CFrame local oldAnchored = myRoot.Anchored myRoot.Anchored = true
-    pcall(function() if setnetworkowner then pcall(setnetworkowner, targetRoot, Player) end myRoot.CFrame = targetRoot.CFrame local spin = Instance.new("BodyAngularVelocity") spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5) spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) spin.Parent = targetRoot local push = Instance.new("BodyVelocity") push.Velocity = Vector3.new(1e5, 1e5, 1e5) push.MaxForce = Vector3.new(1e9, 1e9, 1e9) push.Parent = targetRoot task.wait(0.1) spin:Destroy() push:Destroy() end)
+    pcall(function() if setnetworkowner then pcall(setnetworkowner, targetRoot, LocalPlayer) end myRoot.CFrame = targetRoot.CFrame local spin = Instance.new("BodyAngularVelocity") spin.AngularVelocity = Vector3.new(1e5, 1e5, 1e5) spin.MaxTorque = Vector3.new(1e9, 1e9, 1e9) spin.Parent = targetRoot local push = Instance.new("BodyVelocity") push.Velocity = Vector3.new(1e5, 1e5, 1e5) push.MaxForce = Vector3.new(1e9, 1e9, 1e9) push.Parent = targetRoot task.wait(0.1) spin:Destroy() push:Destroy() end)
     myRoot.CFrame = oldCFrame myRoot.Anchored = oldAnchored
 end
 task.spawn(function() while task.wait(0.5) and isRunning do if CFG.AutoFling and currentSession and not currentSession.destroyed then local mRoot, mDist = getClosestMurderer(currentSession.root.Position) if mRoot and mDist < 50 then FlingTarget(mRoot) task.wait(2) end end end end)
 
-local function bindCharacter(character) 
-    if currentSession then currentSession.destroyed = true end
-    canFarmNow = false 
-    collectedCount = 0 
-    table.clear(Blacklist) 
-    
-    local root = character:WaitForChild("HumanoidRootPart", 10) 
-    local humanoid = character:WaitForChild("Humanoid", 10) 
-    if not (root and humanoid) or Player.Character ~= character then return end
-    
-    local s = { character = character, root = root, humanoid = humanoid, destroyed = false, target = nil } 
-    currentSession = s
-    
-    humanoid.Died:Connect(function() 
-        s.destroyed = true 
-        if currentSession == s then currentSession = nil end 
-    end)
-    character.AncestryChanged:Connect(function(_, parent) 
-        if parent == nil then 
-            s.destroyed = true 
-            if currentSession == s then currentSession = nil end 
-        end 
-    end)
-    
-    task.wait(3) 
-    canFarmNow = true 
+local function bindCharacter(character)
+    if currentSession then currentSession.destroyed = true end canFarmNow = false 
+    local root = character:WaitForChild("HumanoidRootPart", 10) local humanoid = character:WaitForChild("Humanoid", 10) 
+    if not (root and humanoid) or LocalPlayer.Character ~= character then return end
+    local s = { character = character, root = root, humanoid = humanoid, destroyed = false } currentSession = s
+    humanoid.Died:Connect(function() s.destroyed = true if currentSession == s then currentSession = nil end end)
+    character.AncestryChanged:Connect(function(_, parent) if parent == nil then s.destroyed = true if currentSession == s then currentSession = nil end end end)
+    task.wait(3) canFarmNow = true 
 end
-Player.CharacterAdded:Connect(bindCharacter) 
-if Player.Character then task.spawn(bindCharacter, Player.Character) end
+LocalPlayer.CharacterAdded:Connect(bindCharacter) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
 
--- ==========================================
--- ФАРМ (ЖЕСТКИЙ НОКЛИП + ТЕЛЕПОРТ)
--- ==========================================
+-- SMOOTHSTEP GLIDE (С ObjectTracker)
+local coinTracker = ObjectTracker.new("CoinContainer", "^Coin", { Parent = Workspace, Recursive = true })
 local function glideTo(target, speed)
     local s = currentSession 
     if not s or s.destroyed or not s.root or not s.root.Parent or not s.humanoid or s.humanoid.Health <= 0 or not target.Parent then return false end
+    local char = s.character local root = s.root local hum = s.humanoid
+    local origPlatformStand = hum.PlatformStand local origAutoRotate = hum.AutoRotate
     
-    local char = s.character
-    local root = s.root
-    local hum = s.humanoid
-    local origPlatformStand = hum.PlatformStand
-    local origAutoRotate = hum.AutoRotate
-    
-    hum.AutoRotate = false 
-    hum.PlatformStand = true
-    
-    local arrived = false 
-    local startTime = os.clock() 
-    local lastPos = root.Position 
-    local stuckTimer = 0 
-    local lastFrameTime = os.clock()
+    hum.AutoRotate = false hum.PlatformStand = true
+    local arrived = false local startTime = os.clock() local lastPos = root.Position local stuckTimer = 0 local lastFrameTime = os.clock()
     
     local ok, err = pcall(function()
         while not s.destroyed and hum.Health > 0 and target.Parent and isRunning do
-            RunService.Heartbeat:Wait() 
-            if s.destroyed or hum.Health <= 0 then break end
+            RunService.Heartbeat:Wait() if s.destroyed or hum.Health <= 0 then break end
+            for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then d.CanCollide = false end end
             
-            -- ЖЕСТКИЙ НОКЛИП КАЖДЫЙ КАДР
-            for _, d in ipairs(char:GetDescendants()) do
-                if d:IsA("BasePart") then
-                    d.CanCollide = false
-                end
-            end
+            local now = os.clock() local dt = math.min(now - lastFrameTime, 0.1) lastFrameTime = now
+            local pos = root.Position local offset = target.Position - pos local dist = offset.Magnitude
             
-            local now = os.clock() 
-            local dt = math.min(now - lastFrameTime, 0.1) 
-            lastFrameTime = now
+            if dist <= 3 then arrived = true break end
             
-            local pos = root.Position 
-            local offset = target.Position - pos 
-            local dist = offset.Magnitude
-            
-            if dist <= 3 then 
-                arrived = true 
-                break 
-            end
-            
-            local stepDist = math.min(speed * dt, dist) 
-            stepDist = math.min(stepDist, 1.5) -- АНТИ-КИК
-            
+            local distanceRatio = math.clamp(dist / 20, 0, 1)
+            local smoothFactor = distanceRatio * distanceRatio * (3 - 2 * distanceRatio)
+            local stepDist = math.min(math.min(speed * smoothFactor * dt, dist), 2.0) 
             local newPos = pos + offset.Unit * stepDist
             local flat = Vector3.new(offset.X, 0, offset.Z) 
             
-            if flat.Magnitude > 0.1 then 
-                root.CFrame = CFrame.lookAt(newPos, newPos + flat) 
-            else 
-                root.CFrame = CFrame.new(newPos) 
-            end
+            if flat.Magnitude > 0.1 then root.CFrame = CFrame.lookAt(newPos, newPos + flat) else root.CFrame = CFrame.new(newPos) end
             
-            -- ТЕЛЕПОРТ ЕСЛИ ЗАСТРЯЛИ
             if (root.Position - lastPos).Magnitude < 0.3 then 
                 stuckTimer = stuckTimer + dt 
-                if stuckTimer > 0.3 then 
-                    root.CFrame = CFrame.new(target.Position + Vector3.new(0, 2, 0))
-                    stuckTimer = 0 
-                    task.wait(0.1)
-                end
-            else 
-                stuckTimer = 0 
-                lastPos = root.Position 
-            end
-            
-            if os.clock() - startTime > 5 then break end 
+                if stuckTimer > 0.3 then root.CFrame = CFrame.new(target.Position + Vector3.new(0, 2, 0)) stuckTimer = 0 task.wait(0.1) end
+            else stuckTimer = 0 lastPos = root.Position end
+            if os.clock() - startTime > 6 then break end 
         end
     end)
-    
     if not ok then warn("[glideTo] error:", err) end
-    
-    -- Восстанавливаем коллизии
-    for _, d in ipairs(char:GetDescendants()) do
-        if d:IsA("BasePart") then
-            d.CanCollide = true
-        end
-    end
-    
-    if hum.Parent and hum.Health > 0 then 
-        hum.PlatformStand = origPlatformStand 
-        hum.AutoRotate = origAutoRotate 
-        hum:ChangeState(Enum.HumanoidStateType.GettingUp) 
-    end
-    
+    for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then d.CanCollide = true end end
+    if hum.Parent and hum.Health > 0 then hum.PlatformStand = origPlatformStand hum.AutoRotate = origAutoRotate hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
     return arrived
 end
 
-local COIN_PRIMARY = "Coin_Server" local COIN_FALLBACK = { Coin = true, Candy = true, Sweet = true } local coinCache, coinCacheTime, coinContainer = {}, 0, nil
-local function findCoinContainer() return Workspace:FindFirstChild("CoinContainer", true) or Workspace:FindFirstChild("Coins", true) or Workspace:FindFirstChild("CoinFolder", true) end
-local function isCoinName(name) if name == COIN_PRIMARY then return true end if COIN_FALLBACK[name] then return true end if name == "CoinVisual" then return false end local n = string.lower(name) return string.find(n, "coin", 1, true) ~= nil or string.find(n, "candy", 1, true) ~= nil or string.find(n, "sweet", 1, true) ~= nil end
-local function isCoinAlive(c, container) if not c or not c.Parent or not c:IsDescendantOf(Workspace) then return false end if container and not c:IsDescendantOf(container) then return false end local vis = c:FindFirstChild("CoinVisual") if vis and vis:IsA("BasePart") and vis.Transparency >= 0.99 then return false end return true end
-local function refreshCoinCache() local t = os.clock() if t - coinCacheTime < 1 then return end coinCacheTime = t coinCache = {} coinContainer = findCoinContainer() if coinContainer then for _, c in ipairs(coinContainer:GetChildren()) do if c:IsA("BasePart") and isCoinName(c.Name) then if not Blacklist[c] and isCoinAlive(c, coinContainer) then coinCache[#coinCache+1] = c elseif not isCoinAlive(c, coinContainer) then Blacklist[c] = true end end end end if #coinCache == 0 then for _, d in ipairs(Workspace:GetDescendants()) do if d:IsA("BasePart") and isCoinName(d.Name) and not Blacklist[d] and isCoinAlive(d, nil) then coinCache[#coinCache+1] = d end end end end
-local function nearestPart() local s = currentSession if not s or s.destroyed then return nil end refreshCoinCache() local best, bestDist = nil, math.huge local pos = s.root.Position for _, c in ipairs(coinCache) do if c and c.Parent and not Blacklist[c] then local d = (c.Position - pos).Magnitude local _, mDist = getClosestMurderer(c.Position) if d < bestDist and (not mDist or mDist > CFG.AvoidRadius) then best, bestDist = c, d end else Blacklist[c] = true end end return best end
-local function collectTarget(target) local s = currentSession if not s or s.destroyed or not target.Parent then return end Blacklist[target] = true collectedCount += 1 pcall(function() if typeof(firetouchinterest) == "function" then firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) task.wait(0.05) firetouchinterest(s.root, target, 0) firetouchinterest(s.root, target, 1) end local prompt = target:FindFirstChildWhichIsA("ProximityPrompt", true) if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then fireproximityprompt(prompt) end end) end
-local function collectSession() while CFG.AutoFarm and canCollect() and isRunning do if CFG.AutoReset and collectedCount >= CFG.MaxCoins then if currentSession and currentSession.humanoid then currentSession.humanoid.Health = 0 end break end local target = nearestPart() if not target then break end if glideTo(target, CFG.MaxSpeed) then collectTarget(target) task.wait(0.15) if target and target.Parent then Blacklist[target] = true end else task.wait(0.1) end end end
-task.spawn(function() while true and isRunning do if CFG.AutoFarm and canCollect() then collectSession() end task.wait(1) end end)
-Player.Idled:Connect(function() if CFG.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end end)
+local function collectSession() 
+    while CFG.AutoFarm and canFarmNow and isRunning do 
+        local root = currentSession and currentSession.root
+        if not root then break end
+        local target = coinTracker:GetClosest(root.Position, 100)
+        if not target then task.wait(0.5) continue end
+        if glideTo(target, CFG.MaxSpeed) then
+            pcall(function()
+                if typeof(firetouchinterest) == "function" then firetouchinterest(root, target, 0) firetouchinterest(root, target, 1) task.wait(0.05) firetouchinterest(root, target, 0) firetouchinterest(root, target, 1) end
+            end)
+            task.wait(0.15)
+        else task.wait(0.1) end
+    end 
+end
+task.spawn(function() while true and isRunning do if CFG.AutoFarm then collectSession() end task.wait(1) end end)
 
 -- ==========================================
--- НАПОЛНЕНИЕ UI
+-- UI INIT
 -- ==========================================
-local Window = Library.new({ Title = "LIBERIUM HUB", Subtitle = "GLASS UI" })
+local win = Library.new("LIBERIUM HUB")
 
-local TeleportTab = Window:AddTab("Teleport", "📍")
-local TpRoles = TeleportTab:AddSubTab("Roles", "👤")
-local TpRoleSec = TpRoles:AddSection("Actions")
-TpRoleSec:AddButton("To Lobby", function() local spawn = Workspace:FindFirstChild("SpawnLocation", true) if spawn and currentSession then currentSession.root.CFrame = spawn.CFrame + Vector3.new(0, 3, 0) end end, "Teleports to the waiting room")
-TpRoleSec:AddButton("To Map", function() if currentSession then currentSession.root.CFrame = CFrame.new(0, 50, 0) end end, "Teleports to the center of the map")
-TpRoleSec:AddButton("To Murderer", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot and currentSession then currentSession.root.CFrame = mRoot.CFrame + Vector3.new(0, 2, 0) end end, "Teleports to the closest murderer")
+local tabFarm = win:AddTab("Farm", "💰")
+local subFarm = tabFarm:AddSubTab("Coins")
+local secFarm = subFarm:AddSection("Settings")
+secFarm:AddToggle("Auto Farm", false, function(v) CFG.AutoFarm = v end)
+secFarm:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end)
 
-local CombatTab = Window:AddTab("Combat", "⚔")
-local CombatSub = CombatTab:AddSubTab("Murderer", "🔪")
-local CombatSec = CombatSub:AddSection("Fling")
-CombatSec:AddToggle("Auto Fling", false, function(v) CFG.AutoFling = v end, "Automatically flings nearest murderer")
-CombatSec:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end, "Flings the closest murderer manually")
-CombatSec:AddSlider("Avoid Radius", 0, 30, 20, function(v) CFG.AvoidRadius = v end, "Distance to avoid the murderer")
-CombatSec:AddToggle("Anti-Fling", true, function(v) CFG.AntiFling = v end, "Prevents you from being flung")
+local tabVis = win:AddTab("Visuals", "👁")
+local subVis = tabVis:AddSubTab("ESP")
+local secVis = subVis:AddSection("Players")
+secVis:AddToggle("Player ESP", false, function(v) CFG.ESP = v end)
 
-local FarmTab = Window:AddTab("Farm", "💰")
-local FarmSub = FarmTab:AddSubTab("Coins", "🪙")
-local FarmSec = FarmSub:AddSection("Settings")
-FarmSec:AddToggle("Auto Farm", false, function(v) CFG.AutoFarm = v if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end, "Automatically collects all coins")
-FarmSec:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end, "Flight speed while farming")
-FarmSec:AddToggle("Auto Reset", false, function(v) CFG.AutoReset = v end, "Resets character when bag is full")
-FarmSec:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end, "Max coins before reset")
+local tabCombat = win:AddTab("Combat", "⚔")
+local subCombat = tabCombat:AddSubTab("Fling")
+local secCombat = subCombat:AddSection("Actions")
+secCombat:AddToggle("Auto Fling", false, function(v) CFG.AutoFling = v end)
+secCombat:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end)
+secCombat:AddToggle("Anti-Fling", true, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
 
-local VisualTab = Window:AddTab("Visuals", "👁")
-local VisualSub = VisualTab:AddSubTab("ESP", "👁")
-local VisualSec = VisualSub:AddSection("Players")
-VisualSec:AddToggle("Player ESP", false, function(v) CFG.ESP = v end, "Highlights players based on their role")
+local tabPlayers = win:AddTab("Players", "👤")
+local subPlayers = tabPlayers:AddSubTab("List")
+local secPlayers = subPlayers:AddSection("Online Players")
+local playerListParent = create("Frame", {Size = UDim2.new(1, 0, 0, 250), BackgroundTransparency = 1, Parent = secPlayers.Frame})
+local pList = PlayerListComponent.new(playerListParent, { ExcludeLocalPlayer = true, ButtonText = "TP" })
+pList.Selected:Connect(function(player)
+    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and currentSession then
+        currentSession.root.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 2, 0)
+    end
+end)
 
-local SettingsTab = Window:AddTab("Settings", "⚙")
-local SettingsSub = SettingsTab:AddSubTab("Themes", "🎨")
-local ThemeSec = SettingsSub:AddSection("Colors")
-ThemeSec:AddButton("Green Theme", function() Window:ChangeTheme("Green") end, "Default neon green")
-ThemeSec:AddButton("Purple Theme", function() Window:ChangeTheme("Purple") end, "Royal purple")
-ThemeSec:AddButton("Red Theme", function() Window:ChangeTheme("Red") end, "Crimson red")
-ThemeSec:AddButton("Blue Theme", function() Window:ChangeTheme("Blue") end, "Cyber blue")
-
-Window:_SelectTab(TeleportTab)
+Stabilizer.Start()
