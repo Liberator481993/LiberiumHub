@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v70 | FINAL (Deep Bugfixes: Crash protection, Config sync, UI leaks)
+-- LIBERIUM HUB | v71 | FINAL (ESP Fill Fix, UI Size Fix, Farm Fix)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -37,8 +37,8 @@ getgenv().LiberiumCleanup = function()
     if NotificationManager then pcall(function() NotificationManager.Destroy() end) end
     if overheadTracker then pcall(function() overheadTracker:Destroy() end) end
     if aimMarker then pcall(function() aimMarker:Destroy() end) end
-    if roleHUD then pcall(function() roleHUD:Destroy() end) end -- ФИКС 6: Чистим Highlight
-    if win and win.Gui then pcall(function() win.Gui:Destroy() end) end -- ФИКС 5: Чистим UI
+    if roleHUD then pcall(function() roleHUD:Destroy() end) end
+    if win and win.Gui then pcall(function() win.Gui:Destroy() end) end
 end
 
 local CFG = { MaxSpeed = 20, AutoFarm = false, AutoFling = false, ESP = false, AvoidRadius = 20, AntiFling = true, AimMode = "Classic", Prediction = false, ProjSpeed = 100 }
@@ -133,20 +133,7 @@ local InterceptSolver = (function()
     return API
 end)()
 
--- 3. OBJECT TRACKER
-local ObjectTracker = (function()
-    local Tracker = {} Tracker.__index = Tracker
-    function Tracker:_add(inst) if self._index[inst] then return end local isModel = inst:IsA("Model") if not inst:IsA("BasePart") and not isModel then return end if not (self._filter and string.find(inst.Name, self._filter) or not self._filter) then return end local n = #self._objs + 1 self._objs[n] = inst self._isModel[n] = isModel self._index[inst] = n end
-    function Tracker:_remove(inst) local i = self._index[inst] if not i then return end local last = #self._objs if i ~= last then local moved = self._objs[last] self._objs[i] = moved self._isModel[i] = self._isModel[last] self._index[moved] = i end self._objs[last] = nil self._isModel[last] = nil self._index[inst] = nil end
-    function Tracker:_detach() for _, c in ipairs(self._folderConns) do c:Disconnect() end table.clear(self._folderConns) self._folder = nil table.clear(self._objs) table.clear(self._isModel) table.clear(self._index) end
-    function Tracker:_attach(folder) self:_detach() self._folder = folder table.insert(self._folderConns, folder.DescendantAdded:Connect(function(i) self:_add(i) end)) table.insert(self._folderConns, folder.DescendantRemoving:Connect(function(i) self:_remove(i) end)) table.insert(self._folderConns, folder.AncestryChanged:Connect(function() if folder.Parent ~= self._parent then self:_detach() end end)) for _, i in ipairs(folder:GetDescendants()) do self:_add(i) end end
-    function Tracker.new(folderName, nameFilter, options) local self = setmetatable({}, Tracker) self._folderName = folderName self._filter = nameFilter self._parent = (options and options.Parent) or Workspace self._objs = {} self._isModel = {} self._index = {} self._folder = nil self._folderConns = {} self._parentConn = self._parent.ChildAdded:Connect(function(child) if child.Name == self._folderName and self._folder == nil then self:_attach(child) end end) local ex = self._parent:FindFirstChild(folderName, true) if ex then self:_attach(ex) end return self end
-    function Tracker:GetClosest(origin, maxDist) if #self._objs == 0 then return nil, nil end local best, bestSq = nil, maxDist and maxDist^2 or math.huge for i = 1, #self._objs do local obj = self._objs[i] if obj.Parent then local p = self._isModel[i] and obj:GetPivot().Position or obj.Position local sq = (p - origin).Magnitude^2 if sq < bestSq then bestSq = sq best = obj end end end return best, bestSq and math.sqrt(bestSq) end
-    function Tracker:Destroy() self._parentConn:Disconnect() self:_detach() end
-    return Tracker
-end)()
-
--- 4. ROLE HUD
+-- 3. ROLE HUD
 local RoleHUD = (function()
     local API = {} API.__index = API
     local C = { 
@@ -157,7 +144,16 @@ local RoleHUD = (function()
     function API.new(provider) local s = setmetatable({}, API) s._provider = provider s._hl = {} s._state = {} s._conns = {} s._running = false s._container = nil return s end
     function API:_getHl(p) local hl = self._hl[p] if hl then return hl end hl = Instance.new("Highlight") hl.Name = "LibHUD" hl.Enabled = false hl.FillTransparency = 0.5 hl.OutlineTransparency = 0 hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = self._container self._hl[p] = hl self._state[p] = { Enabled = false, Color = nil } return hl end
     function API:_setHidden(p) local hl = self._hl[p] if hl and self._state[p].Enabled then self._state[p].Enabled = false hl.Enabled = false end end
-    function API:_setVisible(p, color) local hl = self:_getHl(p) local st = self._state[p] if st.Color ~= color then st.Color = color hl.FillColor = color hl.OutlineColor = color end if not st.Enabled then st.Enabled = true hl.Enabled = true end end
+    function API:_setVisible(p, color) 
+        local hl = self:_getHl(p) 
+        -- ФИКС ESP: принудительно перезаписываем цвет заливки и обводки каждый тик
+        hl.FillColor = color 
+        hl.OutlineColor = color 
+        if not self._state[p].Enabled then 
+            self._state[p].Enabled = true 
+            hl.Enabled = true 
+        end 
+    end
     function API:_update(p, tbl) 
         local data = tbl[p.UserId] or tbl[tostring(p.UserId)] or tbl[p.Name] 
         if type(data) ~= "table" then self:_setHidden(p) return end 
@@ -171,7 +167,6 @@ local RoleHUD = (function()
     function API:_step() local ok, tbl = pcall(self._provider) if not ok or type(tbl) ~= "table" then return end for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then self:_update(p, tbl) end end end
     function API:Start() if self._running then return end self._running = true self._container = self._container or Instance.new("Folder") self._container.Name = "LibHUD" self._container.Parent = Workspace table.insert(self._conns, Players.PlayerRemoving:Connect(function(p) if self._hl[p] then self._hl[p]:Destroy() self._hl[p] = nil self._state[p] = nil end end)) task.spawn(function() while self._running do self:_step() task.wait(0.5) end end) end
     function API:Stop() self._running = false for _, c in ipairs(self._conns) do c:Disconnect() end table.clear(self._conns) for p in pairs(self._hl) do self:_setHidden(p) end end
-    -- ФИКС 6: Добавлен метод Destroy для полной очистки
     function API:Destroy() 
         self:Stop() 
         for _, hl in pairs(self._hl) do pcall(function() hl:Destroy() end) end 
@@ -182,7 +177,7 @@ local RoleHUD = (function()
     return API
 end)()
 
--- 5. STABILIZER
+-- 4. STABILIZER
 local Stabilizer = (function()
     local CONFIG = { LinearThreshold = 1000, LinearSafe = 250, AngularThreshold = 1000, AngularSafe = 50, DampRate = 14, IgnoreVerticalInFreefall = true }
     local ignored = setmetatable({}, {__mode = "k"}) local damping = setmetatable({}, {__mode = "k"}) local API = {}
@@ -193,14 +188,14 @@ local Stabilizer = (function()
     return API
 end)()
 
--- 6. NOTIFICATION MANAGER
+-- 5. NOTIFICATION MANAGER (Уменьшенный и прижатый к верхнему правому углу)
 NotificationManager = (function()
     local NM = {}
     local CONFIG = {
-        Width = 280, MinHeight = 48, MaxHeight = 140, VerticalPadding = 12, Padding = 10,
-        MarginRight = 16, MarginTop = 16, MaxVisible = 6, DefaultDuration = 4,
-        DisplayOrder = 1000, SlideDistance = 60,
-        Font = Enum.Font.GothamMedium, TextSize = 15, TextInsetLeft = 20, TextInsetRight = 12,
+        Width = 200, MinHeight = 36, MaxHeight = 100, VerticalPadding = 8, Padding = 6,
+        MarginRight = 12, MarginTop = 12, MaxVisible = 6, DefaultDuration = 4,
+        DisplayOrder = 1000, SlideDistance = 40,
+        Font = Enum.Font.GothamMedium, TextSize = 12, TextInsetLeft = 14, TextInsetRight = 10,
         BackgroundColor = Color3.fromRGB(18, 18, 28), TextColor = Color3.fromRGB(240, 240, 250),
         BackgroundTransparency = 0.2, StrokeTransparency = 0.35,
         TweenIn = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
@@ -306,13 +301,13 @@ NotificationManager = (function()
         toast.BorderSizePixel = 0
         toast.Active = true
         toast.Parent = slot
-        local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 10); corner.Parent = toast
+        local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 8); corner.Parent = toast
         local stroke = Instance.new("UIStroke")
         stroke.Color = accent; stroke.Thickness = 1.5; stroke.Transparency = 1
         stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; stroke.Parent = toast
         local bar = Instance.new("Frame")
         bar.Name = "Accent"; bar.AnchorPoint = Vector2.new(0, 0.5)
-        bar.Position = UDim2.new(0, 8, 0.5, 0); bar.Size = UDim2.new(0, 4, 1, -16)
+        bar.Position = UDim2.new(0, 6, 0.5, 0); bar.Size = UDim2.new(0, 3, 1, -12)
         bar.BackgroundColor3 = accent; bar.BackgroundTransparency = 1
         bar.BorderSizePixel = 0; bar.Parent = toast
         local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = bar
@@ -374,7 +369,7 @@ NotificationManager = (function()
     return NM
 end)()
 
--- 7. UI TOGGLE
+-- 6. UI TOGGLE
 UIToggle = (function()
     local UT = {}
     UT.__index = UT
@@ -546,7 +541,7 @@ UIToggle = (function()
     return UT
 end)()
 
--- 8. OVERHEAD TRACKER (ESP 2.0)
+-- 7. OVERHEAD TRACKER (ESP 2.0)
 OverheadTracker = (function()
     local OT = {}
     OT.__index = OT
@@ -816,7 +811,7 @@ OverheadTracker = (function()
     return OT
 end)()
 
--- 9. DROPDOWN
+-- 8. DROPDOWN
 local Dropdown = (function()
     local Theme = { Surface = Color3.fromHex("#15151b"), SurfaceHover = Color3.fromHex("#1d1d26"), Glass = Color3.fromHex("#17171f"), Background = Color3.fromHex("#0c0c0f"), Accent = Color3.fromHex("#8c64ff"), Stroke = Color3.fromHex("#2a2a36"), Text = Color3.fromHex("#f0f0f5"), TextDim = Color3.fromHex("#b4b4c3"), SubText = Color3.fromHex("#7d7d8f"), Font = Enum.Font.GothamMedium, TextSize = 13 }
     local OP = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out) local CL = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In) local FA = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -1033,7 +1028,6 @@ task.spawn(function()
     end 
 end)
 
--- ФИКС 2: Универсальная проверка ролей (таблица или строка)
 local function getClosestMurderer(pos) 
     local cr, cd = nil, math.huge 
     for _, p in ipairs(Players:GetPlayers()) do 
@@ -1074,7 +1068,6 @@ local function FlingTarget(tr)
     end)
     if sp then sp:Destroy() end
     if pu then pu:Destroy() end
-    -- ФИКС 3: Защита от краша, если mr уничтожен во время task.wait
     if mr and mr.Parent then 
         mr.CFrame = oc 
         mr.Anchored = oa 
@@ -1136,7 +1129,40 @@ local function bindCharacter(char)
 end
 LocalPlayer.CharacterAdded:Connect(bindCharacter) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
 
-local coinTracker = ObjectTracker.new("CoinContainer", "^Coin", { Parent = Workspace, Recursive = true })
+-- НОВЫЙ ТРЕКЕР МОНЕТ: Ищет по всему воркспейсу, а не в конкретной папке
+local coinTracker = (function()
+    local API = {}
+    local coins = {}
+    local function isCoin(inst)
+        return inst.Name:match("^Coin") and (inst:IsA("BasePart") or inst:IsA("Model"))
+    end
+    local conn1 = Workspace.DescendantAdded:Connect(function(inst)
+        if isCoin(inst) then table.insert(coins, inst) end
+    end)
+    local conn2 = Workspace.DescendantRemoving:Connect(function(inst)
+        local idx = table.find(coins, inst)
+        if idx then table.remove(coins, idx) end
+    end)
+    for _, inst in ipairs(Workspace:GetDescendants()) do
+        if isCoin(inst) then table.insert(coins, inst) end
+    end
+    function API:GetClosest(origin, maxDist)
+        local best, bestSq = nil, maxDist and maxDist^2 or math.huge
+        for i = #coins, 1, -1 do
+            local obj = coins[i]
+            if obj and obj.Parent then
+                local p = obj:IsA("BasePart") and obj.Position or obj:GetPivot().Position
+                local sq = (p - origin).Magnitude^2
+                if sq < bestSq then bestSq = sq best = obj end
+            else
+                table.remove(coins, i)
+            end
+        end
+        return best, bestSq and math.sqrt(bestSq)
+    end
+    function API:Destroy() conn1:Disconnect() conn2:Disconnect() end
+    return API
+end)()
 
 local function glideTo(target, speed)
     local s = currentSession 
@@ -1175,7 +1201,6 @@ local function glideTo(target, speed)
     if hum.Parent and hum.Health > 0 then hum.PlatformStand = origPS hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
     if arrived then
         pcall(function()
-            -- ФИКС 1 & 7: Защита от уничтожения цели во время полета
             if target and target.Parent and typeof(firetouchinterest) == "function" then 
                 local targetPart = target:IsA("BasePart") and target or (target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart"))
                 if targetPart then 
@@ -1191,20 +1216,27 @@ local function glideTo(target, speed)
     return arrived
 end
 
-local function collectSession() 
-    while CFG.AutoFarm and canFarmNow and isRunning do 
-        local root = currentSession and currentSession.root
-        if not root then break end
-        local target = coinTracker:GetClosest(root.Position, 100)
-        if not target then task.wait(0.5) continue end
-        if glideTo(target, CFG.MaxSpeed) then
-            task.wait(0.15)
-        else 
-            task.wait(0.1) 
+-- УПРОЩЕННЫЙ ЦИКЛ ФАРМА
+task.spawn(function() 
+    while isRunning do
+        if CFG.AutoFarm and canFarmNow then
+            local root = currentSession and currentSession.root
+            if root and root.Parent then
+                local target = coinTracker:GetClosest(root.Position, 150)
+                if target then
+                    local success = glideTo(target, CFG.MaxSpeed)
+                    if not success then task.wait(0.2) end
+                else
+                    task.wait(0.5)
+                end
+            else
+                task.wait(0.5)
+            end
+        else
+            task.wait(1)
         end
     end 
-end
-task.spawn(function() while true and isRunning do if CFG.AutoFarm then collectSession() end task.wait(1) end end)
+end)
 
 -- ==========================================
 -- UI INIT
@@ -1221,7 +1253,7 @@ win = Lib.new("LIBERIUM HUB")
 local tFarm = win:AddTab("Farm", "💰")
 local sFarm = tFarm:AddSubTab("Coins")
 local secF = sFarm:AddSection("Settings")
-secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end)
+local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end)
 secF:AddSlider("Farm Speed", 10, 24, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
 
 local tVis = win:AddTab("Visuals", "👁")
@@ -1269,8 +1301,8 @@ secS:AddButton("Save Settings", function()
     end
 end)
 
--- ФИКС 4: Синхронизация состояний после загрузки конфига
 task.defer(function()
+    if CFG.AutoFarm then farmToggle:Set(true, true) end
     if CFG.ESP then espToggle:Set(true, true) roleHUD:Start() overheadTracker:Start() end
     if CFG.AntiFling then antiFlingToggle:Set(true, true) Stabilizer.Start() end
 end)
@@ -1286,7 +1318,7 @@ uiToggle = UIToggle.new(win.Gui, {
 
 task.delay(0.8, function()
     if NotificationManager then
-        NotificationManager.Notify("Liberium Hub v70 ready", "Success", 2.5)
+        NotificationManager.Notify("Liberium Hub v71 ready", "Success", 2.5)
     end
 end)
 
