@@ -1,31 +1,83 @@
--- LOX.EXE | Delta
+-- LOX.EXE + MOAN | Delta (client-side only)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
-local PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- убираем прошлый экземпляр если перезапускают
-local old = PlayerGui:FindFirstChild("LoxOverlay")
-if old then old:Destroy() end
+-- ID стонов с robloxsong.com (загружен May 28, 2025)[reference:0]
+local SOUND_ID = "rbxassetid://79182291351823"
 
+-- очистка прошлых
+local oldGui = PlayerGui:FindFirstChild("LoxOverlay")
+if oldGui then oldGui:Destroy() end
+for _, v in ipairs(Workspace:GetChildren()) do
+    if v.Name == "LoxSound" then v:Destroy() end
+end
+
+-- ============ ЗВУК (ОЧЕНЬ ГРОМКО) ============
+local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart", 5)
+
+if root then
+    local speaker = Instance.new("Part")
+    speaker.Name = "LoxSound"
+    speaker.Size = Vector3.new(1, 1, 1)
+    speaker.Transparency = 1
+    speaker.CanCollide = false
+    speaker.Anchored = true
+    speaker.CFrame = root.CFrame
+    speaker.Parent = Workspace
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = SOUND_ID
+    sound.Volume = 10 -- максимум
+    sound.PlaybackSpeed = 0.85 -- чуть медленнее = звучит глубже и «жирнее»
+    sound.RollOffMaxDistance = 500 -- слышно очень далеко
+    sound.RollOffMinDistance = 5
+    sound.RollOffMode = Enum.RollOffMode.Inverse
+    sound.Parent = speaker
+    sound:Play()
+
+    -- если звук не загрузился — пробуем резервный ID
+    sound.Loaded:Connect(function()
+        print("[LOX] Sound loaded OK")
+    end)
+
+    task.delay(1, function()
+        if not sound.IsLoaded then
+            warn("[LOX] Primary sound failed, trying backup...")
+            sound.SoundId = "rbxassetid://2054013600" -- резервный из pastebin
+            sound:Play()
+        end
+    end)
+
+    sound.Ended:Connect(function()
+        task.wait(0.5)
+        if speaker then speaker:Destroy() end
+    end)
+
+    task.delay(15, function()
+        if speaker then speaker:Destroy() end
+    end)
+end
+
+-- ============ ТЕКСТ "ЛОХ" ============
 local gui = Instance.new("ScreenGui")
 gui.Name = "LoxOverlay"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 9999
 gui.Parent = PlayerGui
 
--- затемнённый фон
 local bg = Instance.new("Frame")
 bg.Size = UDim2.fromScale(1, 1)
-bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+bg.BackgroundColor3 = Color3.new(0, 0, 0)
 bg.BackgroundTransparency = 0.35
 bg.BorderSizePixel = 0
 bg.Parent = gui
 
--- красная вспышка-пульс
 local flash = Instance.new("Frame")
 flash.Size = UDim2.fromScale(1, 1)
 flash.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
@@ -33,15 +85,6 @@ flash.BackgroundTransparency = 1
 flash.BorderSizePixel = 0
 flash.Parent = gui
 
--- контейнер для текста
-local holder = Instance.new("Frame")
-holder.AnchorPoint = Vector2.new(0.5, 0.5)
-holder.Position = UDim2.fromScale(0.5, 0.5)
-holder.Size = UDim2.fromScale(1, 1)
-holder.BackgroundTransparency = 1
-holder.Parent = gui
-
--- сам текст ЛОХ
 local txt = Instance.new("TextLabel")
 txt.AnchorPoint = Vector2.new(0.5, 0.5)
 txt.Position = UDim2.fromScale(0.5, 0.5)
@@ -49,81 +92,50 @@ txt.Size = UDim2.fromScale(1, 1)
 txt.BackgroundTransparency = 1
 txt.Text = "ЛОХ"
 txt.Font = Enum.Font.GothamBlack
-txt.TextScaled = false
 txt.TextSize = 220
 txt.TextColor3 = Color3.fromRGB(255, 60, 60)
-txt.TextStrokeTransparency = 1
-txt.Parent = holder
+txt.Parent = gui
 
--- чёрная обводка через UIStroke
 local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(0, 0, 0)
+stroke.Color = Color3.new(0, 0, 0)
 stroke.Thickness = 8
-stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 stroke.Parent = txt
 
--- неоновое свечение через второй TextLabel позади
-local glow = txt:Clone()
-glow.TextColor3 = Color3.fromRGB(255, 0, 0)
-glow.TextTransparency = 0.5
-glow.ZIndex = 0
-txt.ZIndex = 2
-glow.Parent = holder
-
--- адаптивный размер под экран
-local cam = workspace.CurrentCamera
+local cam = Workspace.CurrentCamera
 local function rescale()
     if not cam then return end
     local vp = cam.ViewportSize
     txt.TextSize = math.floor(math.min(vp.X, vp.Y) * 0.42)
-    glow.TextSize = txt.TextSize
 end
 rescale()
-if cam then
-    cam:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
-end
+if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(rescale) end
 
--- анимация влёта: было мелко и прозрачно -> стало крупно и видно
-txt.TextTransparency = 1
-glow.TextTransparency = 1
-txt.Position = UDim2.fromScale(0.5, 0.5)
-txt.Size = UDim2.fromScale(1, 1)
-
-local popIn = TweenService:Create(txt, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    TextTransparency = 0,
-})
-local glowIn = TweenService:Create(glow, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    TextTransparency = 0.5,
-})
-popIn:Play()
-glowIn:Play()
-
--- лёгкий shake через RenderStepped
-local shakeConn
-local t0 = tick()
-shakeConn = RunService.RenderStepped:Connect(function()
-    local t = tick() - t0
-    local amp = math.max(0, 8 - t * 6) -- затухает за ~1.3 сек
-    local ox = math.sin(t * 90) * amp
-    local oy = math.cos(t * 70) * amp * 0.6
-    txt.Position = UDim2.new(0.5, ox, 0.5, oy)
-    glow.Position = txt.Position
-    -- пульс свечения
-    glow.TextTransparency = 0.4 + math.sin(t * 10) * 0.15
-end)
-
--- вспышка экрана
+-- вспышка
 TweenService:Create(flash, TweenInfo.new(0.15), {BackgroundTransparency = 0.6}):Play()
 task.delay(0.15, function()
     TweenService:Create(flash, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
 end)
 
--- таймер на закрытие (5 сек). Хочешь вечно — закомментируй блок ниже.
+-- тряска ~1.5 сек
+local shaking = true
+local t0 = tick()
+task.spawn(function()
+    while shaking and gui.Parent do
+        local t = tick() - t0
+        local amp = math.max(0, 8 - t * 6)
+        local ox = math.sin(t * 90) * amp
+        local oy = math.cos(t * 70) * amp * 0.6
+        txt.Position = UDim2.new(0.5, ox, 0.5, oy)
+        task.wait()
+    end
+end)
+task.delay(1.5, function() shaking = false end)
+
+-- держим 5 сек, потом плавно убираем
 task.delay(5, function()
-    if shakeConn then shakeConn:Disconnect() end
-    local fade1 = TweenService:Create(txt, TweenInfo.new(0.4), {TextTransparency = 1})
-    local fade2 = TweenService:Create(glow, TweenInfo.new(0.4), {TextTransparency = 1})
-    local fade3 = TweenService:Create(bg, TweenInfo.new(0.4), {BackgroundTransparency = 1})
-    fade1:Play(); fade2:Play(); fade3:Play()
-    fade1.Completed:Connect(function() gui:Destroy() end)
+    shaking = false
+    local f1 = TweenService:Create(txt, TweenInfo.new(0.5), {TextTransparency = 1})
+    local f2 = TweenService:Create(bg, TweenInfo.new(0.5), {BackgroundTransparency = 1})
+    f1:Play() f2:Play()
+    f1.Completed:Connect(function() if gui then gui:Destroy() end end)
 end)
