@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v54 | Modern Glass Dashboard
+-- LIBERIUM HUB | v56 | Premium Glassmorphism (Layered Effects)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -11,7 +11,6 @@ local Lighting = game:GetService("Lighting")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- Очистка предыдущего запуска
 if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
 local isRunning = true
 getgenv().LiberiumCleanup = function() isRunning = false end
@@ -55,24 +54,24 @@ end
 startAntiFling(1000)
 
 -- ==========================================
--- ТЕМЫ (PULSEHUB STYLE)
+-- ТЕМЫ И ЦВЕТА
 -- ==========================================
 local Theme = {
-    Background = Color3.fromRGB(15, 15, 18), Sidebar = Color3.fromRGB(20, 20, 24),
-    Card = Color3.fromRGB(28, 28, 33), Hover = Color3.fromRGB(35, 35, 42),
-    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 150, 40),
-    White = Color3.fromRGB(245, 250, 247), Muted = Color3.fromRGB(139, 157, 146),
-    Track = Color3.fromRGB(45, 45, 52), Border = Color3.fromRGB(50, 50, 60),
+    Background = Color3.fromRGB(12, 12, 15), Sidebar = Color3.fromRGB(18, 18, 22),
+    Card = Color3.fromRGB(24, 24, 30), Hover = Color3.fromRGB(32, 32, 40),
+    Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 120, 30),
+    White = Color3.fromRGB(255, 255, 255), Muted = Color3.fromRGB(150, 150, 160),
+    Track = Color3.fromRGB(40, 40, 48), Border = Color3.fromRGB(45, 45, 55),
 }
 local Themes = {
-    Green = { Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 150, 40), Border = Color3.fromRGB(50, 50, 60) },
+    Green = { Green = Color3.fromRGB(0, 255, 65), GreenDark = Color3.fromRGB(0, 120, 30), Border = Color3.fromRGB(45, 45, 55) },
     Purple = { Green = Color3.fromRGB(170, 0, 255), GreenDark = Color3.fromRGB(70, 0, 120), Border = Color3.fromRGB(70, 40, 100) },
     Red = { Green = Color3.fromRGB(255, 40, 40), GreenDark = Color3.fromRGB(120, 0, 0), Border = Color3.fromRGB(100, 40, 40) },
     Blue = { Green = Color3.fromRGB(0, 170, 255), GreenDark = Color3.fromRGB(0, 70, 120), Border = Color3.fromRGB(40, 70, 100) },
 }
 
 -- ==========================================
--- UI БИБЛИОТЕКА (GLASS DASHBOARD)
+-- UI БИБЛИОТЕКА (PREMIUM GLASS)
 -- ==========================================
 local Library = {}
 Library.__index = Library
@@ -85,35 +84,29 @@ local function New(className, properties, parent)
 end
 local function Tween(object, duration, properties)
     if not object then return end
-    local animation = TweenService:Create(object, TweenInfo.new(duration or 0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties)
+    local animation = TweenService:Create(object, TweenInfo.new(duration or 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), properties)
     animation:Play() return animation
 end
-local function Round(object, radius) New("UICorner", { CornerRadius = UDim.new(0, radius or 8) }, object) end
+local function Round(object, radius) New("UICorner", { CornerRadius = UDim.new(0, radius or 10) }, object) end
 local function Stroke(object, color, transparency, thickness) 
     return New("UIStroke", { Color = color or Theme.Border, Transparency = transparency or 0, Thickness = thickness or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, object)
 end
-local function TagTheme(obj, prop, key)
-    obj[prop] = Theme[key]
-    obj:SetAttribute("ThemeTarget_" .. prop, key)
-    return obj
+local function Gradient(parent, first, last, rotation) 
+    return New("UIGradient", { Color = ColorSequence.new(first, last), Rotation = rotation or 0 }, parent) 
 end
+local function TagTheme(obj, prop, key) obj[prop] = Theme[key] obj:SetAttribute("ThemeTarget_" .. prop, key) return obj end
 local function MakeLabel(parent, text, size, color, font)
-    return New("TextLabel", { BackgroundTransparency = 1, Text = text or "", TextSize = size or 12, TextColor3 = color or Theme.White, Font = font or Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, 0, 1, 0) }, parent)
+    return New("TextLabel", { BackgroundTransparency = 1, Text = text or "", TextSize = size or 12, TextColor3 = color or Theme.White, Font = font or Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, 0, 1, 0) }, parent)
 end
-local function ClearGui(container)
-    for _, child in ipairs(container:GetChildren()) do
-        if child:IsA("GuiObject") then child:Destroy() end
-    end
-end
+local function ClearGui(container) for _, child in ipairs(container:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end end
 
 function Library.new(options)
     options = options or {}
     local self = setmetatable({}, Library)
     self.Tabs = {} self.ActiveTab = nil self.Connections = {} self.Visible = true
     
-    -- Размытие фона
     local blur = Lighting:FindFirstChild("LiberiumBlur") or New("BlurEffect", {Name = "LiberiumBlur", Size = 0}, Lighting)
-    Tween(blur, 0.3, {Size = 12})
+    Tween(blur, 0.4, {Size = 15})
 
     local oldGui = PlayerGui:FindFirstChild("LiberiumHubPremium")
     if oldGui then oldGui:Destroy() end
@@ -122,27 +115,21 @@ function Library.new(options)
     self.Gui = gui
     function self:_Track(conn) table.insert(self.Connections, conn) end
 
-    -- Кнопка вызова
-    self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(50, 50), BackgroundColor3 = Theme.Background, Text = "M", TextColor3 = Theme.Green, TextSize = 24, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
-    Round(self.OpenButton, 25) local os1 = Stroke(self.OpenButton, Theme.Green, 0.2, 1.5) TagTheme(os1, "Color", "Green") TagTheme(self.OpenButton, "TextColor3", "Green")
+    -- Кнопка вызова (Пульсирующая)
+    self.OpenButton = New("TextButton", { Name = "OpenBtn", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Theme.Background, Text = "M", TextColor3 = Theme.Green, TextSize = 26, Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false }, gui)
+    Round(self.OpenButton, 28) local os1 = Stroke(self.OpenButton, Theme.Green, 0.2, 2) TagTheme(os1, "Color", "Green") TagTheme(self.OpenButton, "TextColor3", "Green")
     
     local fDrag, fStart, fPos, fMoved = false, nil, nil, false
-    self:_Track(self.OpenButton.InputBegan:Connect(function(i) 
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag, fStart, fPos, fMoved = true, i.Position, self.OpenButton.Position, false end 
-    end))
-    self:_Track(UserInputService.InputChanged:Connect(function(i) 
-        if fDrag and i == fStart then 
-            local d = i.Position - fStart
-            if d.Magnitude > 5 then fMoved = true end
-            self.OpenButton.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y)
-        end 
-    end))
+    self:_Track(self.OpenButton.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then fDrag, fStart, fPos, fMoved = true, i.Position, self.OpenButton.Position, false end end))
+    self:_Track(UserInputService.InputChanged:Connect(function(i) if fDrag and i == fStart then local d = i.Position - fStart if d.Magnitude > 5 then fMoved = true end self.OpenButton.Position = UDim2.new(fPos.X.Scale, fPos.X.Offset + d.X, fPos.Y.Scale, fPos.Y.Offset + d.Y) end end))
     self:_Track(UserInputService.InputEnded:Connect(function(i) if fDrag and i == fStart then fDrag = false end end))
     self:_Track(self.OpenButton.Activated:Connect(function() if not fMoved then self:ToggleVisible() end end))
 
-    -- Окно (Glass)
-    local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.15, BorderSizePixel = 0, ClipsDescendants = true }, gui)
-    self.Root = root Round(root, 16) local rs = Stroke(root, Theme.Green, 0.8, 1.5) TagTheme(rs, "Color", "Green")
+    -- Окно (Глубокое стекло)
+    local root = New("Frame", { Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 460), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.25, BorderSizePixel = 0, ClipsDescendants = true }, gui)
+    self.Root = root Round(root, 18) 
+    local rs1 = Stroke(root, Color3.new(0,0,0), 0.5, 3) -- Внешняя тень
+    local rs2 = Stroke(root, Theme.Green, 0.6, 1.5) TagTheme(rs2, "Color", "Green") -- Внутренняя неоновая
 
     local scale = New("UIScale", { Scale = 1 }, root) self.Scale = scale
     local function updateScale()
@@ -153,47 +140,43 @@ function Library.new(options)
     updateScale() self:_Track(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(updateScale))
     if workspace.CurrentCamera then self:_Track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)) end
 
-    -- Сайдбар
-    local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BackgroundTransparency = 0.2, BorderSizePixel = 0, Size = UDim2.new(0, 180, 1, 0) }, root)
-    Round(sidebar, 16)
-    New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.8, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
+    -- Сайдбар (Стеклянный)
+    local sidebar = New("Frame", { Name = "Sidebar", BackgroundColor3 = Theme.Sidebar, BackgroundTransparency = 0.3, BorderSizePixel = 0, Size = UDim2.new(0, 190, 1, 0) }, root)
+    Round(sidebar, 18)
+    local sbGrad = Gradient(sidebar, Color3.fromRGB(25,25,30), Color3.fromRGB(15,15,18), 90)
+    New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.9, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0) }, sidebar)
     
-    local logo = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.9, Position = UDim2.fromOffset(15, 19), Size = UDim2.fromOffset(38, 38), BorderSizePixel = 0 }, sidebar) Round(logo, 10)
-    local logoText = MakeLabel(logo, "L", 24, Theme.Green, Enum.Font.GothamBold) logoText.TextXAlignment = Enum.TextXAlignment.Center TagTheme(logoText, "TextColor3", "Green")
+    local logo = New("Frame", { BackgroundColor3 = Theme.Green, BackgroundTransparency = 0.8, Position = UDim2.fromOffset(15, 19), Size = UDim2.fromOffset(40, 40), BorderSizePixel = 0 }, sidebar) Round(logo, 12)
+    local logoText = MakeLabel(logo, "L", 26, Theme.Green, Enum.Font.GothamBold) logoText.TextXAlignment = Enum.TextXAlignment.Center TagTheme(logoText, "TextColor3", "Green")
     
-    local brand = MakeLabel(sidebar, options.Title or "LIBERIUM HUB", 16, Theme.White, Enum.Font.GothamBold) brand.Position = UDim2.fromOffset(61, 19)
-    local subtitle = MakeLabel(sidebar, "PREMIUM UI", 9, Theme.Muted, Enum.Font.GothamBold) subtitle.Position = UDim2.fromOffset(62, 42)
+    local brand = MakeLabel(sidebar, options.Title or "LIBERIUM HUB", 17, Theme.White, Enum.Font.GothamBold) brand.Position = UDim2.fromOffset(65, 19)
+    local subtitle = MakeLabel(sidebar, "PREMIUM", 9, Theme.Muted, Enum.Font.GothamBold) subtitle.Position = UDim2.fromOffset(66, 42)
 
-    self.Nav = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 76), Size = UDim2.new(1, -18, 1, -91) }, sidebar)
-    New("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
+    self.Nav = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 76), Size = UDim2.new(1, -20, 1, -91) }, sidebar)
+    New("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, self.Nav)
 
     -- Контент
-    self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(180, 0), Size = UDim2.new(1, -180, 1, 0) }, root)
+    self.Content = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(190, 0), Size = UDim2.new(1, -190, 1, 0) }, root)
     local header = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(20, 10), Size = UDim2.new(1, -40, 0, 48) }, self.Content)
-    self.PageTitle = MakeLabel(header, "Dashboard", 20, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(1, -100, 1, 0)
+    self.PageTitle = MakeLabel(header, "Dashboard", 22, Theme.White, Enum.Font.GothamBold) self.PageTitle.Size = UDim2.new(1, -100, 1, 0)
     
-    local close = New("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(29, 29), BackgroundColor3 = Theme.Card, Text = "×", TextColor3 = Theme.Muted, TextSize = 18, Font = Enum.Font.GothamBold, AutoButtonColor = false }, header)
-    Round(close, 8) Stroke(close, Theme.Green, 0.8, 1) close.Activated:Connect(function() self:ToggleVisible() end)
+    -- Крестик (Круглый)
+    local close = New("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(34, 34), BackgroundColor3 = Theme.Card, Text = "×", TextColor3 = Theme.Muted, TextSize = 20, Font = Enum.Font.GothamBold, AutoButtonColor = false }, header)
+    Round(close, 17) local cst = Stroke(close, Theme.Green, 0.7, 1.5) TagTheme(cst, "Color", "Green")
+    close.MouseEnter:Connect(function() Tween(close, 0.2, {BackgroundColor3 = Theme.Red or Color3.fromRGB(255, 50, 50)}) end)
+    close.MouseLeave:Connect(function() Tween(close, 0.2, {BackgroundColor3 = Theme.Card}) end)
+    close.Activated:Connect(function() self:ToggleVisible() end)
 
-    -- Таблетки (Pills)
+    -- Таблетки
     self.SubTabBar = New("ScrollingFrame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 66), Size = UDim2.new(1, -30, 0, 37), BorderSizePixel = 0, ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new() }, self.Content)
-    New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7) }, self.SubTabBar)
+    New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, self.SubTabBar)
     
     self.PageHolder = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(15, 108), Size = UDim2.new(1, -30, 1, -123), ClipsDescendants = true }, self.Content)
 
-    -- Драг окна
+    -- Драг
     local dragging, dragStart, startPosition, activeInput = false, nil, nil, nil
-    self:_Track(header.InputBegan:Connect(function(input) 
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-            dragging, dragStart, startPosition, activeInput = true, input.Position, root.Position, input 
-        end 
-    end))
-    self:_Track(UserInputService.InputChanged:Connect(function(input) 
-        if dragging and input == activeInput then 
-            local delta = input.Position - dragStart 
-            root.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y) 
-        end 
-    end))
+    self:_Track(header.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging, dragStart, startPosition, activeInput = true, input.Position, root.Position, input end end))
+    self:_Track(UserInputService.InputChanged:Connect(function(input) if dragging and input == activeInput then local delta = input.Position - dragStart root.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y) end end))
     self:_Track(UserInputService.InputEnded:Connect(function(input) if dragging and input == activeInput then dragging = false activeInput = nil end end))
 
     return self
@@ -205,7 +188,7 @@ function Library:ChangeTheme(themeName)
     for _, obj in ipairs(self.Gui:GetDescendants()) do
         for _, prop in ipairs({"Color", "BackgroundColor3", "TextColor3"}) do
             local key = obj:GetAttribute("ThemeTarget_" .. prop)
-            if key and Theme[key] then Tween(obj, 0.25, {[prop] = Theme[key]}) end
+            if key and Theme[key] then Tween(obj, 0.3, {[prop] = Theme[key]}) end
         end
     end
 end
@@ -216,13 +199,15 @@ function Library:_SelectTab(tab)
     for _, t in ipairs(self.Tabs) do
         local active = t == tab
         Tween(t.Button, 0.2, { BackgroundColor3 = active and Theme.Card or Theme.Sidebar, TextColor3 = active and Theme.White or Theme.Muted })
+        if t.Indicator then t.Indicator.Visible = active end
+        if t.Grad then t.Grad.Enabled = active end
         for _, sub in ipairs(t.SubTabs) do if sub.Page then sub.Page.Visible = (t == tab and sub == tab.SubTabs[1]) end end
     end
     
     ClearGui(self.SubTabBar)
     for _, sub in ipairs(tab.SubTabs) do
-        local b = New("TextButton", { BackgroundColor3 = Theme.Card, Text = sub.Name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamBold, TextSize = 11, Size = UDim2.fromOffset(90, 30), AutoButtonColor = false }, self.SubTabBar)
-        Round(b, 15) local st = Stroke(b, Theme.Green, 1, 1) sub.Button = b sub.Stroke = st
+        local b = New("TextButton", { BackgroundColor3 = Theme.Card, Text = sub.Icon .. "  " .. sub.Name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamBold, TextSize = 12, Size = UDim2.fromOffset(90, 32), AutoButtonColor = false }, self.SubTabBar)
+        Round(b, 16) local st = Stroke(b, Theme.Green, 1, 1) sub.Button = b sub.Stroke = st
         b.Activated:Connect(function() self:_SelectSub(tab, sub) end)
 
         if not sub.Page then
@@ -252,30 +237,35 @@ end
 
 function Library:AddTab(name, icon)
     local tab = { Window = self, Name = name, Icon = icon or "•", SubTabs = {} }
-    local b = New("TextButton", { BackgroundColor3 = Theme.Sidebar, Size = UDim2.new(1, 0, 0, 35), Text = "  " .. (icon or "•") .. "   " .. name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamSemibold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 0, AutoButtonColor = false }, self.Nav)
-    b.LayoutOrder = #self.Tabs + 1 Round(b, 8) New("UIPadding", { PaddingLeft = UDim.new(0, 10) }, b)
-    tab.Button = b table.insert(self.Tabs, tab)
+    local b = New("TextButton", { BackgroundColor3 = Theme.Sidebar, Size = UDim2.new(1, 0, 0, 38), Text = "  " .. (icon or "•") .. "   " .. name, TextColor3 = Theme.Muted, Font = Enum.Font.GothamSemibold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 0, AutoButtonColor = false }, self.Nav)
+    b.LayoutOrder = #self.Tabs + 1 Round(b, 10) New("UIPadding", { PaddingLeft = UDim.new(0, 12) }, b)
+    
+    local ind = New("Frame", { BackgroundColor3 = Theme.Green, Size = UDim2.fromOffset(3, 22), Position = UDim2.new(0, 0, 0.5, -11), Visible = false }, b)
+    Round(ind, 2)
+    local grad = Gradient(b, Color3.fromRGB(30,30,36), Color3.fromRGB(20,20,25), 0) grad.Enabled = false
+    
+    tab.Button = b tab.Indicator = ind tab.Grad = grad table.insert(self.Tabs, tab)
     
     b.MouseEnter:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Card, TextColor3 = Theme.White }) end end)
     b.MouseLeave:Connect(function() if self.ActiveTab ~= tab then Tween(b, 0.15, { BackgroundTransparency = 1, TextColor3 = Theme.Muted }) end end)
     b.Activated:Connect(function() self:_SelectTab(tab) end) 
-    if not self.ActiveTab then self.ActiveTab = tab self.PageTitle.Text = tab.Name end
+    if not self.ActiveTab then self.ActiveTab = tab self.PageTitle.Text = tab.Name if ind then ind.Visible = true end if grad then grad.Enabled = true end end
     
     return setmetatable(tab, {__index = {
-        AddSubTab = function(t, subName)
-            local sub = { Tab = t, Name = subName, Sections = {} }
+        AddSubTab = function(t, subName, subIcon)
+            local sub = { Tab = t, Name = subName, Icon = subIcon or "•", Sections = {} }
             table.insert(t.SubTabs, sub)
             return setmetatable(sub, {__index = {
                 AddSection = function(s, sectionName)
                     local section = { Sub = s, Name = sectionName, Items = {} }
                     table.insert(s.Sections, section)
                     return setmetatable(section, {__index = {
-                        AddToggle = function(sec, title, default, callback) return self:_AddItem(sec, { Kind = "Toggle", Title = title, Value = default == true, Callback = callback }) end,
-                        AddSlider = function(sec, title, min, max, default, callback) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback }) end,
-                        AddButton = function(sec, title, callback) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback }) end,
+                        AddToggle = function(sec, title, default, callback, desc) return self:_AddItem(sec, { Kind = "Toggle", Title = title, Value = default == true, Callback = callback, Desc = desc or "" }) end,
+                        AddSlider = function(sec, title, min, max, default, callback, desc) return self:_AddItem(sec, { Kind = "Slider", Title = title, Min = min, Max = max, Value = math.clamp(default, min, max), Callback = callback, Desc = desc or "" }) end,
+                        AddButton = function(sec, title, callback, desc) return self:_AddItem(sec, { Kind = "Button", Title = title, Callback = callback, Desc = desc or "" }) end,
                         AddDropdown = function(sec, title, options, default, callback) 
                             options = options or {"None"} if #options == 0 then options = {"None"} end
-                            return self:_AddItem(sec, { Kind = "Dropdown", Title = title, Options = options, Value = default or options[1], Callback = callback }) 
+                            return self:_AddItem(sec, { Kind = "Dropdown", Title = title, Options = options, Value = default or options[1], Callback = callback, Desc = "" }) 
                         end,
                     }})
                 end,
@@ -287,43 +277,57 @@ function Library:_AddItem(section, item) table.insert(section.Items, item) retur
 
 function Library:_BuildSection(section, page)
     local holder = New("Frame", { Name = section.Name, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, page) 
-    local heading = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 19) }, holder)
+    local heading = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22) }, holder)
     local headingText = MakeLabel(heading, string.upper(section.Name), 11, Theme.Muted, Enum.Font.GothamBold)
     
-    local itemsFrame = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 25), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, holder)
-    New("UIGridLayout", { CellSize = UDim2.new(0.5, -5, 0, 54), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) 
+    local itemsFrame = New("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 28), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, holder)
     
-    for _, item in ipairs(section.Items) do self:_BuildItem(item, itemsFrame) end
+    if #section.Items == 1 then
+        New("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame)
+    else
+        New("UIGridLayout", { CellSize = UDim2.new(0.5, -5, 0, 66), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder }, itemsFrame) 
+    end
+    
+    for _, item in ipairs(section.Items) do self:_BuildItem(item, itemsFrame, #section.Items == 1) end
 end
 
-function Library:_BuildItem(item, parent)
+function Library:_BuildItem(item, parent, isFullWidth)
     local isSlider = item.Kind == "Slider"
-    local height = isSlider and 76 or 54
-    local card = New("Frame", { BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.1, BorderSizePixel = 0, Size = UDim2.new(0.5, -5, 0, height) }, parent) 
-    Round(card, 10) local st = Stroke(card, Theme.Green, 0.9) TagTheme(st, "Color", "Border")
+    local isButton = item.Kind == "Button"
+    local hasDesc = item.Desc ~= ""
+    local height = isSlider and 78 or (hasDesc and 66 or 56)
     
-    card.MouseEnter:Connect(function() Tween(card, 0.15, {BackgroundTransparency = 0}) Tween(st, 0.15, {Transparency = 0.5}) end)
-    card.MouseLeave:Connect(function() Tween(card, 0.15, {BackgroundTransparency = 0.1}) Tween(st, 0.15, {Transparency = 0.9}) end)
+    local size = isFullWidth and UDim2.new(1, 0, 0, height) or UDim2.new(0.5, -5, 0, height)
+    local card = New("Frame", { BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.15, BorderSizePixel = 0, Size = size }, parent) 
+    Round(card, 12) 
+    local st1 = Stroke(card, Color3.new(0,0,0), 0.6, 2) -- Тень
+    local st2 = Stroke(card, Theme.Green, 0.8, 1) TagTheme(st2, "Color", "Border")
+    
+    card.MouseEnter:Connect(function() Tween(card, 0.2, {BackgroundTransparency = 0, Size = size + UDim2.fromOffset(2, 2)}) Tween(st2, 0.2, {Transparency = 0.4}) end)
+    card.MouseLeave:Connect(function() Tween(card, 0.2, {BackgroundTransparency = 0.15, Size = size}) Tween(st2, 0.2, {Transparency = 0.8}) end)
 
-    local title = MakeLabel(card, item.Title, 12, Theme.White, Enum.Font.GothamMedium) title.Position = UDim2.fromOffset(10, 5) title.Size = UDim2.new(1, -50, 0, 17)
+    local title = MakeLabel(card, item.Title, 13, Theme.White, Enum.Font.GothamMedium) title.Position = UDim2.fromOffset(12, 6) title.Size = UDim2.new(1, -55, 0, 17)
+    if hasDesc and not isButton then
+        local desc = MakeLabel(card, item.Desc, 10, Theme.Muted) desc.Position = UDim2.fromOffset(12, 25) desc.Size = UDim2.new(1, -24, 0, 14)
+    end
 
     if item.Kind == "Toggle" then
-        local track = New("Frame", { BackgroundColor3 = item.Value and Theme.Green or Theme.Track, Position = UDim2.new(1, -45, 0, 15), Size = UDim2.fromOffset(34, 18), BorderSizePixel = 0 }, card) Round(track, 15)
-        local thumb = New("Frame", { BackgroundColor3 = Theme.White, Position = UDim2.fromOffset(item.Value and 18 or 2, 2), Size = UDim2.fromOffset(14, 14), BorderSizePixel = 0 }, track) Round(thumb, 12)
+        local track = New("Frame", { BackgroundColor3 = item.Value and Theme.Green or Theme.Track, Position = UDim2.new(1, -48, 0, hasDesc and 24 or 18), Size = UDim2.fromOffset(38, 20), BorderSizePixel = 0 }, card) Round(track, 15)
+        local thumb = New("Frame", { BackgroundColor3 = Theme.White, Position = UDim2.fromOffset(item.Value and 20 or 2, 2), Size = UDim2.fromOffset(16, 16), BorderSizePixel = 0 }, track) Round(thumb, 12)
         local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Size = UDim2.fromScale(1, 1) }, track)
         local function setState(val)
-            item.Value = val Tween(track, 0.18, { BackgroundColor3 = val and Theme.Green or Theme.Track }) Tween(thumb, 0.18, { Position = UDim2.fromOffset(val and 18 or 2, 2) })
+            item.Value = val Tween(track, 0.2, { BackgroundColor3 = val and Theme.Green or Theme.Track }) Tween(thumb, 0.2, { Position = UDim2.fromOffset(val and 20 or 2, 2) })
             if val then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") else track:SetAttribute("ThemeTarget_BackgroundColor3", nil) end
             if item.Callback then task.spawn(item.Callback, val) end
         end
         hit.Activated:Connect(function() setState(not item.Value) end) 
         if item.Value then track:SetAttribute("ThemeTarget_BackgroundColor3", "Green") end
     elseif item.Kind == "Slider" then
-        local valLabel = MakeLabel(card, tostring(item.Value), 11, Theme.Green, Enum.Font.GothamBold) valLabel.Position = UDim2.new(1, -40, 0, 5) valLabel.Size = UDim2.fromOffset(30, 17) valLabel.TextXAlignment = Enum.TextXAlignment.Right TagTheme(valLabel, "TextColor3", "Green")
-        local track = New("Frame", { BackgroundColor3 = Theme.Track, Position = UDim2.new(0, 10, 0, 53), Size = UDim2.new(1, -50, 0, 4), BorderSizePixel = 0 }, card) Round(track, 5)
+        local valLabel = MakeLabel(card, tostring(item.Value), 12, Theme.Green, Enum.Font.GothamBold) valLabel.Position = UDim2.new(1, -45, 0, 6) valLabel.Size = UDim2.fromOffset(35, 17) valLabel.TextXAlignment = Enum.TextXAlignment.Right TagTheme(valLabel, "TextColor3", "Green")
+        local track = New("Frame", { BackgroundColor3 = Theme.Track, Position = UDim2.new(0, 12, 0, 58), Size = UDim2.new(1, -54, 0, 5), BorderSizePixel = 0 }, card) Round(track, 5)
         local fill = New("Frame", { BackgroundColor3 = Theme.Green, Size = UDim2.new((item.Value - item.Min)/(item.Max - item.Min), 0, 1, 0), BorderSizePixel = 0 }, track) Round(fill, 5) TagTheme(fill, "BackgroundColor3", "Green")
-        local thumb = New("Frame", { BackgroundColor3 = Theme.White, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(12, 12), BorderSizePixel = 0 }, track) Round(thumb, 10) Stroke(thumb, Theme.White, 0.35)
-        local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.new(0, -5, 0, -12), Size = UDim2.new(1, 10, 0, 28) }, track)
+        local thumb = New("Frame", { BackgroundColor3 = Theme.White, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), BorderSizePixel = 0 }, track) Round(thumb, 10) Stroke(thumb, Theme.White, 0.2)
+        local hit = New("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.new(0, -5, 0, -12), Size = UDim2.new(1, 10, 0, 30) }, track)
         
         local dragging = false
         local function setVal(value)
@@ -335,16 +339,8 @@ function Library:_BuildItem(item, parent)
         self:_Track(UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then setVal(item.Min + math.clamp((input.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1) * (item.Max - item.Min)) end end))
         self:_Track(UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end end))
     elseif item.Kind == "Button" then
-        local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.Title, TextColor3 = Theme.White, TextSize = 12, Font = Enum.Font.GothamBold, Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false }, card)
+        local btn = New("TextButton", { BackgroundColor3 = Theme.Card, Text = item.Title, TextColor3 = Theme.White, TextSize = 13, Font = Enum.Font.GothamBold, Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false }, card)
         btn.Activated:Connect(function() Tween(card, 0.1, { BackgroundColor3 = Theme.GreenDark }) task.delay(0.15, function() Tween(card, 0.2, { BackgroundColor3 = Theme.Card }) end) if item.Callback then task.spawn(item.Callback) end end)
-    elseif item.Kind == "Dropdown" then
-        local selectBtn = New("TextButton", { BackgroundColor3 = Theme.Background, Position = UDim2.new(1, -90, 0, 12), Size = UDim2.fromOffset(80, 28), Text = item.Value, TextColor3 = Theme.White, TextSize = 11, Font = Enum.Font.GothamBold, AutoButtonColor = false }, card)
-        Round(selectBtn, 6) local st = Stroke(selectBtn, Theme.Border, 0.5, 1) TagTheme(st, "Color", "Border")
-        selectBtn.Activated:Connect(function()
-            local idx = 1 for i, opt in ipairs(item.Options) do if opt == item.Value then idx = i break end end
-            idx = idx % #item.Options + 1 item.Value = item.Options[idx] selectBtn.Text = item.Value
-            if item.Callback then task.spawn(item.Callback, item.Value) end
-        end)
     end
 end
 
@@ -352,17 +348,17 @@ function Library:ToggleVisible()
     self.Visible = not self.Visible
     local blur = Lighting:FindFirstChild("LiberiumBlur")
     if self.Visible then 
-        self.Root.Visible = true Tween(self.Root, 0.2, {BackgroundTransparency = 0.15}) self.OpenButton.Visible = false
-        if blur then Tween(blur, 0.3, {Size = 12}) end
+        self.Root.Visible = true Tween(self.Root, 0.25, {BackgroundTransparency = 0.25}) self.OpenButton.Visible = false
+        if blur then Tween(blur, 0.4, {Size = 15}) end
     else 
-        Tween(self.Root, 0.2, {BackgroundTransparency = 1}) 
-        if blur then Tween(blur, 0.3, {Size = 0}) end
-        task.delay(0.2, function() if not self.Visible then self.Root.Visible = false self.OpenButton.Visible = true end end) 
+        Tween(self.Root, 0.25, {BackgroundTransparency = 1}) 
+        if blur then Tween(blur, 0.4, {Size = 0}) end
+        task.delay(0.25, function() if not self.Visible then self.Root.Visible = false self.OpenButton.Visible = true end end) 
     end
 end
 
 -- ==========================================
--- ЛОГИКА (Фарм, Флинг)
+-- ЛОГИКА (Фарм, Флинг, ESP)
 -- ==========================================
 task.spawn(function() while task.wait(0.5) and isRunning do pcall(function() local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true) if getData and getData:IsA("RemoteFunction") then local ok, data = pcall(function() return getData:InvokeServer() end) if ok and type(data) == "table" then roles = data end end end) end end)
 local function getPlayerRole(plr) local rData = roles[plr.Name] if rData and rData.Role then return rData.Role end local char = plr.Character if char then if char:FindFirstChild("Knife") or char:FindFirstChild("KnifeServer") then return "Murderer" end if char:FindFirstChild("Gun") or char:FindFirstChild("GunServer") then return "Sheriff" end end local bp = plr:FindFirstChild("Backpack") if bp then if bp:FindFirstChild("Knife") or bp:FindFirstChild("KnifeServer") then return "Murderer" end if bp:FindFirstChild("Gun") or bp:FindFirstChild("GunServer") then return "Sheriff" end end return "Innocent" end
@@ -440,44 +436,44 @@ local Window = Library.new({ Title = "LIBERIUM HUB", Subtitle = "GLASS UI" })
 
 -- Teleport
 local TeleportTab = Window:AddTab("Teleport", "📍")
-local TpRoles = TeleportTab:AddSubTab("Roles")
+local TpRoles = TeleportTab:AddSubTab("Roles", "👤")
 local TpRoleSec = TpRoles:AddSection("Actions")
-TpRoleSec:AddButton("To Lobby", function() local spawn = Workspace:FindFirstChild("SpawnLocation", true) if spawn and currentSession then currentSession.root.CFrame = spawn.CFrame + Vector3.new(0, 3, 0) end end)
-TpRoleSec:AddButton("To Map", function() if currentSession then currentSession.root.CFrame = CFrame.new(0, 50, 0) end end)
-TpRoleSec:AddButton("To Murderer", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot and currentSession then currentSession.root.CFrame = mRoot.CFrame + Vector3.new(0, 2, 0) end end)
+TpRoleSec:AddButton("To Lobby", function() local spawn = Workspace:FindFirstChild("SpawnLocation", true) if spawn and currentSession then currentSession.root.CFrame = spawn.CFrame + Vector3.new(0, 3, 0) end end, "Teleports to the waiting room")
+TpRoleSec:AddButton("To Map", function() if currentSession then currentSession.root.CFrame = CFrame.new(0, 50, 0) end end, "Teleports to the center of the map")
+TpRoleSec:AddButton("To Murderer", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot and currentSession then currentSession.root.CFrame = mRoot.CFrame + Vector3.new(0, 2, 0) end end, "Teleports to the closest murderer")
 
 -- Combat
 local CombatTab = Window:AddTab("Combat", "⚔")
-local CombatSub = CombatTab:AddSubTab("Murderer")
+local CombatSub = CombatTab:AddSubTab("Murderer", "🔪")
 local CombatSec = CombatSub:AddSection("Fling")
-CombatSec:AddToggle("Auto Fling", false, function(v) CFG.AutoFling = v end)
-CombatSec:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end)
-CombatSec:AddSlider("Avoid Radius", 0, 30, 20, function(v) CFG.AvoidRadius = v end)
-CombatSec:AddToggle("Anti-Fling", true, function(v) CFG.AntiFling = v end)
+CombatSec:AddToggle("Auto Fling", false, function(v) CFG.AutoFling = v end, "Automatically flings nearest murderer")
+CombatSec:AddButton("Manual Fling", function() local mRoot = getClosestMurderer(currentSession.root.Position) if mRoot then FlingTarget(mRoot) end end, "Flings the closest murderer manually")
+CombatSec:AddSlider("Avoid Radius", 0, 30, 20, function(v) CFG.AvoidRadius = v end, "Distance to avoid the murderer")
+CombatSec:AddToggle("Anti-Fling", true, function(v) CFG.AntiFling = v end, "Prevents you from being flung")
 
 -- Farm
 local FarmTab = Window:AddTab("Farm", "💰")
-local FarmSub = FarmTab:AddSubTab("Coins")
+local FarmSub = FarmTab:AddSubTab("Coins", "🪙")
 local FarmSec = FarmSub:AddSection("Settings")
-FarmSec:AddToggle("Auto Farm", false, function(v) CFG.AutoFarm = v if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end)
-FarmSec:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end)
-FarmSec:AddToggle("Auto Reset", false, function(v) CFG.AutoReset = v end)
-FarmSec:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end)
+FarmSec:AddToggle("Auto Farm", false, function(v) CFG.AutoFarm = v if v then collectedCount = 0 table.clear(Blacklist) coinCacheTime = 0 end end, "Automatically collects all coins")
+FarmSec:AddSlider("Farm Speed", 10, 24, 20, function(v) CFG.MaxSpeed = v end, "Flight speed while farming")
+FarmSec:AddToggle("Auto Reset", false, function(v) CFG.AutoReset = v end, "Resets character when bag is full")
+FarmSec:AddSlider("Max Coins", 40, 50, 50, function(v) CFG.MaxCoins = v end, "Max coins before reset")
 
 -- Visuals
 local VisualTab = Window:AddTab("Visuals", "👁")
-local VisualSub = VisualTab:AddSubTab("ESP")
+local VisualSub = VisualTab:AddSubTab("ESP", "👁")
 local VisualSec = VisualSub:AddSection("Players")
-VisualSec:AddToggle("Player ESP", false, function(v) CFG.ESP = v end)
+VisualSec:AddToggle("Player ESP", false, function(v) CFG.ESP = v end, "Highlights players based on their role")
 
 -- Settings
 local SettingsTab = Window:AddTab("Settings", "⚙")
-local SettingsSub = SettingsTab:AddSubTab("Themes")
+local SettingsSub = SettingsTab:AddSubTab("Themes", "🎨")
 local ThemeSec = SettingsSub:AddSection("Colors")
-ThemeSec:AddButton("Green", function() Window:ChangeTheme("Green") end)
-ThemeSec:AddButton("Purple", function() Window:ChangeTheme("Purple") end)
-ThemeSec:AddButton("Red", function() Window:ChangeTheme("Red") end)
-ThemeSec:AddButton("Blue", function() Window:ChangeTheme("Blue") end)
+ThemeSec:AddButton("Green Theme", function() Window:ChangeTheme("Green") end, "Default neon green")
+ThemeSec:AddButton("Purple Theme", function() Window:ChangeTheme("Purple") end, "Royal purple")
+ThemeSec:AddButton("Red Theme", function() Window:ChangeTheme("Red") end, "Crimson red")
+ThemeSec:AddButton("Blue Theme", function() Window:ChangeTheme("Blue") end, "Cyber blue")
 
 -- Инициализация
 Window:_SelectTab(TeleportTab)
