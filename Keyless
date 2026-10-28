@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v68 | FINAL (+ Overhead ESP 2.0)
+-- LIBERIUM HUB | v70 | FINAL (Deep Bugfixes: Crash protection, Config sync, UI leaks)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -18,11 +18,15 @@ if not blur then
     blur.Name = "LiberiumBlur"
 end
 blur.Size = 15
+blur.Enabled = true
 
 local uiToggle
 local NotificationManager
 local UIToggle
 local overheadTracker
+local aimMarker
+local roleHUD
+local win
 
 if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
 local isRunning = true
@@ -32,6 +36,9 @@ getgenv().LiberiumCleanup = function()
     if uiToggle then pcall(function() uiToggle:Destroy() end) end
     if NotificationManager then pcall(function() NotificationManager.Destroy() end) end
     if overheadTracker then pcall(function() overheadTracker:Destroy() end) end
+    if aimMarker then pcall(function() aimMarker:Destroy() end) end
+    if roleHUD then pcall(function() roleHUD:Destroy() end) end -- ФИКС 6: Чистим Highlight
+    if win and win.Gui then pcall(function() win.Gui:Destroy() end) end -- ФИКС 5: Чистим UI
 end
 
 local CFG = { MaxSpeed = 20, AutoFarm = false, AutoFling = false, ESP = false, AvoidRadius = 20, AntiFling = true, AimMode = "Classic", Prediction = false, ProjSpeed = 100 }
@@ -164,6 +171,14 @@ local RoleHUD = (function()
     function API:_step() local ok, tbl = pcall(self._provider) if not ok or type(tbl) ~= "table" then return end for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then self:_update(p, tbl) end end end
     function API:Start() if self._running then return end self._running = true self._container = self._container or Instance.new("Folder") self._container.Name = "LibHUD" self._container.Parent = Workspace table.insert(self._conns, Players.PlayerRemoving:Connect(function(p) if self._hl[p] then self._hl[p]:Destroy() self._hl[p] = nil self._state[p] = nil end end)) task.spawn(function() while self._running do self:_step() task.wait(0.5) end end) end
     function API:Stop() self._running = false for _, c in ipairs(self._conns) do c:Disconnect() end table.clear(self._conns) for p in pairs(self._hl) do self:_setHidden(p) end end
+    -- ФИКС 6: Добавлен метод Destroy для полной очистки
+    function API:Destroy() 
+        self:Stop() 
+        for _, hl in pairs(self._hl) do pcall(function() hl:Destroy() end) end 
+        table.clear(self._hl) 
+        table.clear(self._state) 
+        if self._container then self._container:Destroy() self._container = nil end 
+    end
     return API
 end)()
 
@@ -239,7 +254,7 @@ NotificationManager = (function()
         table.clear(entry.Connections)
         local i = table.find(stack, entry)
         if i then table.remove(stack, i) end
-        entry.Slot:Destroy()
+        if entry.Slot then entry.Slot:Destroy() end
     end
     local function reflow()
         local y = CONFIG.MarginTop
@@ -410,8 +425,8 @@ UIToggle = (function()
         self._gui = gui
         local button = Instance.new("TextButton")
         button.Name = "ToggleButton"; button.AutoButtonColor = false; button.Text = ""
-        button.AnchorPoint = Vector2.new(0, 0)
-        button.Position = UDim2.new(0, 16, 0.5, -size / 2)
+        button.AnchorPoint = Vector2.new(1, 0.5)
+        button.Position = UDim2.new(1, -16, 0.5, 0)
         button.Size = UDim2.fromOffset(size, size)
         button.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
         button.BackgroundTransparency = 0.2
@@ -688,7 +703,7 @@ OverheadTracker = (function()
                 end
                 local position = head.Position
                 local distance = (position - origin).Magnitude
-                local data = roles[record.Player.UserId]
+                local data = roles[record.Player.UserId] or roles[tostring(record.Player.UserId)] or roles[record.Player.Name]
                 local role = type(data) == "table" and data.Role or data
                 if distance > maxDistance or (role == nil and not opts.ShowUnknownRoles) then
                     setShown(entry, false)
@@ -1018,12 +1033,14 @@ task.spawn(function()
     end 
 end)
 
+-- ФИКС 2: Универсальная проверка ролей (таблица или строка)
 local function getClosestMurderer(pos) 
     local cr, cd = nil, math.huge 
     for _, p in ipairs(Players:GetPlayers()) do 
         if p ~= LocalPlayer and p.Character then 
-            local r = roles[p.UserId] or roles[tostring(p.UserId)] or roles[p.Name] 
-            if r and isKillerRole(r.Role) then 
+            local data = roles[p.UserId] or roles[tostring(p.UserId)] or roles[p.Name] 
+            local role = type(data) == "table" and data.Role or data
+            if role and isKillerRole(role) then 
                 local pr = p.Character:FindFirstChild("HumanoidRootPart") 
                 if pr then 
                     local d = (pr.Position - pos).Magnitude 
@@ -1057,14 +1074,24 @@ local function FlingTarget(tr)
     end)
     if sp then sp:Destroy() end
     if pu then pu:Destroy() end
-    mr.CFrame = oc
-    mr.Anchored = oa
+    -- ФИКС 3: Защита от краша, если mr уничтожен во время task.wait
+    if mr and mr.Parent then 
+        mr.CFrame = oc 
+        mr.Anchored = oa 
+    end
     if not ok then warn("[FlingTarget]", err) end
 end
 
-task.spawn(function() while task.wait(0.5) and isRunning do if CFG.AutoFling and currentSession and not currentSession.destroyed then local m, d = getClosestMurderer(currentSession.root.Position) if m and d < 50 then FlingTarget(m) task.wait(2) end end end end)
+task.spawn(function() 
+    while task.wait(0.5) and isRunning do 
+        if CFG.AutoFling and currentSession and not currentSession.destroyed and currentSession.root then 
+            local m, d = getClosestMurderer(currentSession.root.Position) 
+            if m and d < 50 then FlingTarget(m) task.wait(2) end 
+        end 
+    end 
+end)
 
-local aimMarker = Instance.new("Part")
+aimMarker = Instance.new("Part")
 aimMarker.Name = "LibAimMarker"
 aimMarker.Size = Vector3.new(1,1,1)
 aimMarker.Color = Color3.fromRGB(255, 50, 50)
@@ -1097,13 +1124,15 @@ task.spawn(function()
 end)
 
 local function bindCharacter(char)
-    if currentSession then currentSession.destroyed = true end canFarmNow = false 
+    if currentSession then currentSession.destroyed = true end 
+    canFarmNow = false 
     local root = char:WaitForChild("HumanoidRootPart", 10) local hum = char:WaitForChild("Humanoid", 10) 
     if not (root and hum) or LocalPlayer.Character ~= char then return end
     local s = { character = char, root = root, humanoid = hum, destroyed = false } currentSession = s
     hum.Died:Connect(function() s.destroyed = true if currentSession == s then currentSession = nil end end)
     char.AncestryChanged:Connect(function(_, par) if par == nil then s.destroyed = true if currentSession == s then currentSession = nil end end end)
-    task.wait(3) canFarmNow = true 
+    task.wait(3) 
+    if currentSession == s then canFarmNow = true end 
 end
 LocalPlayer.CharacterAdded:Connect(bindCharacter) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
 
@@ -1146,12 +1175,16 @@ local function glideTo(target, speed)
     if hum.Parent and hum.Health > 0 then hum.PlatformStand = origPS hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
     if arrived then
         pcall(function()
-            if typeof(firetouchinterest) == "function" then 
-                firetouchinterest(root, target, 0) 
-                firetouchinterest(target, root, 0)
-                task.wait(0.02)
-                firetouchinterest(root, target, 1) 
-                firetouchinterest(target, root, 1)
+            -- ФИКС 1 & 7: Защита от уничтожения цели во время полета
+            if target and target.Parent and typeof(firetouchinterest) == "function" then 
+                local targetPart = target:IsA("BasePart") and target or (target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart"))
+                if targetPart then 
+                    firetouchinterest(root, targetPart, 0) 
+                    firetouchinterest(targetPart, root, 0)
+                    task.wait(0.02)
+                    firetouchinterest(root, targetPart, 1) 
+                    firetouchinterest(targetPart, root, 1)
+                end
             end
         end)
     end
@@ -1176,14 +1209,14 @@ task.spawn(function() while true and isRunning do if CFG.AutoFarm then collectSe
 -- ==========================================
 -- UI INIT
 -- ==========================================
-local roleHUD = RoleHUD.new(function() return roles end)
+roleHUD = RoleHUD.new(function() return roles end)
 overheadTracker = OverheadTracker.new(function() return roles end, {
     MaxDistance = 150,
     UpdateInterval = 0.2,
     AutoStart = false,
 })
 
-local win = Lib.new("LIBERIUM HUB")
+win = Lib.new("LIBERIUM HUB")
 
 local tFarm = win:AddTab("Farm", "💰")
 local sFarm = tFarm:AddSubTab("Coins")
@@ -1194,15 +1227,15 @@ secF:AddSlider("Farm Speed", 10, 24, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v 
 local tVis = win:AddTab("Visuals", "👁")
 local sVis = tVis:AddSubTab("ESP")
 local secV = sVis:AddSection("Players")
-secV:AddToggle("Player ESP", CFG.ESP, function(v) 
+local espToggle = secV:AddToggle("Player ESP", CFG.ESP, function(v) 
     CFG.ESP = v 
     if v then 
         roleHUD:Start() 
-        overheadTracker:SetVisible(true)
+        overheadTracker:Start()
         NotificationManager.Notify("ESP Enabled", "Success", 2)
     else 
         roleHUD:Stop() 
-        overheadTracker:SetVisible(false)
+        overheadTracker:Stop()
         NotificationManager.Notify("ESP Disabled", "Info", 2)
     end 
 end)
@@ -1216,7 +1249,7 @@ secC:AddButton("Manual Fling", function()
     local m = getClosestMurderer(currentSession.root.Position) 
     if m then FlingTarget(m) end 
 end)
-secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
+local antiFlingToggle = secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
 
 local sAim = tCom:AddSubTab("Aim")
 local secA = sAim:AddSection("Prediction")
@@ -1236,20 +1269,24 @@ secS:AddButton("Save Settings", function()
     end
 end)
 
--- ==========================================
--- HOOKUP
--- ==========================================
+-- ФИКС 4: Синхронизация состояний после загрузки конфига
+task.defer(function()
+    if CFG.ESP then espToggle:Set(true, true) roleHUD:Start() overheadTracker:Start() end
+    if CFG.AntiFling then antiFlingToggle:Set(true, true) Stabilizer.Start() end
+end)
+
 uiToggle = UIToggle.new(win.Gui, {
     Keybind = Enum.KeyCode.RightShift,
     AccentColor = THEME.Accent,
     OnToggle = function(visible)
+        if blur then blur.Enabled = visible end 
         NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5)
     end,
 })
 
 task.delay(0.8, function()
     if NotificationManager then
-        NotificationManager.Notify("Liberium Hub v68 ready", "Success", 2.5)
+        NotificationManager.Notify("Liberium Hub v70 ready", "Success", 2.5)
     end
 end)
 
