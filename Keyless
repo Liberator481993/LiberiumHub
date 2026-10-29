@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v71 | FINAL (ESP Fill Fix, UI Size Fix, Farm Fix)
+-- LIBERIUM HUB | v72 | FINAL (ESP Recreate Fix, White Dropdown, Smooth Lerp Farm)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -133,47 +133,54 @@ local InterceptSolver = (function()
     return API
 end)()
 
--- 3. ROLE HUD
+-- 3. ROLE HUD (ИСПРАВЛЕН БАГ С ЗАЛИВКОЙ)
 local RoleHUD = (function()
     local API = {} API.__index = API
     local C = { 
-        Murderer = Color3.fromRGB(255, 50, 50), Killer = Color3.fromRGB(255, 50, 50), Zombie = Color3.fromRGB(255, 50, 50),
-        Sheriff = Color3.fromRGB(50, 120, 255), 
-        Innocent = Color3.fromRGB(50, 255, 100), Survivor = Color3.fromRGB(50, 255, 100), Hero = Color3.fromRGB(50, 255, 100) 
+        murderer = Color3.fromRGB(255, 50, 50), killer = Color3.fromRGB(255, 50, 50), zombie = Color3.fromRGB(255, 50, 50),
+        sheriff = Color3.fromRGB(50, 120, 255), hero = Color3.fromRGB(50, 120, 255),
+        innocent = Color3.fromRGB(50, 255, 100), survivor = Color3.fromRGB(50, 255, 100) 
     }
     function API.new(provider) local s = setmetatable({}, API) s._provider = provider s._hl = {} s._state = {} s._conns = {} s._running = false s._container = nil return s end
-    function API:_getHl(p) local hl = self._hl[p] if hl then return hl end hl = Instance.new("Highlight") hl.Name = "LibHUD" hl.Enabled = false hl.FillTransparency = 0.5 hl.OutlineTransparency = 0 hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = self._container self._hl[p] = hl self._state[p] = { Enabled = false, Color = nil } return hl end
-    function API:_setHidden(p) local hl = self._hl[p] if hl and self._state[p].Enabled then self._state[p].Enabled = false hl.Enabled = false end end
-    function API:_setVisible(p, color) 
-        local hl = self:_getHl(p) 
-        -- ФИКС ESP: принудительно перезаписываем цвет заливки и обводки каждый тик
-        hl.FillColor = color 
-        hl.OutlineColor = color 
-        if not self._state[p].Enabled then 
-            self._state[p].Enabled = true 
-            hl.Enabled = true 
-        end 
-    end
+    
+    -- ФИКС: Принудительное пересоздание Highlight при смене цвета
     function API:_update(p, tbl) 
         local data = tbl[p.UserId] or tbl[tostring(p.UserId)] or tbl[p.Name] 
-        if type(data) ~= "table" then self:_setHidden(p) return end 
-        local color = C[data.Role] 
-        if not color then self:_setHidden(p) return end 
+        local roleStr = type(data) == "table" and tostring(data.Role) or tostring(data)
+        local color = C[string.lower(roleStr)] 
+        
         local char = p.Character local hum = char and char:FindFirstChildOfClass("Humanoid") 
-        if data.Dead == true or not hum or hum.Health <= 0 then self:_setHidden(p) return end 
-        local hl = self:_getHl(p) if hl.Adornee ~= char then hl.Adornee = char end 
-        self:_setVisible(p, color) 
+        local isDead = (type(data) == "table" and data.Dead == true) or not hum or hum.Health <= 0
+        
+        if not color or isDead then 
+            if self._hl[p] then self._hl[p].Enabled = false end
+            return 
+        end 
+        
+        local hl = self._hl[p]
+        -- Если Highlight нет, или цвет изменился (баг Roblox) — удаляем и создаем заново
+        if not hl or self._state[p].Color ~= color then
+            if hl then hl:Destroy() end
+            hl = Instance.new("Highlight")
+            hl.Name = "LibHUD"
+            hl.FillTransparency = 0.5
+            hl.OutlineTransparency = 0
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent = self._container
+            self._hl[p] = hl
+            self._state[p] = { Color = color }
+        end
+        
+        hl.FillColor = color
+        hl.OutlineColor = color
+        hl.Adornee = char
+        hl.Enabled = true
     end
+    
     function API:_step() local ok, tbl = pcall(self._provider) if not ok or type(tbl) ~= "table" then return end for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then self:_update(p, tbl) end end end
-    function API:Start() if self._running then return end self._running = true self._container = self._container or Instance.new("Folder") self._container.Name = "LibHUD" self._container.Parent = Workspace table.insert(self._conns, Players.PlayerRemoving:Connect(function(p) if self._hl[p] then self._hl[p]:Destroy() self._hl[p] = nil self._state[p] = nil end end)) task.spawn(function() while self._running do self:_step() task.wait(0.5) end end) end
-    function API:Stop() self._running = false for _, c in ipairs(self._conns) do c:Disconnect() end table.clear(self._conns) for p in pairs(self._hl) do self:_setHidden(p) end end
-    function API:Destroy() 
-        self:Stop() 
-        for _, hl in pairs(self._hl) do pcall(function() hl:Destroy() end) end 
-        table.clear(self._hl) 
-        table.clear(self._state) 
-        if self._container then self._container:Destroy() self._container = nil end 
-    end
+    function API:Start() if self._running then return end self._running = true self._container = self._container or Instance.new("Folder") self._container.Name = "LibHUD" self._container.Parent = Workspace table.insert(self._conns, Players.PlayerRemoving:Connect(function(p) if self._hl[p] then self._hl[p]:Destroy() self._hl[p] = nil self._state[p] = nil end end)) task.spawn(function() while self._running do self:_step() task.wait(0.3) end end) end
+    function API:Stop() self._running = false for _, c in ipairs(self._conns) do c:Disconnect() end table.clear(self._conns) for p in pairs(self._hl) do if self._hl[p] then self._hl[p].Enabled = false end end end
+    function API:Destroy() self:Stop() for _, hl in pairs(self._hl) do pcall(function() hl:Destroy() end) end table.clear(self._hl) table.clear(self._state) if self._container then self._container:Destroy() self._container = nil end end
     return API
 end)()
 
@@ -188,7 +195,7 @@ local Stabilizer = (function()
     return API
 end)()
 
--- 5. NOTIFICATION MANAGER (Уменьшенный и прижатый к верхнему правому углу)
+-- 5. NOTIFICATION MANAGER
 NotificationManager = (function()
     local NM = {}
     local CONFIG = {
@@ -811,9 +818,9 @@ OverheadTracker = (function()
     return OT
 end)()
 
--- 8. DROPDOWN
+-- 8. DROPDOWN (ИСПРАВЛЕН ТЕКСТ)
 local Dropdown = (function()
-    local Theme = { Surface = Color3.fromHex("#15151b"), SurfaceHover = Color3.fromHex("#1d1d26"), Glass = Color3.fromHex("#17171f"), Background = Color3.fromHex("#0c0c0f"), Accent = Color3.fromHex("#8c64ff"), Stroke = Color3.fromHex("#2a2a36"), Text = Color3.fromHex("#f0f0f5"), TextDim = Color3.fromHex("#b4b4c3"), SubText = Color3.fromHex("#7d7d8f"), Font = Enum.Font.GothamMedium, TextSize = 13 }
+    local Theme = { Surface = Color3.fromHex("#15151b"), SurfaceHover = Color3.fromHex("#1d1d26"), Glass = Color3.fromHex("#17171f"), Background = Color3.fromHex("#0c0c0f"), Accent = Color3.fromHex("#8c64ff"), Stroke = Color3.fromHex("#2a2a36"), Text = Color3.fromHex("#f0f0f5"), TextDim = Color3.fromHex("#ffffff"), SubText = Color3.fromHex("#7d7d8f"), Font = Enum.Font.GothamMedium, TextSize = 13 }
     local OP = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out) local CL = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In) local FA = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local function create(c, p, ch) local i = Instance.new(c) local pa = p.Parent for k, v in p do if k~="Parent" then i[k]=v end end if ch then for _, x in ch do x.Parent = i end end i.Parent = pa return i end
     local function tween(i, inf, g) local t = TweenService:Create(i, inf, g) t:Play() return t end
@@ -857,7 +864,8 @@ local Dropdown = (function()
         return s
     end
     function D:_paintHead(st) local op = self.IsOpen local ac = op or st~="idle" tween(self.Header, FA, {BackgroundColor3=(st=="idle") and Theme.Surface or Theme.SurfaceHover}) tween(self._stroke, FA, {Color=ac and Theme.Accent or Theme.Stroke, Transparency=op and 0.15 or (ac and 0.5 or 0)}) end
-    function D:_paintOpt(idx, st, inst) local b = self._btns[idx] if not b then return end local sel = idx == self._selIdx local tr if st=="press" then tr=0.7 elseif st=="hover" then tr=sel and 0.78 or 0.93 else tr=sel and 0.85 or 1 end local tc = sel and Theme.Accent or (st=="idle" and Theme.TextDim or Theme.Text) if inst then b.BackgroundTransparency=tr b.TextColor3=tc else tween(b,FA,{BackgroundTransparency=tr,TextColor3=tc}) end end
+    function D:_paintOpt(idx, st, inst) local b = self._btns[idx] if not b then return end local sel = idx == self._selIdx local tr if st=="press" then tr=0.7 elseif st=="hover" then tr=sel and 0.78 or 0.93 else tr=sel and 0.85 or 1 end local tc = sel and Theme.Accent or Color3.new(1,1,1) -- ИСПРАВЛЕНО: чисто белый
+        if inst then b.BackgroundTransparency=tr b.TextColor3=tc else tween(b,FA,{BackgroundTransparency=tr,TextColor3=tc}) end end
     function D:_refreshOpts() for i in self._btns do self:_paintOpt(i, "idle", true) end end
     function D:_updateHead() if self.Value ~= nil then self.ValLabel.Text=tostring(self.Value) self.ValLabel.TextColor3=Theme.Text else self.ValLabel.Text="Select..." self.ValLabel.TextColor3=Theme.SubText end end
     function D:_select(idx) self._selIdx=idx self.Value=self._opts[idx] self:_updateHead() self:_refreshOpts() end
@@ -868,7 +876,8 @@ local Dropdown = (function()
         for _, b in self._btns do b:Destroy() end table.clear(self._btns)
         self._opts = table.clone(opts or {})
         for i, o in self._opts do
-            local b = create("TextButton", {Name="O_"..i,LayoutOrder=i,Size=UDim2.new(1,0,0,self._itemH),BackgroundColor3=Theme.Accent,BackgroundTransparency=1,Text=tostring(o),TextColor3=Theme.TextDim,TextXAlignment=Enum.TextXAlignment.Left,Parent=self._scroll})
+            -- ИСПРАВЛЕНО: TextColor3 чисто белый
+            local b = create("TextButton", {Name="O_"..i,LayoutOrder=i,Size=UDim2.new(1,0,0,self._itemH),BackgroundColor3=Theme.Accent,BackgroundTransparency=1,Text=tostring(o),TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Left,Parent=self._scroll})
             create("UICorner", {CornerRadius=UDim.new(0,5),Parent=b}) create("UIPadding", {PaddingLeft=UDim.new(0,10),PaddingRight=UDim.new(0,10),Parent=b})
             bindF(b, function(st) self:_paintOpt(i, st) end)
             b.Activated:Connect(function() self:_select(i) self:Close() self:_fire(self.Value) end)
@@ -1129,7 +1138,7 @@ local function bindCharacter(char)
 end
 LocalPlayer.CharacterAdded:Connect(bindCharacter) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
 
--- НОВЫЙ ТРЕКЕР МОНЕТ: Ищет по всему воркспейсу, а не в конкретной папке
+-- НОВЫЙ ТРЕКЕР МОНЕТ
 local coinTracker = (function()
     local API = {}
     local coins = {}
@@ -1164,41 +1173,51 @@ local coinTracker = (function()
     return API
 end)()
 
+-- ИДЕАЛЬНЫЙ ПОЛЕТ (БЕЗ РЫВКОВ И БЕЗ LOOKAT)
 local function glideTo(target, speed)
     local s = currentSession 
     if not s or s.destroyed or not s.root or not s.root.Parent or not s.humanoid or s.humanoid.Health <= 0 or not target.Parent then return false end
     local char = s.character local root = s.root local hum = s.humanoid
     local targetPos = target:IsA("BasePart") and target.Position or target:GetPivot().Position
+    
     local origAnchored = root.Anchored
     local origCanCollide = root.CanCollide
-    local origPS = hum.PlatformStand
     root.Anchored = true
-    hum.PlatformStand = true
     root.CanCollide = false
+    
     local parts = {}
     for _, d in ipairs(char:GetDescendants()) do 
         if d:IsA("BasePart") then d.CanCollide = false parts[#parts+1] = d end 
     end
-    local dist = (targetPos - root.Position).Magnitude
-    local travelTime = math.max(dist / speed, 0.1)
-    local info = TweenInfo.new(travelTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-    local goal = { CFrame = CFrame.lookAt(targetPos, targetPos + (targetPos - root.Position)) }
-    if dist < 0.1 then goal.CFrame = CFrame.new(targetPos) end
-    local tween = TweenService:Create(root, info, goal)
-    tween:Play()
+
     local arrived = false
-    local startT = tick()
+    local startTime = tick()
+
     while isRunning do
         RunService.Heartbeat:Wait()
         if s.destroyed or hum.Health <= 0 then break end
-        if (root.Position - targetPos).Magnitude <= 3 then arrived = true break end
-        if tick() - startT > 8 then break end
+        
+        local currentPos = root.Position
+        local offset = targetPos - currentPos
+        local dist = offset.Magnitude
+
+        if dist <= 3 then
+            arrived = true
+            break
+        end
+        
+        -- Таймаут, чтобы не висло навсегда
+        if tick() - startTime > 6 then break end
+
+        -- Двигаемся строго по вектору к цели. Никаких lookAt (из-за них крутило)
+        local step = math.min(speed * 0.05, dist)
+        root.CFrame = CFrame.new(currentPos + offset.Unit * step)
     end
-    tween:Cancel()
+
     root.Anchored = origAnchored
     root.CanCollide = origCanCollide
     for _, p in ipairs(parts) do if p and p.Parent then p.CanCollide = true end end
-    if hum.Parent and hum.Health > 0 then hum.PlatformStand = origPS hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    
     if arrived then
         pcall(function()
             if target and target.Parent and typeof(firetouchinterest) == "function" then 
@@ -1206,7 +1225,7 @@ local function glideTo(target, speed)
                 if targetPart then 
                     firetouchinterest(root, targetPart, 0) 
                     firetouchinterest(targetPart, root, 0)
-                    task.wait(0.02)
+                    task.wait(0.05)
                     firetouchinterest(root, targetPart, 1) 
                     firetouchinterest(targetPart, root, 1)
                 end
@@ -1216,24 +1235,25 @@ local function glideTo(target, speed)
     return arrived
 end
 
--- УПРОЩЕННЫЙ ЦИКЛ ФАРМА
+-- БЫСТРЫЙ ЦИКЛ ФАРМА
 task.spawn(function() 
     while isRunning do
         if CFG.AutoFarm and canFarmNow then
             local root = currentSession and currentSession.root
             if root and root.Parent then
-                local target = coinTracker:GetClosest(root.Position, 150)
+                -- Радиус увеличен до 200
+                local target = coinTracker:GetClosest(root.Position, 200)
                 if target then
-                    local success = glideTo(target, CFG.MaxSpeed)
-                    if not success then task.wait(0.2) end
+                    glideTo(target, CFG.MaxSpeed)
+                    task.wait(0.05) -- Микро-задержка перед следующей
                 else
-                    task.wait(0.5)
+                    task.wait(0.1)
                 end
             else
                 task.wait(0.5)
             end
         else
-            task.wait(1)
+            task.wait(0.5)
         end
     end 
 end)
@@ -1318,7 +1338,7 @@ uiToggle = UIToggle.new(win.Gui, {
 
 task.delay(0.8, function()
     if NotificationManager then
-        NotificationManager.Notify("Liberium Hub v71 ready", "Success", 2.5)
+        NotificationManager.Notify("Liberium Hub v72 ready", "Success", 2.5)
     end
 end)
 
