@@ -1092,7 +1092,8 @@ local function glideTo(target, speed, mode)
         end
     end
     local hipHeight = tonumber(humanoid.HipHeight) or 2
-    local rootOffset = math.clamp(hipHeight + root.Size.Y * 0.5 + targetPart.Size.Y * 0.5 - 0.12, 2.75, 4.0)
+    -- Place the avatar's feet through the collectible's vertical band instead of stopping above it.
+    local rootOffset = math.clamp(hipHeight + root.Size.Y * 0.5 - targetPart.Size.Y * 0.25, 2.2, 3.6)
     local distanceAtStart = (targetPart.Position + Vector3.new(0, rootOffset, 0) - root.Position).Magnitude
     local timeLimit = math.clamp(distanceAtStart / speed * 2.0 + 2.5, 4, 22)
     local arrived = false
@@ -1160,7 +1161,8 @@ local function glideTo(target, speed, mode)
                 addTouchPart(character:FindFirstChild("LowerTorso"))
                 addTouchPart(character:FindFirstChild("LeftFoot"))
                 addTouchPart(character:FindFirstChild("RightFoot"))
-                local heightOffsets = { rootOffset, math.max(2.5, rootOffset - 0.3), math.max(2.25, rootOffset - 0.6) }
+                -- Try a few slightly lower contact heights; the old offsets could leave the feet above the pickup hitbox.
+                local heightOffsets = { rootOffset, math.max(2.0, rootOffset - 0.2), math.max(1.8, rootOffset - 0.45) }
                 for _, heightOffset in ipairs(heightOffsets) do
                     if targetWasCollected(targetPart, originalTargetCanTouch, originalTargetTransparency) then collected = true break end
                     targetPart = getTouchPart(target)
