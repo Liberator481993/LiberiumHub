@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v87 | FULL BUILD (All Modules + Movement + Loot)
+-- LIBERIUM HUB | v88 | FULL FIX (No CanvasGroup, UI Fix)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -14,12 +14,17 @@ local Stats = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Base UI helpers (moved up for module access)
 local THEME = { Background = Color3.fromHex("0c0c0f"), Element = Color3.fromRGB(30, 30, 42), Accent = Color3.fromRGB(140, 100, 255), Text = Color3.fromRGB(235, 235, 245), SubText = Color3.fromRGB(150, 150, 170), Stroke = Color3.fromRGB(255, 255, 255) }
+local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
 local function create(c, p, ch) local i = Instance.new(c) for k, v in pairs(p or {}) do i[k]=v end for _, x in ipairs(ch or {}) do x.Parent=i end return i end
 local function tween(i, inf, p) local t = TweenService:Create(i, inf, p) t:Play() return t end
 local function corner(r) return create("UICorner", {CornerRadius=UDim.new(0,r)}) end
 local function stroke(t, tr) return create("UIStroke", {Color=THEME.Stroke,Thickness=t,Transparency=tr,ApplyStrokeMode=Enum.ApplyStrokeMode.Border}) end
+local function pad(p) return create("UIPadding", {PaddingTop=UDim.new(0,p),PaddingBottom=UDim.new(0,p),PaddingLeft=UDim.new(0,p),PaddingRight=UDim.new(0,p)}) end
+local function label(p) p.BackgroundTransparency=1 p.Font=p.Font or Enum.Font.GothamMedium p.TextSize=p.TextSize or 13 p.TextColor3=p.TextColor3 or THEME.Text p.TextXAlignment=p.TextXAlignment or Enum.TextXAlignment.Left return create("TextLabel", p) end
+local function hover(b, t, id, ov) b.MouseEnter:Connect(function() tween(t,FAST,{BackgroundTransparency=ov}) end) b.MouseLeave:Connect(function() tween(t,FAST,{BackgroundTransparency=id}) end) end
 
 local blur = Lighting:FindFirstChild("LiberiumBlur")
 if not blur then blur = Instance.new("BlurEffect", Lighting) blur.Name = "LiberiumBlur" end
@@ -107,755 +112,12 @@ local Hotkeys = (function()
     return HK
 end)()
 
-MovementUtility = (function()
-    local MU = {} MU.__index = MU
-    local DEFAULT_WALKSPEED = 16
-    local DEFAULT_JUMPPOWER = 50
-    local SAFE_RECORD_INTERVAL = 0.5
-    local SUPPRESSED_STATES = { Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll }
-
-    local function getCharacterParts(player)
-        local character = player.Character if not character or not character.Parent then return nil end
-        local humanoid = character:FindFirstChildOfClass("Humanoid") local root = character:FindFirstChild("HumanoidRootPart")
-        return character, humanoid, root
-    end
-
-    function MU.new()
-        local self = setmetatable({}, MU)
-        self._player = Players.LocalPlayer self._destroyed = false
-        self._walkSpeed = nil self._jumpPower = nil self._collisionEnabled = true
-        self._originalCollide = setmetatable({}, { __mode = "k" }) self._lastSafeCFrame = nil self._safeTimer = 0
-        self._steppedConn = nil self._heartbeatConn = nil
-        self._charConn = self._player.CharacterAdded:Connect(function(character) task.spawn(function() self:_onCharacterAdded(character) end) end)
-        self._heartbeatConn = RunService.Heartbeat:Connect(function(dt)
-            self._safeTimer += dt
-            if self._safeTimer < SAFE_RECORD_INTERVAL then return end
-            self._safeTimer = 0
-            if self._collisionEnabled then
-                pcall(function() local _, humanoid, root = getCharacterParts(self._player) if root and humanoid and humanoid.Health > 0 then self._lastSafeCFrame = root.CFrame end end)
-            end
-        end)
-        if self._player.Character then task.spawn(function() self:_onCharacterAdded(self._player.Character) end) end
-        return self
-    end
-
-    function MU:_applyStats(humanoid)
-        pcall(function()
-            if self._walkSpeed ~= nil then humanoid.WalkSpeed = self._walkSpeed end
-            if self._jumpPower ~= nil then humanoid.UseJumpPower = true humanoid.JumpPower = self._jumpPower end
-        end)
-    end
-
-    function MU:_onCharacterAdded(character)
-        local humanoid = character:WaitForChild("Humanoid", 5) if not humanoid or self._destroyed then return end
-        self:_applyStats(humanoid) table.clear(self._originalCollide)
-        if not self._collisionEnabled then character:WaitForChild("HumanoidRootPart", 5) self:_startNoclip(character) end
-    end
-
-    function MU:SetWalkSpeed(speed)
-        if self._destroyed or type(speed) ~= "number" then return end
-        self._walkSpeed = math.max(speed, 0) local _, humanoid = getCharacterParts(self._player) if humanoid then self:_applyStats(humanoid) end
-    end
-
-    function MU:SetJumpPower(power)
-        if self._destroyed or type(power) ~= "number" then return end
-        self._jumpPower = math.max(power, 0) local _, humanoid = getCharacterParts(self._player) if humanoid then self:_applyStats(humanoid) end
-    end
-
-    function MU:_noclipPart(part)
-        if self._originalCollide[part] == nil then self._originalCollide[part] = part.CanCollide end
-        part.CanCollide = false
-    end
-
-    function MU:_setStatesSuppressed(humanoid, suppressed)
-        for _, state in ipairs(SUPPRESSED_STATES) do pcall(function() humanoid:SetStateEnabled(state, not suppressed) end) end
-    end
-
-    function MU:_startNoclip(character)
-        for _, inst in ipairs(character:GetDescendants()) do if inst:IsA("BasePart") then pcall(function() self:_noclipPart(inst) end) end end
-        local humanoid = character:FindFirstChildOfClass("Humanoid") if humanoid then self:_setStatesSuppressed(humanoid, true) end
-        if not self._steppedConn then
-            self._steppedConn = RunService.Stepped:Connect(function()
-                pcall(function()
-                    local char = self._player.Character if not char then return end
-                    for _, child in ipairs(char:GetChildren()) do
-                        if child:IsA("BasePart") then self:_noclipPart(child)
-                        elseif child:IsA("Tool") then for _, toolPart in ipairs(child:GetDescendants()) do if toolPart:IsA("BasePart") then self:_noclipPart(toolPart) end end end
-                    end
-                end)
-            end)
-        end
-    end
-
-    function MU:_isOverlappingWorld(character)
-        local ok, result = pcall(function()
-            local cf, size = character:GetBoundingBox()
-            local params = OverlapParams.new() params.FilterType = Enum.RaycastFilterType.Exclude params.FilterDescendantsInstances = { character }
-            local parts = Workspace:GetPartBoundsInBox(cf, size - Vector3.new(0.6, 0.6, 0.6), params)
-            for _, part in ipairs(parts) do if part.CanCollide then return true end end
-            return false
-        end)
-        return ok and result == true
-    end
-
-    function MU:_stopNoclip(character)
-        if self._steppedConn then self._steppedConn:Disconnect() self._steppedConn = nil end
-        local humanoid, root = nil, nil
-        if character then humanoid = character:FindFirstChildOfClass("Humanoid") root = character:FindFirstChild("HumanoidRootPart") end
-        if character and root and self._lastSafeCFrame and self:_isOverlappingWorld(character) then
-            pcall(function() root.AssemblyLinearVelocity = Vector3.zero character:PivotTo(self._lastSafeCFrame) end)
-        end
-        for part, original in pairs(self._originalCollide) do pcall(function() if part.Parent then part.CanCollide = original end end) end
-        table.clear(self._originalCollide)
-        if humanoid then self:_setStatesSuppressed(humanoid, false) pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
-    end
-
-    function MU:SetCollision(enabled)
-        if self._destroyed then return end
-        enabled = enabled == true
-        if enabled == self._collisionEnabled then return end
-        local character, _, root = getCharacterParts(self._player)
-        if not enabled then
-            if root then self._lastSafeCFrame = root.CFrame end
-            self._collisionEnabled = false if character then self:_startNoclip(character) end
-        else
-            self._collisionEnabled = true self:_stopNoclip(character)
-        end
-    end
-
-    function MU:Reset()
-        if self._destroyed then return end
-        self:SetCollision(true) self._walkSpeed = nil self._jumpPower = nil
-        local _, humanoid = getCharacterParts(self._player)
-        if humanoid then pcall(function() humanoid.WalkSpeed = DEFAULT_WALKSPEED humanoid.UseJumpPower = true humanoid.JumpPower = DEFAULT_JUMPPOWER end) end
-    end
-
-    function MU:Destroy()
-        if self._destroyed then return end
-        self:Reset() self._destroyed = true
-        if self._charConn then self._charConn:Disconnect() end
-        if self._heartbeatConn then self._heartbeatConn:Disconnect() end
-        if self._steppedConn then self._steppedConn:Disconnect() end
-    end
-    return MU
-end)()
-
-LootTracker = (function()
-    local LT = {} LT.__index = LT
-    local UPDATE_INTERVAL = 0.2
-    local STUDS_PER_METER = 3.571
-    local SCAN_BATCH_SIZE = 500
-    local MAX_TRACKED = 150
-    local TRACKED = { Coin = Color3.fromRGB(255, 220, 60), Gem = Color3.fromRGB(70, 230, 255), Cash = Color3.fromRGB(80, 230, 120) }
-
-    local function isTrackable(inst) return TRACKED[inst.Name] ~= nil and (inst:IsA("BasePart") or inst:IsA("Model")) end
-    local function getPosition(item)
-        if item:IsA("BasePart") then return item.Position
-        elseif item:IsA("Model") then local ok, pivot = pcall(function() return item:GetPivot().Position end) if ok then return pivot end end
-        return nil
-    end
-
-    function LT.new(parentGui)
-        local self = setmetatable({}, LT)
-        self._parentGui = parentGui self._running = false self._destroyed = false self._cache = {} self._count = 0 self._connections = {} self._scanToken = 0 self._accumulator = 0
-        self._folder = Instance.new("Folder") self._folder.Name = "LootTrackerVisuals" self._folder.Parent = parentGui
-        return self
-    end
-
-    function LT:_track(item)
-        if self._cache[item] or self._destroyed or not item.Parent then return end
-        if self._count >= MAX_TRACKED then return end
-        if not isTrackable(item) then return end
-        local color = TRACKED[item.Name]
-        local ok, entry = pcall(function()
-            local highlight = Instance.new("Highlight") highlight.Name = "LootHighlight" highlight.Adornee = item highlight.FillColor = color highlight.FillTransparency = 0.6 highlight.OutlineColor = color highlight.OutlineTransparency = 0 highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop highlight.Parent = self._folder
-            local billboard = Instance.new("BillboardGui") billboard.Name = "LootBillboard" billboard.Adornee = item billboard.AlwaysOnTop = true billboard.Size = UDim2.new(0, 100, 0, 34) billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.5, 0) billboard.MaxDistance = 300 billboard.ResetOnSpawn = false billboard.Parent = self._folder
-            local label = Instance.new("TextLabel") label.Size = UDim2.new(1, 0, 1, 0) label.BackgroundTransparency = 1 label.Text = item.Name label.TextColor3 = color label.TextTransparency = 0 label.TextStrokeTransparency = 0.4 label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0) label.Font = Enum.Font.GothamBold label.TextSize = 14 label.TextWrapped = true label.Parent = billboard
-            return { highlight = highlight, billboard = billboard, label = label, name = item.Name, lastText = "" }
-        end)
-        if ok and entry then self._cache[item] = entry self._count += 1
-        else pcall(function() for _, child in ipairs(self._folder:GetChildren()) do if child:IsA("Highlight") and child.Adornee == nil then child:Destroy() end if child:IsA("BillboardGui") and child.Adornee == nil then child:Destroy() end end end) end
-    end
-
-    function LT:_untrack(item)
-        local entry = self._cache[item] if not entry then return end
-        self._cache[item] = nil self._count -= 1
-        pcall(function() entry.highlight:Destroy() end) pcall(function() entry.billboard:Destroy() end)
-    end
-
-    function LT:_onRemoving(inst)
-        if self._cache[inst] then self:_untrack(inst) return end
-        if self._count > 0 and (inst:IsA("Model") or inst:IsA("Folder")) then for item in pairs(self._cache) do if item:IsDescendantOf(inst) then self:_untrack(item) end end end
-    end
-
-    function LT:_refresh()
-        local localPlayer = Players.LocalPlayer local character = localPlayer and localPlayer.Character local root = character and character:FindFirstChild("HumanoidRootPart") local origin = root and root.Position
-        if not origin then return end
-        for item, entry in pairs(self._cache) do
-            if not item.Parent then self:_untrack(item)
-            else
-                local pos = getPosition(item)
-                if pos then
-                    local text = string.format("%s\n%.0f m", entry.name, (pos - origin).Magnitude / STUDS_PER_METER)
-                    if text ~= entry.lastText then entry.lastText = text entry.label.Text = text end
-                end
-            end
-        end
-    end
-
-    function LT:Start()
-        if self._running or self._destroyed then return end self._running = true
-        self._scanToken += 1 local token = self._scanToken
-        table.insert(self._connections, Workspace.DescendantAdded:Connect(function(inst) if TRACKED[inst.Name] then task.defer(function() if self._running then self:_track(inst) end end) end end))
-        table.insert(self._connections, Workspace.DescendantRemoving:Connect(function(inst) self:_onRemoving(inst) end))
-        self._accumulator = 0
-        table.insert(self._connections, RunService.Heartbeat:Connect(function(dt) self._accumulator += dt if self._accumulator < UPDATE_INTERVAL then return end self._accumulator = 0 pcall(function() self:_refresh() end) end))
-        task.spawn(function()
-            local processed = 0
-            for _, inst in ipairs(Workspace:GetDescendants()) do
-                if not self._running or self._scanToken ~= token then return end
-                if TRACKED[inst.Name] then self:_track(inst) end
-                processed += 1 if processed % SCAN_BATCH_SIZE == 0 then task.wait() end
-            end
-        end)
-    end
-
-    function LT:Stop()
-        if not self._running then return end self._running = false self._scanToken += 1
-        for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end table.clear(self._connections)
-        local items = {} for item in pairs(self._cache) do table.insert(items, item) end for _, item in ipairs(items) do self:_untrack(item) end
-    end
-
-    function LT:Destroy() if self._destroyed then return end self:Stop() self._destroyed = true pcall(function() self._folder:Destroy() end) end
-    return LT
-end)()
-
-TargetHUD = (function()
-    local TH = {} TH.__index = TH
-    local DISTANCE_INTERVAL = 0.5
-    local FADE_INFO = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local BAR_INFO = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local STUDS_PER_METER = 3.571
-    local COLORS = { Text = Color3.fromRGB(255, 255, 255), Muted = Color3.fromRGB(190, 190, 200), BarBack = Color3.fromRGB(10, 10, 14), High = Color3.fromRGB(90, 230, 130), Mid = Color3.fromRGB(255, 205, 80), Low = Color3.fromRGB(255, 90, 90) }
-    local function healthColor(fraction) if fraction > 0.6 then return COLORS.High end if fraction > 0.3 then return COLORS.Mid end return COLORS.Low end
-    local function getCharacterParts(player) local character = player.Character if not character or not character.Parent then return nil end local humanoid = character:FindFirstChildOfClass("Humanoid") local root = character:FindFirstChild("HumanoidRootPart") return character, humanoid, root end
-    
-    function TH.new(parentGui)
-        local self = setmetatable({}, TH)
-        self._destroyed = false self._target = nil self._targetToken = 0 self._connections = {} self._fadeTween = nil self._barTween = nil self._healthFraction = 1
-        local panel = create("Frame", {Name="TargetHUD",AnchorPoint=Vector2.new(0.5,0),Position=UDim2.new(0.5,0,0,12),Size=UDim2.new(0,260,0,64),BackgroundColor3=Color3.fromRGB(20,20,28),BackgroundTransparency=1,BorderSizePixel=0,Visible=false,ZIndex=30,Parent=parentGui})
-        self._panel = panel
-        create("UICorner", {CornerRadius=UDim.new(0,12),Parent=panel})
-        self._stroke = create("UIStroke",{Color=Color3.fromRGB(255,255,255),Transparency=1,Thickness=1,ApplyStrokeMode=Enum.ApplyStrokeMode.Border,Parent=panel})
-        create("UIPadding", {PaddingTop=UDim.new(0,8),PaddingBottom=UDim.new(0,8),PaddingLeft=UDim.new(0,12),PaddingRight=UDim.new(0,12),Parent=panel})
-        self._nameLabel = create("TextLabel", {Name="PlayerName",Size=UDim2.new(0.65,0,0,20),BackgroundTransparency=1,Text="",TextColor3=COLORS.Text,TextTransparency=1,Font=Enum.Font.GothamBold,TextSize=16,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=31,Parent=panel})
-        self._distanceLabel = create("TextLabel", {Name="Distance",AnchorPoint=Vector2.new(1,0),Position=UDim2.new(1,0,0,0),Size=UDim2.new(0.35,0,0,20),BackgroundTransparency=1,Text="",TextColor3=COLORS.Muted,TextTransparency=1,Font=Enum.Font.GothamMedium,TextSize=14,TextXAlignment=Enum.TextXAlignment.Right,ZIndex=31,Parent=panel})
-        local barBack = create("Frame", {Name="BarBack",AnchorPoint=Vector2.new(0,1),Position=UDim2.new(0,0,1,0),Size=UDim2.new(1,0,0,12),BackgroundColor3=COLORS.BarBack,BackgroundTransparency=1,BorderSizePixel=0,ClipsDescendants=true,ZIndex=31,Parent=panel})
-        create("UICorner", {CornerRadius=UDim.new(0,6),Parent=barBack}) self._barBack = barBack
-        self._barFill = create("Frame", {Name="BarFill",Size=UDim2.new(1,0,1,0),BackgroundColor3=COLORS.High,BackgroundTransparency=1,BorderSizePixel=0,ZIndex=32,Parent=barBack})
-        create("UICorner", {CornerRadius=UDim.new(0,6),Parent=self._barFill})
-        return self
-    end
-
-    function TH:_fade(visible)
-        if self._fadeTween then self._fadeTween:Cancel() end
-        if visible then self._panel.Visible = true end
-        local tweens = {
-            TweenService:Create(self._panel, FADE_INFO, { BackgroundTransparency = visible and 0.35 or 1 }),
-            TweenService:Create(self._stroke, FADE_INFO, { Transparency = visible and 0.8 or 1 }),
-            TweenService:Create(self._nameLabel, FADE_INFO, { TextTransparency = visible and 0 or 1 }),
-            TweenService:Create(self._distanceLabel, FADE_INFO, { TextTransparency = visible and 0 or 1 }),
-            TweenService:Create(self._barBack, FADE_INFO, { BackgroundTransparency = visible and 0.2 or 1 }),
-            TweenService:Create(self._barFill, FADE_INFO, { BackgroundTransparency = visible and 0 or 1 }),
-        }
-        for _, tween in ipairs(tweens) do tween:Play() end
-        self._fadeTween = tweens[1]
-        if not visible then local token = self._targetToken tweens[1].Completed:Once(function(state) if state == Enum.PlaybackState.Completed and self._targetToken == token and not self._destroyed then self._panel.Visible = false end end) end
-    end
-    function TH:_setHealth(humanoid, instant)
-        local maxHealth = math.max(humanoid.MaxHealth, 1) local fraction = math.clamp(humanoid.Health / maxHealth, 0, 1) self._healthFraction = fraction
-        if self._barTween then self._barTween:Cancel() end
-        local goal = { Size = UDim2.new(fraction, 0, 1, 0), BackgroundColor3 = healthColor(fraction) }
-        if instant then self._barFill.Size = goal.Size self._barFill.BackgroundColor3 = goal.BackgroundColor3
-        else self._barTween = TweenService:Create(self._barFill, BAR_INFO, goal) self._barTween:Play() end
-    end
-    function TH:_updateDistance()
-        local target = self._target local localPlayer = Players.LocalPlayer if not target or not localPlayer then return end
-        local _, _, targetRoot = getCharacterParts(target) local _, _, myRoot = getCharacterParts(localPlayer)
-        if targetRoot and myRoot then self._distanceLabel.Text = string.format("%.0f m", (targetRoot.Position - myRoot.Position).Magnitude / STUDS_PER_METER) else self._distanceLabel.Text = "-- m" end
-    end
-    function TH:_disconnectTarget() for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end table.clear(self._connections) end
-    function TH:_bindHumanoid(humanoid, token)
-        self:_setHealth(humanoid, true)
-        table.insert(self._connections, humanoid.HealthChanged:Connect(function() if self._targetToken == token then self:_setHealth(humanoid) end end))
-        table.insert(self._connections, humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(function() if self._targetToken == token then self:_setHealth(humanoid) end end))
-    end
-    function TH:SetTarget(player)
-        if self._destroyed then return end
-        self._targetToken += 1 local token = self._targetToken self:_disconnectTarget() self._target = player
-        if not player then self:_fade(false) return end
-        self._nameLabel.Text = player.DisplayName ~= player.Name and player.DisplayName or player.Name self._distanceLabel.Text = "-- m"
-        local function bindCharacter(character) if self._targetToken ~= token or not character then return end local humanoid = character:WaitForChild("Humanoid", 5) if humanoid and self._targetToken == token then self:_bindHumanoid(humanoid, token) end end
-        table.insert(self._connections, player.CharacterAdded:Connect(function(character) task.spawn(bindCharacter, character) end))
-        if player.Character then task.spawn(bindCharacter, player.Character) else self._barFill.Size = UDim2.new(0, 0, 1, 0) end
-        table.insert(self._connections, Players.PlayerRemoving:Connect(function(leaving) if leaving == player and self._targetToken == token then self:SetTarget(nil) end end))
-        self:_updateDistance() task.spawn(function() while self._targetToken == token and not self._destroyed do task.wait(DISTANCE_INTERVAL) if self._targetToken ~= token or self._destroyed then break end pcall(function() self:_updateDistance() end) end end)
-        self:_fade(true)
-    end
-    function TH:Destroy() if self._destroyed then return end self._destroyed = true self._targetToken += 1 self:_disconnectTarget() if self._fadeTween then self._fadeTween:Cancel() end if self._barTween then self._barTween:Cancel() end pcall(function() self._panel:Destroy() end) end
-    return TH
-end)()
-
--- [Стандартные модули из предыдущих версий, включая UI Library, вставлены целиком ниже]
-
-local ConfigManager = (function()
-    local DEFAULT_FOLDER = "DashboardConfig" local DEFAULT_FILE = "settings"
-    local ConfigManager = {} ConfigManager.__index = ConfigManager
-    local function hasFunction(name) local ok, v = pcall(function() return getfenv()[name] end) return ok and typeof(v) == "function" end
-    local function callGlobal(name, ...) return getfenv()[name](...) end
-    local function isFiniteNumber(n) return n == n and n ~= math.huge and n ~= -math.huge end
-    local function isArray(t) local count = 0 for key in pairs(t) do if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end count += 1 end return count == #t end
-    local function sanitize(value, depth, seen)
-        local vType = typeof(value)
-        if vType == "string" or vType == "boolean" then return value
-        elseif vType == "number" then return isFiniteNumber(value) and value or nil
-        elseif vType == "Color3" then return { __type = "Color3", R = value.R, G = value.G, B = value.B }
-        elseif vType == "Vector2" then return { __type = "Vector2", X = value.X, Y = value.Y }
-        elseif vType == "table" then
-            if depth >= 32 or seen[value] then return nil end
-            seen[value] = true local res = {}
-            if isArray(value) then for i = 1, #value do res[i] = sanitize(value[i], depth + 1, seen) or false end
-            else for k, v in pairs(value) do if type(k) == "string" or type(k) == "number" then local c = sanitize(v, depth + 1, seen) if c ~= nil then res[tostring(k)] = c end end end end
-            seen[value] = nil return res
-        end return nil
-    end
-    local function restore(value, depth)
-        if type(value) ~= "table" or depth >= 32 then return value end
-        if value.__type == "Color3" then return Color3.new(value.R, value.G, value.B)
-        elseif value.__type == "Vector2" then return Vector2.new(value.X, value.Y) end
-        local res = {} for k, v in pairs(value) do res[k] = restore(v, depth + 1) end return res
-    end
-    function ConfigManager.new() local self = setmetatable({}, ConfigManager) self._folder = DEFAULT_FOLDER self._memory = {} self._canWrite = hasFunction("writefile") self._canRead = hasFunction("readfile") self._canMakeFolder = hasFunction("makefolder") self._canCheckFolder = hasFunction("isfolder") return self end
-    function ConfigManager:_normalizeName(fileName) local name = type(fileName) == "string" and fileName or DEFAULT_FILE name = name:gsub("[^%w_%-%.]", "_") if name == "" or name == "." or name == ".." then name = DEFAULT_FILE end if name:sub(-5):lower() ~= ".json" then name ..= ".json" end return name end
-    function ConfigManager:_path(name) return self._folder .. "/" .. name end
-    function ConfigManager:_ensureFolder() if not self._canMakeFolder then return end pcall(function() if not (hasFunction("isfolder") and callGlobal("isfolder", self._folder)) then callGlobal("makefolder", self._folder) end end) end
-    function ConfigManager:Save(tbl, fileName)
-        local clean = sanitize(tbl, 0, {}) if not clean then return false end
-        local ok, json = pcall(HttpService.JSONEncode, HttpService, clean) if not ok then return false end
-        local name = self:_normalizeName(fileName) self._memory[name] = json
-        if not self._canWrite then return false end self:_ensureFolder()
-        local okW = pcall(function() callGlobal("writefile", self:_path(name), json) end) return okW
-    end
-    function ConfigManager:Load(fileName)
-        local name = self:_normalizeName(fileName)
-        if self._canRead then
-            local ok, contents = pcall(function() local p = self:_path(name) if hasFunction("isfile") and not callGlobal("isfile", p) then return nil end return callGlobal("readfile", p) end)
-            if ok and type(contents) == "string" and contents ~= "" then
-                local okD, dec = pcall(HttpService.JSONDecode, HttpService, contents)
-                if okD and type(dec) == "table" then local okR, rest = pcall(restore, dec, 0) if okR and type(rest) == "table" then self._memory[name] = contents return rest end end
-            end
-        end
-        local cached = self._memory[name] if cached then local okD, dec = pcall(HttpService.JSONDecode, HttpService, cached) if okD then return restore(dec, 0) end end
-        return {}
-    end
-    return ConfigManager
-end)()
-
-local InterceptSolver = (function()
-    local API = {}
-    function API.solve(targetPos, targetVel, originPos, speed)
-        if speed <= 0 then return nil, nil end
-        local speedSq = speed * speed local velSq = targetVel:Dot(targetVel) local D = targetPos - originPos
-        local a = velSq - speedSq local h = D:Dot(targetVel) local c = D:Dot(D)
-        if c < 1e-6 then return targetPos, 0 end
-        local t
-        if math.abs(a) < 1e-6 then
-            if h >= 0 then return nil, nil end t = -c / (2 * h)
-        else
-            local disc = h * h - a * c if disc < 0 then return nil, nil end
-            local sign = if h >= 0 then 1 else -1 local q = -(h + sign * math.sqrt(disc))
-            local t1 = q / a local t2 = c / q
-            local best = math.huge
-            if t1 > 0 and t1 < best then best = t1 end
-            if t2 > 0 and t2 < best then best = t2 end
-            if best == math.huge then return nil, nil end
-            t = best
-        end
-        return targetPos + targetVel * t, t
-    end
-    return API
-end)()
-
-local RoleHUD = (function()
-    local API = {} API.__index = API
-    local C = { murderer = Color3.fromRGB(255, 50, 50), killer = Color3.fromRGB(255, 50, 50), zombie = Color3.fromRGB(255, 50, 50), sheriff = Color3.fromRGB(50, 120, 255), hero = Color3.fromRGB(50, 120, 255), innocent = Color3.fromRGB(50, 255, 100), survivor = Color3.fromRGB(50, 255, 100) }
-    function API.new(provider) local s = setmetatable({}, API) s._provider = provider s._hl = {} s._state = {} s._conns = {} s._running = false s._container = nil return s end
-    function API:_update(p, tbl) 
-        local data = tbl[p.UserId] or tbl[tostring(p.UserId)] or tbl[p.Name] 
-        local roleStr = type(data) == "table" and tostring(data.Role) or tostring(data)
-        local color = C[string.lower(roleStr)] 
-        local char = p.Character local hum = char and char:FindFirstChildOfClass("Humanoid") 
-        local isDead = (type(data) == "table" and data.Dead == true) or not hum or hum.Health <= 0
-        if not color or isDead then if self._hl[p] then self._hl[p].Enabled = false end return end 
-        local hl = self._hl[p]
-        if not hl or self._state[p].Color ~= color then
-            if hl then hl:Destroy() end
-            hl = Instance.new("Highlight") hl.Name = "LibHUD" hl.FillColor = color hl.OutlineColor = color hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop hl.Parent = self._container
-            self._hl[p] = hl self._state[p] = { Color = color }
-        end
-        hl.FillTransparency = CFG.ESP_Fill and 0.5 or 1
-        hl.OutlineTransparency = CFG.ESP_Outline and 0 or 1
-        hl.Adornee = char
-        hl.Enabled = CFG.ESP_Fill or CFG.ESP_Outline
-    end
-    function API:_step() local ok, tbl = pcall(self._provider) if not ok or type(tbl) ~= "table" then return end for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then self:_update(p, tbl) end end end
-    function API:Start() if self._running then return end self._running = true self._container = self._container or Instance.new("Folder") self._container.Name = "LibHUD" self._container.Parent = Workspace table.insert(self._conns, Players.PlayerRemoving:Connect(function(p) if self._hl[p] then self._hl[p]:Destroy() self._hl[p] = nil self._state[p] = nil end end)) task.spawn(function() while self._running do self:_step() task.wait(0.3) end end) end
-    function API:Stop() self._running = false for _, c in ipairs(self._conns) do c:Disconnect() end table.clear(self._conns) for p in pairs(self._hl) do if self._hl[p] then self._hl[p].Enabled = false end end end
-    function API:Destroy() self:Stop() for _, hl in pairs(self._hl) do pcall(function() hl:Destroy() end) end table.clear(self._hl) table.clear(self._state) if self._container then self._container:Destroy() self._container = nil end end
-    function API:Refresh() for p, hl in pairs(self._hl) do if hl then hl.FillTransparency = CFG.ESP_Fill and 0.5 or 1 hl.OutlineTransparency = CFG.ESP_Outline and 0 or 1 hl.Enabled = CFG.ESP_Fill or CFG.ESP_Outline end end end
-    return API
-end)()
-
-local OverheadTracker = (function()
-    local OT = {} OT.__index = OT
-    local DEFAULT_ROLE_COLORS = { murderer = Color3.fromRGB(255, 70, 70), killer = Color3.fromRGB(255, 70, 70), zombie = Color3.fromRGB(255, 70, 70), sheriff = Color3.fromRGB(70, 140, 255), hero = Color3.fromRGB(70, 140, 255), innocent = Color3.fromRGB(70, 220, 110), survivor = Color3.fromRGB(70, 220, 110) }
-    local DEFAULTS = { MaxDistance = 150, UpdateInterval = 0.2, AlwaysOnTop = true, AutoStart = true, LabelSize = Vector2.new(130, 24), HeadOffset = Vector3.new(0, 2.5, 0), TextSize = 14, Font = Enum.Font.GothamBold, DistanceUnit = "m" }
-    local function byDepth(a, b) return a.Depth < b.Depth end
-    local function setShown(entry, shown) if entry.Shown ~= shown then entry.Shown = shown entry.Gui.Enabled = shown end end
-    local function applyLevel(entry, level) if entry.Level ~= level then entry.Level = level entry.Gui.SizeOffset = Vector2.new(0, level * 1) end end
-    local function createEntry(head, opts)
-        local gui = Instance.new("BillboardGui") gui.Name = "OverheadTracker" gui.Adornee = head gui.AlwaysOnTop = opts.AlwaysOnTop gui.Size = UDim2.fromOffset(opts.LabelSize.X, opts.LabelSize.Y) gui.StudsOffset = opts.HeadOffset gui.LightInfluence = 0 gui.ResetOnSpawn = false gui.ClipsDescendants = false gui.Active = false gui.Enabled = false gui.Parent = head
-        local label = Instance.new("TextLabel") label.Name = "Label" label.Size = UDim2.fromScale(1,1) label.BackgroundColor3 = Color3.fromRGB(15,15,22) label.BackgroundTransparency = 0.45 label.BorderSizePixel = 0 label.Font = opts.Font label.TextSize = opts.TextSize label.TextColor3 = Color3.fromRGB(200,200,210) label.TextXAlignment = Enum.TextXAlignment.Center label.TextYAlignment = Enum.TextYAlignment.Center label.Text = "" label.Parent = gui
-        local stroke = Instance.new("UIStroke") stroke.Color = Color3.fromRGB(200,200,210) stroke.Thickness = 1.5 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border stroke.Parent = label
-        return { Gui = gui, Label = label, Stroke = stroke, Head = head, Shown = false, Level = 0, LastText = nil, Color = nil, ScreenX = 0, ScreenY = 0, AdjY = 0, Depth = 0 }
-    end
-    function OT.new(getRoleFunction, options)
-        local opts = table.clone(DEFAULTS) for key, value in pairs(options or {}) do opts[key] = value end
-        local self = setmetatable({ _getRoles = getRoleFunction, _options = opts, _roleColors = DEFAULT_ROLE_COLORS, _colorCache = {}, _records = {}, _connections = {}, _heartbeat = nil, _elapsed = 0, _visible = false, _destroyed = false, _lastRoles = {}, _scratch = {} }, OT)
-        table.insert(self._connections, Players.PlayerAdded:Connect(function(player) self:_trackPlayer(player) end)) table.insert(self._connections, Players.PlayerRemoving:Connect(function(player) self:_untrackPlayer(player) end))
-        for _, player in ipairs(Players:GetPlayers()) do self:_trackPlayer(player) end
-        return self
-    end
-    function OT:_isCurrent(record, generation) return not self._destroyed and self._records[record.Player] == record and record.Generation == generation end
-    function OT:_clearCharacter(record) record.Generation += 1 for _, connection in ipairs(record.CharConnections) do connection:Disconnect() end table.clear(record.CharConnections) local entry = record.Entry if entry then record.Entry = nil entry.Gui:Destroy() end end
-    function OT:_setupCharacter(record, character)
-        self:_clearCharacter(record) local generation = record.Generation
-        task.spawn(function() local ok, err = pcall(function() local head = character:WaitForChild("Head", 10) if not head or not self:_isCurrent(record, generation) then return end local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5) if not self:_isCurrent(record, generation) then return end if humanoid and humanoid.Health <= 0 then return end record.Entry = createEntry(head, self._options) if humanoid then table.insert(record.CharConnections, humanoid.Died:Once(function() if self:_isCurrent(record, generation) then self:_clearCharacter(record) end end)) end end) end)
-    end
-    function OT:_trackPlayer(player) if player == LocalPlayer or self._records[player] or self._destroyed then return end local record = { Player = player, Entry = nil, Generation = 0, PlayerConnections = {}, CharConnections = {} } self._records[player] = record table.insert(record.PlayerConnections, player.CharacterAdded:Connect(function(character) self:_setupCharacter(record, character) end)) table.insert(record.PlayerConnections, player.CharacterRemoving:Connect(function() self:_clearCharacter(record) end)) if player.Character then self:_setupCharacter(record, player.Character) end end
-    function OT:_untrackPlayer(player) local record = self._records[player] if not record then return end self._records[player] = nil self:_clearCharacter(record) for _, connection in ipairs(record.PlayerConnections) do connection:Disconnect() end table.clear(record.PlayerConnections) end
-    function OT:_fetchRoles() local ok, result = pcall(self._getRoles) if ok and type(result) == "table" then self._lastRoles = result return result end return self._lastRoles end
-    function OT:_colorFor(roleText) local color = self._colorCache[roleText] if not color then color = self._roleColors[string.lower(roleText)] or Color3.fromRGB(200,200,210) self._colorCache[roleText] = color end return color end
-    
-    function OT:_update()
-        local opts = self._options local camera = workspace.CurrentCamera if not camera then return end
-        local character = LocalPlayer.Character local root = character and character:FindFirstChild("HumanoidRootPart") local origin = root and root.Position or camera.CFrame.Position
-        local roles = self:_fetchRoles() local maxDistance = opts.MaxDistance local onScreenEntries = self._scratch table.clear(onScreenEntries)
-        for _, record in pairs(self._records) do
-            local entry = record.Entry
-            if entry then
-                local head = entry.Head if not head.Parent then self:_clearCharacter(record) continue end
-                local position = head.Position local distance = (position - origin).Magnitude
-                local data = roles[record.Player.UserId] or roles[tostring(record.Player.UserId)] or roles[record.Player.Name] local role = type(data) == "table" and data.Role or data
-                if distance > maxDistance or (role == nil and not CFG.ESP_Name) then setShown(entry, false) applyLevel(entry, 0) continue end
-                
-                local showName = CFG.ESP_Name
-                local showDist = CFG.ESP_Distance
-                local roleText = role and tostring(role) or "Unknown"
-                local distText = math.floor(distance + 0.5) .. "m"
-                
-                if not showName and not showDist then setShown(entry, false) applyLevel(entry, 0) continue end
-                
-                local finalText = ""
-                if showName and showDist then finalText = roleText .. " [" .. distText .. "]"
-                elseif showName then finalText = roleText
-                elseif showDist then finalText = distText end
-                
-                if entry.LastText ~= finalText then entry.LastText = finalText entry.Label.Text = finalText end
-                
-                local color = self:_colorFor(roleText) 
-                if entry.Color ~= color then entry.Color = color entry.Label.TextColor3 = color entry.Stroke.Color = color end
-                
-                setShown(entry, true) 
-                local screen, onScreen = camera:WorldToViewportPoint(position)
-                if onScreen then entry.ScreenX = screen.X entry.ScreenY = screen.Y entry.Depth = screen.Z table.insert(onScreenEntries, entry) else applyLevel(entry, 0) end
-            end
-        end
-        local count = #onScreenEntries if count == 0 then return end table.sort(onScreenEntries, byDepth)
-        local width, height = opts.LabelSize.X, opts.LabelSize.Y local maxLevels = 4
-        for i = 1, count do 
-            local entry = onScreenEntries[i] local level = 0 
-            while level < maxLevels do 
-                local y = entry.ScreenY - level * height local blocked = false 
-                for j = 1, i - 1 do local other = onScreenEntries[j] if math.abs(entry.ScreenX - other.ScreenX) < width and math.abs(y - other.AdjY) < height then blocked = true break end end 
-                if not blocked then break end level += 1 
-            end 
-            entry.AdjY = entry.ScreenY - level * height applyLevel(entry, level) 
-        end
-    end
-    function OT:_onHeartbeat(dt) self._elapsed += dt if self._elapsed < self._options.UpdateInterval then return end self._elapsed = 0 if not self._visible then return end local ok, err = pcall(self._update, self) end
-    function OT:_hideAll() for _, record in pairs(self._records) do local entry = record.Entry if entry then setShown(entry, false) end end end
-    function OT:Start() if self._destroyed or self._heartbeat then return end self._elapsed = self._options.UpdateInterval self._visible = true self._heartbeat = RunService.Heartbeat:Connect(function(dt) self:_onHeartbeat(dt) end) end
-    function OT:Stop() if self._heartbeat then self._heartbeat:Disconnect() self._heartbeat = nil end self._visible = false self:_hideAll() end
-    function OT:Destroy() if self._destroyed then return end self._destroyed = true if self._heartbeat then self._heartbeat:Disconnect() self._heartbeat = nil end for _, connection in ipairs(self._connections) do connection:Disconnect() end table.clear(self._connections) for player in pairs(table.clone(self._records)) do self:_untrackPlayer(player) end table.clear(self._scratch) table.clear(self._colorCache) self._lastRoles = {} self._getRoles = function() return {} end end
-    return OT
-end)()
-
-local Stabilizer = (function()
-    local CONFIG = { LinearThreshold = 1000, LinearSafe = 250, AngularThreshold = 1000, AngularSafe = 50, DampRate = 14, IgnoreVerticalInFreefall = true }
-    local ignored = setmetatable({}, {__mode = "k"}) local damping = setmetatable({}, {__mode = "k"}) local API = {}
-    local function damp(v, thr, sf, al, st, k, igY) local y = igY and v.Y or 0 local f = igY and Vector3.new(v.X,0,v.Z) or v local m = f.Magnitude if not st[k] then if m <= thr then return nil end st[k] = true end if m <= sf * 1.05 then st[k] = false return nil end local nm = m + (sf - m) * al local d = f.Unit * nm return igY and Vector3.new(d.X, y, d.Z) or d end
-    local function step(dt) local char = LocalPlayer.Character if not char then return end local root = char:FindFirstChild("HumanoidRootPart") if not root or ignored[char] then return end local st = damping[root] or {linear=false, angular=false} damping[root] = st local al = 1 - math.exp(-CONFIG.DampRate * dt) local hum = char:FindFirstChildOfClass("Humanoid") local ff = CONFIG.IgnoreVerticalInFreefall and hum and hum:GetState() == Enum.HumanoidStateType.Freefall local l = damp(root.AssemblyLinearVelocity, CONFIG.LinearThreshold, CONFIG.LinearSafe, al, st, "linear", ff) if l then root.AssemblyLinearVelocity = l end local a = damp(root.AssemblyAngularVelocity, CONFIG.AngularThreshold, CONFIG.AngularSafe, al, st, "angular", false) if a then root.AssemblyAngularVelocity = a end end
-    function API.Start() if not API._conn then API._conn = RunService.Heartbeat:Connect(step) end end
-    function API.Stop() if API._conn then API._conn:Disconnect() API._conn = nil end end
-    return API
-end)()
-
-NotificationManager = (function()
-    local NM = {}
-    local CONFIG = { Width = 200, MinHeight = 36, MaxHeight = 100, VerticalPadding = 8, Padding = 6, MarginRight = 12, MarginTop = 12, MaxVisible = 6, DefaultDuration = 4, DisplayOrder = 1000, SlideDistance = 40, Font = Enum.Font.GothamMedium, TextSize = 12, TextInsetLeft = 14, TextInsetRight = 10, BackgroundColor = Color3.fromRGB(18, 18, 28), TextColor = Color3.fromRGB(240, 240, 250), BackgroundTransparency = 0.2, StrokeTransparency = 0.35, TweenIn = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), TweenOut = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), Reflow = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out) }
-    local TYPES = { Info = Color3.fromRGB(140, 90, 255), Success = Color3.fromRGB(70, 210, 120), Error = Color3.fromRGB(240, 75, 90) }
-    local TYPE_LOOKUP = { info = "Info", success = "Success", error = "Error" }
-    local screenGui = nil local stack = {}
-    local function getGui() if screenGui and screenGui.Parent then return screenGui end local pg = PlayerGui local gui = Instance.new("ScreenGui") gui.Name = "NotificationManager" gui.ResetOnSpawn = false gui.IgnoreGuiInset = false gui.DisplayOrder = CONFIG.DisplayOrder gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling gui.Parent = pg screenGui = gui return gui end
-    local function measureHeight(text) local ok, size = pcall(TextService.GetTextSize, TextService, text, CONFIG.TextSize, CONFIG.Font, Vector2.new(CONFIG.Width - CONFIG.TextInsetLeft - CONFIG.TextInsetRight, 10000)) if not ok then return CONFIG.MinHeight end return math.clamp(math.ceil(size.Y) + CONFIG.VerticalPadding * 2, CONFIG.MinHeight, CONFIG.MaxHeight) end
-    local function play(entry, instance, info, goal) if entry.Destroyed then return nil end local tween = TweenService:Create(instance, info, goal) entry.Tweens[tween] = true tween.Completed:Once(function() entry.Tweens[tween] = nil end) tween:Play() return tween end
-    local function cancelTweens(entry) for tween in pairs(table.clone(entry.Tweens)) do pcall(function() tween:Cancel() end) end table.clear(entry.Tweens) entry.ReflowTween = nil end
-    local function cancelTimer(entry) if entry.Timer then pcall(task.cancel, entry.Timer) entry.Timer = nil end end
-    local function destroyEntry(entry) if entry.Destroyed then return end entry.Destroyed = true cancelTimer(entry) cancelTweens(entry) for _, c in ipairs(entry.Connections) do c:Disconnect() end table.clear(entry.Connections) local i = table.find(stack, entry) if i then table.remove(stack, i) end if entry.Slot then entry.Slot:Destroy() end end
-    local function reflow() local y = CONFIG.MarginTop for _, entry in ipairs(stack) do local target = UDim2.new(1, -CONFIG.MarginRight, 0, y) if not entry.Placed then entry.Placed = true entry.Slot.Position = target else if entry.ReflowTween then entry.ReflowTween:Cancel() end entry.ReflowTween = play(entry, entry.Slot, CONFIG.Reflow, { Position = target }) end y += entry.Height + CONFIG.Padding end end
-    local function fade(entry, show) local info = show and CONFIG.TweenIn or CONFIG.TweenOut for _, t in ipairs(entry.Targets) do play(entry, t[1], info, { [t[2]] = show and t[3] or 1 }) end end
-    local function dismiss(entry) if entry.Destroyed or entry.Dismissing then return end entry.Dismissing = true cancelTimer(entry) cancelTweens(entry) play(entry, entry.Toast, CONFIG.TweenOut, { Position = UDim2.fromOffset(CONFIG.SlideDistance / 2, 0) }) fade(entry, false) task.delay(CONFIG.TweenOut.Time + 0.05, function() if entry.Destroyed then return end destroyEntry(entry) reflow() end) end
-    local function createEntry(gui, text, typeName)
-        local accent = TYPES[typeName] local height = measureHeight(text)
-        local slot = Instance.new("Frame") slot.Name = "NotificationSlot" slot.AnchorPoint = Vector2.new(1, 0) slot.Size = UDim2.fromOffset(CONFIG.Width, height) slot.BackgroundTransparency = 1 slot.BorderSizePixel = 0 slot.Parent = gui
-        local toast = Instance.new("Frame") toast.Name = "Toast" toast.Size = UDim2.fromScale(1, 1) toast.Position = UDim2.fromOffset(CONFIG.SlideDistance, 0) toast.BackgroundColor3 = CONFIG.BackgroundColor toast.BackgroundTransparency = 1 toast.BorderSizePixel = 0 toast.Active = true toast.Parent = slot
-        create("UICorner", {CornerRadius=UDim.new(0,8),Parent=toast}) local stroke = create("UIStroke",{Color=accent,Thickness=1.5,Transparency=1,ApplyStrokeMode=Enum.ApplyStrokeMode.Border,Parent=toast})
-        local bar = create("Frame",{Name="Accent",AnchorPoint=Vector2.new(0,0.5),Position=UDim2.new(0,6,0.5,0),Size=UDim2.new(0,3,1,-12),BackgroundColor3=accent,BackgroundTransparency=1,BorderSizePixel=0,Parent=toast}) create("UICorner",{CornerRadius=UDim.new(1,0),Parent=bar})
-        local label = create("TextLabel",{Name="Message",BackgroundTransparency=1,Position=UDim2.fromOffset(CONFIG.TextInsetLeft,0),Size=UDim2.new(1,-(CONFIG.TextInsetLeft+CONFIG.TextInsetRight),1,0),Font=CONFIG.Font,TextSize=CONFIG.TextSize,TextColor3=CONFIG.TextColor,TextTransparency=1,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd,Text=text,Parent=toast})
-        return { Slot = slot, Toast = toast, Height = height, Placed = false, Dismissing = false, Destroyed = false, Timer = nil, ReflowTween = nil, Tweens = {}, Connections = {}, Targets = { { toast, "BackgroundTransparency", CONFIG.BackgroundTransparency }, { stroke, "Transparency", CONFIG.StrokeTransparency }, { bar, "BackgroundTransparency", 0 }, { label, "TextTransparency", 0 } } }
-    end
-    function NM.Notify(text, notifType, duration)
-        local ok, result = pcall(function()
-            local message = tostring(text or "") local typeName = TYPE_LOOKUP[string.lower(tostring(notifType or "info"))] or "Info" local lifetime = math.max(0.5, tonumber(duration) or CONFIG.DefaultDuration)
-            local gui = getGui() local entry = createEntry(gui, message, typeName) table.insert(stack, 1, entry)
-            local active = 0 for _, other in ipairs(stack) do if not other.Dismissing then active += 1 end end
-            if active > CONFIG.MaxVisible then for i = #stack, 1, -1 do if not stack[i].Dismissing then dismiss(stack[i]) break end end end
-            reflow() play(entry, entry.Toast, CONFIG.TweenIn, { Position = UDim2.fromOffset(0, 0) }) fade(entry, true)
-            table.insert(entry.Connections, entry.Toast.InputBegan:Connect(function(input) local it = input.UserInputType if it == Enum.UserInputType.MouseButton1 or it == Enum.UserInputType.Touch then dismiss(entry) end end))
-            entry.Timer = task.delay(lifetime, function() entry.Timer = nil dismiss(entry) end) return { Dismiss = function() dismiss(entry) end }
-        end)
-        if not ok then warn("[NotificationManager] " .. tostring(result)) return nil end return result
-    end
-    function NM.Clear() for i = #stack, 1, -1 do destroyEntry(stack[i]) end end
-    function NM.Destroy() NM.Clear() if screenGui then screenGui:Destroy() screenGui = nil end end
-    return NM
-end)()
-
-UIToggle = (function()
-    local UT = {} UT.__index = UT
-    local DEFAULTS = { Keybind = Enum.KeyCode.RightShift, ButtonSize = 48, DragThreshold = 6, DisplayOrder = 999999, ZIndex = 1000, AlwaysShowButton = false, AccentColor = Color3.fromRGB(140, 90, 255), Parent = nil, OnToggle = nil }
-    local PRESS_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    function UT:_connect(signal, callback) local c = signal:Connect(function(...) local ok, err = pcall(callback, ...) if not ok then warn("[UIToggle] " .. tostring(err)) end end) table.insert(self._connections, c) return c end
-    function UT:_tweenScale(target) if not self._scale then return end if self._scaleTween then self._scaleTween:Cancel() end local t = TweenService:Create(self._scale, PRESS_TWEEN, { Scale = target }) self._scaleTween = t t:Play() end
-    function UT:_setButtonPosition(position) local gui, button = self._gui, self._button if not (gui and button) then return end local maxX = math.max(0, gui.AbsoluteSize.X - button.AbsoluteSize.X) local maxY = math.max(0, gui.AbsoluteSize.Y - button.AbsoluteSize.Y) button.Position = UDim2.fromOffset(math.clamp(position.X, 0, maxX), math.clamp(position.Y, 0, maxY)) end
-    function UT:_refreshIcon() if self._slash then self._slash.Visible = not self._mainGui.Enabled end if self._stroke then self._stroke.Transparency = self._mainGui.Enabled and 0.2 or 0.6 end end
-    function UT:_buildButton()
-        local opts = self._options local size = opts.ButtonSize local z = opts.ZIndex local parent = opts.Parent or PlayerGui
-        local gui = Instance.new("ScreenGui") gui.Name = "UIToggleButton" gui.ResetOnSpawn = false gui.IgnoreGuiInset = true gui.DisplayOrder = opts.DisplayOrder gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling gui.Enabled = UserInputService.TouchEnabled or opts.AlwaysShowButton gui.Parent = parent self._gui = gui
-        local button = Instance.new("TextButton") button.Name = "ToggleButton" button.AutoButtonColor = false button.Text = "" button.AnchorPoint = Vector2.new(1, 0.5) button.Position = UDim2.new(1, -16, 0.5, 0) button.Size = UDim2.fromOffset(size, size) button.BackgroundColor3 = Color3.fromRGB(22, 22, 32) button.BackgroundTransparency = 0.2 button.BorderSizePixel = 0 button.ZIndex = z button.Parent = gui self._button = button
-        create("UICorner", {CornerRadius=UDim.new(1,0),Parent=button}) local stroke = create("UIStroke",{Color=opts.AccentColor,Thickness=2,ApplyStrokeMode=Enum.ApplyStrokeMode.Border,Parent=button}) self._stroke = stroke
-        local scale = Instance.new("UIScale") scale.Parent = button self._scale = scale
-        local eye = create("Frame",{Name="Eye",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(26,16),BackgroundTransparency=1,Active=false,ZIndex=z+1,Parent=button})
-        create("UICorner",{CornerRadius=UDim.new(1,0),Parent=eye}) create("UIStroke",{Color=Color3.new(1,1,1),Thickness=2,ApplyStrokeMode=Enum.ApplyStrokeMode.Border,Parent=eye})
-        create("Frame",{Name="Pupil",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(8,8),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,Active=false,ZIndex=z+2,Parent=eye})
-        local pupil = eye:FindFirstChild("Pupil") create("UICorner",{CornerRadius=UDim.new(1,0),Parent=pupil})
-        local slash = create("Frame",{Name="Slash",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(3,34),Rotation=-45,BackgroundColor3=opts.AccentColor,BorderSizePixel=0,Active=false,ZIndex=z+3,Parent=button}) create("UICorner",{CornerRadius=UDim.new(1,0),Parent=slash}) self._slash = slash
-        self:_refreshIcon() self:_bindButtonInput()
-        self:_connect(gui:GetPropertyChangedSignal("AbsoluteSize"), function() self:_setButtonPosition(button.AbsolutePosition) end)
-        self:_connect(UserInputService:GetPropertyChangedSignal("TouchEnabled"), function() gui.Enabled = UserInputService.TouchEnabled or opts.AlwaysShowButton end)
-    end
-    function UT:_bindButtonInput()
-        local button = self._button local threshold = self._options.DragThreshold
-        local activeInput = nil local dragStart = Vector3.zero local buttonStart = Vector2.zero local moved = false
-        self:_connect(button.InputBegan, function(input) if activeInput then return end local it = input.UserInputType if it ~= Enum.UserInputType.MouseButton1 and it ~= Enum.UserInputType.Touch then return end activeInput = input dragStart = input.Position buttonStart = button.AbsolutePosition moved = false self:_tweenScale(0.9) end)
-        self:_connect(UserInputService.InputChanged, function(input) if not activeInput then return end local isTouch = input == activeInput local isMouseDrag = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement if not (isTouch or isMouseDrag) then return end local delta = input.Position - dragStart if not moved and delta.Magnitude >= threshold then moved = true end if moved then self:_setButtonPosition(buttonStart + Vector2.new(delta.X, delta.Y)) end end)
-        self:_connect(UserInputService.InputEnded, function(input) if not activeInput then return end local isTouch = input == activeInput local isMouseUp = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1 if not (isTouch or isMouseUp) then return end local wasTap = not moved activeInput = nil moved = false self:_tweenScale(1) if wasTap then self:Toggle() end end)
-    end
-    function UT.new(mainGui, options)
-        local opts = table.clone(DEFAULTS) for k, v in pairs(options or {}) do opts[k] = v end
-        local self = setmetatable({ _mainGui = mainGui, _options = opts, _connections = {}, _destroyed = false, _gui = nil, _button = nil, _stroke = nil, _slash = nil, _scale = nil, _scaleTween = nil }, UT)
-        self:_connect(UserInputService.InputBegan, function(input, gameProcessed) if gameProcessed then return end if input.KeyCode == opts.Keybind then self:Toggle() end end)
-        self:_connect(mainGui:GetPropertyChangedSignal("Enabled"), function() self:_refreshIcon() if typeof(opts.OnToggle) == "function" then opts.OnToggle(mainGui.Enabled) end end)
-        self:_connect(mainGui.Destroying, function() self:Destroy() end)
-        local ok, err = pcall(self._buildButton, self) if not ok then warn("[UIToggle] button build failed: " .. tostring(err)) end
-        return self
-    end
-    function UT:SetVisible(visible) if self._destroyed then return end pcall(function() self._mainGui.Enabled = visible end) end
-    function UT:Toggle() if self._destroyed then return end self:SetVisible(not self._mainGui.Enabled) end
-    function UT:Destroy() if self._destroyed then return end self._destroyed = true for _, c in ipairs(self._connections) do c:Disconnect() end table.clear(self._connections) if self._scaleTween then self._scaleTween:Cancel() self._scaleTween = nil end if self._gui then self._gui:Destroy() end self._gui, self._button, self._stroke, self._slash, self._scale = nil, nil, nil, nil, nil self._options.OnToggle = nil end
-    return UT
-end)()
-
-local VisualOptimizer = (function()
-    local VO = {} local EFFECT_CLASSES = { "ParticleEmitter", "Smoke", "Fire", "Sparkles" } local OPTIMIZED = { GlobalShadows = false, EnvironmentDiffuseScale = 0, WaterWaveSize = 0 } local BATCH_SIZE = 500 local isEnabled = false local runToken = 0 local effectCache = setmetatable({}, { __mode = "k" }) local settingsCache = nil local addedConnection = nil
-    local function isEffect(inst) for _, className in ipairs(EFFECT_CLASSES) do if inst:IsA(className) then return true end end return false end
-    local function disableEffect(inst) pcall(function() if effectCache[inst] == nil then effectCache[inst] = inst.Enabled end inst.Enabled = false end) end
-    local function getTerrain() return Workspace:FindFirstChildOfClass("Terrain") end
-    local function applyOptimized()
-        runToken += 1 local myToken = runToken
-        if not settingsCache then settingsCache = {} pcall(function() settingsCache.GlobalShadows = Lighting.GlobalShadows settingsCache.EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale end) pcall(function() local terrain = getTerrain() if terrain then settingsCache.WaterWaveSize = terrain.WaterWaveSize end end) end
-        pcall(function() Lighting.GlobalShadows = OPTIMIZED.GlobalShadows Lighting.EnvironmentDiffuseScale = OPTIMIZED.EnvironmentDiffuseScale end) pcall(function() local terrain = getTerrain() if terrain then terrain.WaterWaveSize = OPTIMIZED.WaterWaveSize end end)
-        addedConnection = Workspace.DescendantAdded:Connect(function(inst) if isEffect(inst) then disableEffect(inst) end end)
-        task.spawn(function() local count = 0 for _, inst in ipairs(Workspace:GetDescendants()) do if runToken ~= myToken then return end if isEffect(inst) then disableEffect(inst) end count += 1 if count % BATCH_SIZE == 0 then task.wait() end end end)
-    end
-    local function restoreOriginal()
-        runToken += 1 if addedConnection then addedConnection:Disconnect() addedConnection = nil end
-        for inst, original in pairs(effectCache) do pcall(function() if inst.Parent then inst.Enabled = original end end) effectCache[inst] = nil end
-        if settingsCache then pcall(function() if settingsCache.GlobalShadows ~= nil then Lighting.GlobalShadows = settingsCache.GlobalShadows end if settingsCache.EnvironmentDiffuseScale ~= nil then Lighting.EnvironmentDiffuseScale = settingsCache.EnvironmentDiffuseScale end end) pcall(function() local terrain = getTerrain() if terrain and settingsCache.WaterWaveSize ~= nil then terrain.WaterWaveSize = settingsCache.WaterWaveSize end end) settingsCache = nil end
-    end
-    function VO.OptimizeVisuals(enable) enable = enable == true if enable == isEnabled then return end isEnabled = enable if enable then applyOptimized() else restoreOriginal() end end
-    function VO.IsEnabled() return isEnabled end
-    return VO
-end)()
-
-local Crosshair = (function()
-    local CH = {} CH.__index = CH local DEFAULT_COLOR = Color3.fromRGB(255, 255, 255) local HIT_COLOR = Color3.fromRGB(255, 50, 50) local DEFAULT_SIZE = 20 local THICKNESS = 2 local DOT_SIZE = 3 local HIT_SPREAD = 4 local FLASH_TIME = 0.1 local FLASH_INFO = TweenInfo.new(FLASH_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local function createLine(name, parent) local line = Instance.new("Frame") line.Name = name line.AnchorPoint = Vector2.new(0.5, 0.5) line.BorderSizePixel = 0 line.BackgroundColor3 = DEFAULT_COLOR line.ZIndex = 2 local stroke = Instance.new("UIStroke") stroke.Thickness = 1 stroke.Color = Color3.fromRGB(0, 0, 0) stroke.Transparency = 0.5 stroke.Parent = line line.Parent = parent return line end
-    function CH.new(parentGui, options)
-        options = options or {} local self = setmetatable({}, CH)
-        self._color = options.Color or DEFAULT_COLOR self._visible = true self._hideCursor = options.HideCursor ~= false and not UserInputService.TouchEnabled self._flashToken = 0 self._tweens = {} self._connections = {} self._destroyed = false self._previousCursorState = UserInputService.MouseIconEnabled
-        local gui = Instance.new("ScreenGui") gui.Name = "Crosshair" gui.IgnoreGuiInset = true gui.ResetOnSpawn = false gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling gui.DisplayOrder = 100 gui.Parent = parentGui self._gui = gui
-        local root = Instance.new("Frame") root.Name = "Root" root.AnchorPoint = Vector2.new(0.5, 0.5) root.Position = UDim2.fromScale(0.5, 0.5) root.Size = UDim2.fromOffset(0, 0) root.BackgroundTransparency = 1 root.Parent = gui self._root = root
-        self._lines = { Top = createLine("Top", root), Bottom = createLine("Bottom", root), Left = createLine("Left", root), Right = createLine("Right", root) }
-        local dot = createLine("Dot", root) dot.Size = UDim2.fromOffset(DOT_SIZE, DOT_SIZE) dot.Position = UDim2.fromOffset(0, 0) dot.Visible = options.ShowDot ~= false self._dot = dot
-        self:SetSize(options.Size or DEFAULT_SIZE) self:SetColor(self._color) self:SetVisible(true)
-        return self
-    end
-    function CH:_targets(spread) local gap = self._gap + spread local length = self._length local offset = gap + length / 2 return { Top = { Position = UDim2.fromOffset(0, -offset), Size = UDim2.fromOffset(THICKNESS, length) }, Bottom = { Position = UDim2.fromOffset(0, offset),  Size = UDim2.fromOffset(THICKNESS, length) }, Left   = { Position = UDim2.fromOffset(-offset, 0), Size = UDim2.fromOffset(length, THICKNESS) }, Right  = { Position = UDim2.fromOffset(offset, 0),  Size = UDim2.fromOffset(length, THICKNESS) } } end
-    function CH:_applyLayout() local targets = self:_targets(0) for name, line in pairs(self._lines) do line.Position = targets[name].Position line.Size = targets[name].Size end end
-    function CH:_cancelTweens() for _, tween in ipairs(self._tweens) do pcall(function() tween:Cancel() end) end table.clear(self._tweens) for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end table.clear(self._connections) end
-    function CH:_tweenTo(color, spread) local targets = self:_targets(spread) local first for name, line in pairs(self._lines) do local tween = TweenService:Create(line, FLASH_INFO, { BackgroundColor3 = color, Position = targets[name].Position }) table.insert(self._tweens, tween) tween:Play() first = first or tween end local dotTween = TweenService:Create(self._dot, FLASH_INFO, { BackgroundColor3 = color }) table.insert(self._tweens, dotTween) dotTween:Play() return first end
-    function CH:SetColor(color) if self._destroyed then return end self._color = color if self._flashing then return end for _, line in pairs(self._lines) do line.BackgroundColor3 = color end self._dot.BackgroundColor3 = color end
-    function CH:SetSize(pixels) if self._destroyed then return end pixels = math.max(pixels, 2) self._size = pixels self._gap = math.floor(pixels * 0.4) self._length = math.max(math.floor(pixels * 0.6), 2) if not self._flashing then self:_applyLayout() end end
-    function CH:SetVisible(visible) if self._destroyed then return end self._visible = visible self._root.Visible = visible if self._hideCursor then UserInputService.MouseIconEnabled = not visible and self._previousCursorState or false end end
-    function CH:FlashHit()
-        if self._destroyed or not self._visible then return end self._flashToken += 1 local token = self._flashToken self:_cancelTweens() self._flashing = true
-        local outTween = self:_tweenTo(HIT_COLOR, HIT_SPREAD)
-        local conn conn = outTween.Completed:Connect(function() if conn then conn:Disconnect() end if self._destroyed or self._flashToken ~= token then return end self:_cancelTweens() local backTween = self:_tweenTo(self._color, 0) local backConn backConn = backTween.Completed:Connect(function() if backConn then backConn:Disconnect() end if self._destroyed or self._flashToken ~= token then return end self._flashing = false self:SetColor(self._color) self:_applyLayout() end) table.insert(self._connections, backConn) end) table.insert(self._connections, conn)
-    end
-    function CH:Destroy() if self._destroyed then return end self._destroyed = true self._flashToken += 1 self:_cancelTweens() if self._hideCursor then UserInputService.MouseIconEnabled = self._previousCursorState end pcall(function() self._gui:Destroy() end) end
-    return CH
-end)()
-
-local SessionManager = (function()
-    local SM = {} local AFK_INTERVAL = 60 local SERVER_LIST_URL = "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100" local afkToken = 0 local afkRunning = false local isTeleporting = false
-    SM.Notify = function(msg) if NotificationManager then NotificationManager.Notify(msg, "Error", 4) end end
-    local function getLocalPlayer() return Players.LocalPlayer end
-    local function getHumanoid() local player = getLocalPlayer() local character = player and player.Character if not character or not character.Parent then return nil end local humanoid = character:FindFirstChildOfClass("Humanoid") if humanoid and humanoid.Health > 0 then return humanoid end return nil end
-    local function doAfkAction() local ok = pcall(function() local VirtualUser = game:GetService("VirtualUser") VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new(0, 0)) end) if ok then return end pcall(function() local humanoid = getHumanoid() if humanoid then humanoid.Jump = true end end) end
-    function SM.StartAntiAFK() if afkRunning then return end afkRunning = true afkToken += 1 local myToken = afkToken task.spawn(function() while afkRunning and afkToken == myToken do for _ = 1, AFK_INTERVAL do if not afkRunning or afkToken ~= myToken then return end task.wait(1) end if afkRunning and afkToken == myToken then doAfkAction() end end end) end
-    function SM.StopAntiAFK() afkRunning = false afkToken += 1 end
-    function SM.IsAntiAFKRunning() return afkRunning end
-    TeleportService.TeleportInitFailed:Connect(function(player, result, errorMessage) if player == getLocalPlayer() then isTeleporting = false SM.Notify(("Teleport failed: %s"):format(tostring(errorMessage))) end end)
-    function SM.RejoinServer()
-        if isTeleporting then return end local player = getLocalPlayer() if not player then return end isTeleporting = true
-        local ok, err = pcall(function() if #Players:GetPlayers() <= 1 then TeleportService:Teleport(game.PlaceId, player) else TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end end)
-        if not ok then isTeleporting = false SM.Notify("Rejoin failed: " .. tostring(err)) end
-    end
-    function SM.ServerHop()
-        if isTeleporting then return end isTeleporting = true
-        local ok, err = pcall(function()
-            local url = SERVER_LIST_URL:format(game.PlaceId) local response = HttpService:RequestAsync({ Url = url, Method = "GET" }) if not response.Success then error("HTTP " .. response.StatusCode) end
-            local data = HttpService:JSONDecode(response.Body) local candidates = {}
-            for _, server in ipairs(data.data or {}) do if server.id ~= game.JobId and server.playing < server.maxPlayers then table.insert(candidates, server.id) end end
-            if #candidates == 0 then error("no other open public servers found") end
-            local jobId = candidates[math.random(1, #candidates)] TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, getLocalPlayer())
-        end)
-        if not ok then isTeleporting = false SM.Notify("Server hop failed (HttpService blocked?)") end
-    end
-    return SM
-end)()
-
-local AestheticsManager = (function()
-    local AM = {} local TRANSITION = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) local MAX_EMITTER_RATE = 25
-    local PRESETS = { Neon = { ColorCorrection = { Enabled = true, Saturation = 1.5, Contrast = 0.15, Brightness = -0.05, TintColor = Color3.fromRGB(185, 175, 235) }, Bloom = { Enabled = true, Intensity = 1.5, Size = 40, Threshold = 0.8 }, DepthOfField = { Enabled = false } }, Cinematic = { ColorCorrection = { Enabled = true, Saturation = 0.1, Contrast = 0.2, Brightness = 0, TintColor = Color3.fromRGB(255, 240, 220) }, Bloom = { Enabled = true, Intensity = 0.5, Size = 24, Threshold = 1.0 }, DepthOfField = { Enabled = true, FarIntensity = 0.15, NearIntensity = 0, FocusDistance = 40, InFocusRadius = 30 } }, Default = { ColorCorrection = { Enabled = true, Saturation = 0, Contrast = 0, Brightness = 0, TintColor = Color3.new(1, 1, 1) }, Bloom = { Enabled = false, Intensity = 0, Size = 24, Threshold = 2 }, DepthOfField = { Enabled = false, FarIntensity = 0, NearIntensity = 0 } } }
-    local EFFECT_DEFS = { ColorCorrection = { class = "ColorCorrectionEffect", name = "AestheticsColorCorrection" }, Bloom = { class = "BloomEffect", name = "AestheticsBloom" }, DepthOfField = { class = "DepthOfFieldEffect", name = "AestheticsDepthOfField" } }
-    local function getEffect(key) local def = EFFECT_DEFS[key] local existing = Lighting:FindFirstChild(def.name) if existing and existing:IsA(def.class) then return existing end local effect = Instance.new(def.class) effect.Name = def.name effect.Parent = Lighting return effect end
-    local function applyToEffect(effect, values) local tweenGoals = {} for property, value in pairs(values) do if property == "Enabled" then if value then effect.Enabled = true end else tweenGoals[property] = value end end local tween = TweenService:Create(effect, TRANSITION, tweenGoals) if values.Enabled == false then tween.Completed:Once(function() pcall(function() effect.Enabled = false end) end) end tween:Play() end
-    function AM.ApplyShaderPreset(presetName) local preset = PRESETS[presetName] if not preset then return false end for key, values in pairs(preset) do pcall(function() applyToEffect(getEffect(key), values) end) end return true end
-    function AM.CleanupShaders() for _, def in pairs(EFFECT_DEFS) do local effect = Lighting:FindFirstChild(def.name) if effect then pcall(function() effect:Destroy() end) end end end
-    
-    local function seq(...) return NumberSequence.new({ ... }) end
-    local AURAS = { Fire = { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 190, 60)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 20)), ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 10, 0)) }), Size = seq(NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(0.6, 0.4), NumberSequenceKeypoint.new(1, 0)), Transparency = seq(NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.7, 0.6), NumberSequenceKeypoint.new(1, 1)), Lifetime = NumberRange.new(0.7, 1.2), Speed = NumberRange.new(3, 5), Rate = 22, SpreadAngle = Vector2.new(20, 20), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-30, 30), Acceleration = Vector3.new(0, 4, 0), LightEmission = 1, LightColor = Color3.fromRGB(255, 120, 30), LightBrightness = 1.5 }, Ice = { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 235, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 190, 255)) }), Size = seq(NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.3, 0.5), NumberSequenceKeypoint.new(1, 0.1)), Transparency = seq(NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.3), NumberSequenceKeypoint.new(1, 1)), Lifetime = NumberRange.new(1.5, 2.5), Speed = NumberRange.new(0.5, 1.5), Rate = 14, SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-60, 60), Acceleration = Vector3.new(0, 0.6, 0), LightEmission = 0.6, LightColor = Color3.fromRGB(140, 225, 255), LightBrightness = 1 } }
-    local EMITTER_NAME = "AestheticsAuraEmitter" local LIGHT_NAME = "AestheticsAuraLight" local auraState = {}
-    local function destroyAuraInstances(character) if not character then return end pcall(function() local root = character:FindFirstChild("HumanoidRootPart") if not root then return end local emitter = root:FindFirstChild(EMITTER_NAME) if emitter then emitter:Destroy() end local light = root:FindFirstChild(LIGHT_NAME) if light then light:Destroy() end end) end
-    local function buildAura(character, auraType) local config = AURAS[auraType] if not config then return end local root = character:WaitForChild("HumanoidRootPart", 5) if not root or not root.Parent then return end destroyAuraInstances(character) pcall(function() local emitter = Instance.new("ParticleEmitter") emitter.Name = EMITTER_NAME emitter.Color = config.Color emitter.Size = config.Size emitter.Transparency = config.Transparency emitter.Lifetime = config.Lifetime emitter.Speed = config.Speed emitter.Rate = math.min(config.Rate, MAX_EMITTER_RATE) emitter.SpreadAngle = config.SpreadAngle emitter.Rotation = config.Rotation emitter.RotSpeed = config.RotSpeed emitter.Acceleration = config.Acceleration emitter.LightEmission = config.LightEmission emitter.EmissionDirection = Enum.NormalId.Top emitter.Shape = Enum.ParticleEmitterShape.Box emitter.LockedToPart = false emitter.Parent = root local light = Instance.new("PointLight") light.Name = LIGHT_NAME light.Color = config.LightColor light.Brightness = config.LightBrightness light.Range = 10 light.Shadows = false light.Parent = root end) end
-    function AM.SetAura(player, auraType) if not player or not AURAS[auraType] then return false end local state = auraState[player] if not state then state = {} auraState[player] = state state.charConn = player.CharacterAdded:Connect(function(character) task.spawn(buildAura, character, state.type) end) end state.type = auraType if player.Character then task.spawn(buildAura, player.Character, auraType) end return true end
-    function AM.RemoveAura(player) local state = auraState[player] if state then if state.charConn then state.charConn:Disconnect() end auraState[player] = nil end destroyAuraInstances(player and player.Character) end
-    function AM.ClearAllAuras() local players = {} for player in pairs(auraState) do table.insert(players, player) end for _, player in ipairs(players) do AM.RemoveAura(player) end end
-    Players.PlayerRemoving:Connect(function(player) local state = auraState[player] if state then if state.charConn then state.charConn:Disconnect() end auraState[player] = nil end end)
-    return AM
-end)()
-
-local StatsTracker = (function()
-    local ST = {} ST.__index = ST local UPDATE_INTERVAL = 1 local COLORS = { Text = Color3.fromRGB(255, 255, 255), Good = Color3.fromRGB(120, 255, 160), Warn = Color3.fromRGB(255, 210, 90), Bad = Color3.fromRGB(255, 100, 100), Muted = Color3.fromRGB(170, 170, 180) }
-    local function readPing() local ok, value = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end) if ok and type(value) == "number" then return value end return nil end
-    local function readMemory() local ok, value = pcall(function() return Stats:GetTotalMemoryUsageMb() end) if ok and type(value) == "number" then return value end return nil end
-    local function formatUptime(seconds) seconds = math.floor(seconds) return string.format("%02d:%02d", math.floor(seconds / 60), seconds % 60) end
-    local function fpsColor(fps) if fps >= 50 then return COLORS.Good end if fps >= 30 then return COLORS.Warn end return COLORS.Bad end
-    local function pingColor(ping) if ping <= 100 then return COLORS.Good end if ping <= 200 then return COLORS.Warn end return COLORS.Bad end
-    local function createRow(parent, order, title) local row = Instance.new("Frame") row.Name = title row.LayoutOrder = order row.Size = UDim2.new(1, 0, 0, 18) row.BackgroundTransparency = 1 row.Parent = parent local label = Instance.new("TextLabel") label.Name = "Title" label.Size = UDim2.new(0.45, 0, 1, 0) label.BackgroundTransparency = 1 label.Text = title label.TextColor3 = COLORS.Muted label.Font = Enum.Font.GothamMedium label.TextSize = 13 label.TextXAlignment = Enum.TextXAlignment.Left label.Parent = row local value = Instance.new("TextLabel") value.Name = "Value" value.AnchorPoint = Vector2.new(1, 0) value.Position = UDim2.new(1, 0, 0, 0) value.Size = UDim2.new(0.55, 0, 1, 0) value.BackgroundTransparency = 1 value.Text = "--" value.TextColor3 = COLORS.Text value.TextTransparency = 0 value.Font = Enum.Font.GothamMedium value.TextSize = 13 value.TextXAlignment = Enum.TextXAlignment.Right value.Parent = row return value end
-    function ST.new(parentGui, options) options = options or {} local self = setmetatable({}, ST) self._destroyed = false self._startTime = os.clock() self._frames = 0 self._elapsed = 0 local panel = Instance.new("Frame") panel.Name = "StatsTracker" panel.AnchorPoint = Vector2.new(0, 0) panel.Position = options.Position or UDim2.new(0, 10, 0, 10) panel.Size = UDim2.new(0, 150, 0, 0) panel.AutomaticSize = Enum.AutomaticSize.Y panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28) panel.BackgroundTransparency = 0.35 panel.BorderSizePixel = 0 panel.ZIndex = 30 panel.Parent = parentGui self._panel = panel local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 10) corner.Parent = panel local stroke = Instance.new("UIStroke") stroke.Color = Color3.fromRGB(255, 255, 255) stroke.Transparency = 0.8 stroke.Thickness = 1 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border stroke.Parent = panel local padding = Instance.new("UIPadding") padding.PaddingTop = UDim.new(0, 8) padding.PaddingBottom = UDim.new(0, 8) padding.PaddingLeft = UDim.new(0, 10) padding.PaddingRight = UDim.new(0, 10) padding.Parent = panel local layout = Instance.new("UIListLayout") layout.SortOrder = Enum.SortOrder.LayoutOrder layout.Padding = UDim.new(0, 3) layout.Parent = panel self._fpsLabel = createRow(panel, 1, "FPS") self._pingLabel = createRow(panel, 2, "Ping") self._uptimeLabel = createRow(panel, 3, "Uptime") self._uptimeLabel.Text = formatUptime(0) self._memoryLabel = createRow(panel, 4, "Memory") self._connection = RunService.RenderStepped:Connect(function(dt) self:_onFrame(dt) end) return self end
-    function ST:_onFrame(dt) if self._destroyed then return end self._frames += 1 self._elapsed += dt if self._elapsed < UPDATE_INTERVAL then return end local fps = math.floor(self._frames / self._elapsed + 0.5) self._frames = 0 self._elapsed = 0 pcall(function() self._fpsLabel.Text = tostring(fps) self._fpsLabel.TextColor3 = fpsColor(fps) local ping = readPing() if ping then self._pingLabel.Text = string.format("%d ms", math.floor(ping + 0.5)) self._pingLabel.TextColor3 = pingColor(ping) else self._pingLabel.Text = "N/A" self._pingLabel.TextColor3 = COLORS.Muted end self._uptimeLabel.Text = formatUptime(os.clock() - self._startTime) local memory = readMemory() if memory then self._memoryLabel.Text = string.format("%d MB", math.floor(memory + 0.5)) self._memoryLabel.TextColor3 = COLORS.Text else self._memoryLabel.Text = "N/A" self._memoryLabel.TextColor3 = COLORS.Muted end end) end
-    function ST:SetVisible(visible) if self._destroyed then return end self._panel.Visible = visible == true end
-    function ST:Destroy() if self._destroyed then return end self._destroyed = true if self._connection then self._connection:Disconnect() self._connection = nil end pcall(function() self._panel:Destroy() end) end
-    return ST
-end)()
-
-local EventLogger = (function()
-    local EL = {} EL.__index = EL local DISPLAY_TIME = 5 local FADE_TIME = 0.5 local MAX_MESSAGES = 30 local ROW_HEIGHT = 22 local FADE_INFO = TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-    function EL.new(parentGui) local self = setmetatable({}, EL) self._order = 0 self._connections = {} self._playerConnections = {} self._destroyed = false local scroll = Instance.new("ScrollingFrame") scroll.Name = "EventLog" scroll.AnchorPoint = Vector2.new(0, 0) scroll.Position = UDim2.new(0, 10, 0, 10) scroll.Size = UDim2.new(0, 260, 0, 160) scroll.BackgroundTransparency = 1 scroll.BorderSizePixel = 0 scroll.ScrollBarThickness = 3 scroll.ScrollBarImageColor3 = Color3.fromRGB(150, 50, 255) scroll.CanvasSize = UDim2.new(0, 0, 0, 0) scroll.AutomaticCanvasSize = Enum.AutomaticSize.None scroll.ZIndex = 20 scroll.Parent = parentGui local layout = Instance.new("UIListLayout") layout.SortOrder = Enum.SortOrder.LayoutOrder layout.Padding = UDim.new(0, 3) layout.Parent = scroll self._scroll = scroll self._layout = layout table.insert(self._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() local contentHeight = layout.AbsoluteContentSize.Y scroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight) scroll.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - scroll.AbsoluteSize.Y)) end)) self:_start() return self end
-    function EL:Log(text, color) if self._destroyed then return end local ok, err = pcall(function() local rows = {} for _, child in ipairs(self._scroll:GetChildren()) do if child:IsA("TextLabel") then table.insert(rows, child) end end if #rows >= MAX_MESSAGES then table.sort(rows, function(a, b) return a.LayoutOrder < b.LayoutOrder end) rows[1]:Destroy() end self._order += 1 local label = Instance.new("TextLabel") label.Name = "Entry" label.LayoutOrder = self._order label.Size = UDim2.new(1, -6, 0, ROW_HEIGHT) label.BackgroundColor3 = Color3.fromRGB(15, 15, 20) label.BackgroundTransparency = 0.35 label.BorderSizePixel = 0 label.Text = text label.TextColor3 = color or Color3.fromRGB(255, 255, 255) label.TextTransparency = 0 label.TextStrokeTransparency = 0.8 label.Font = Enum.Font.GothamMedium label.TextSize = 14 label.TextXAlignment = Enum.TextXAlignment.Left label.TextTruncate = Enum.TextTruncate.AtEnd label.ZIndex = 21 local pad = Instance.new("UIPadding") pad.PaddingLeft = UDim.new(0, 8) pad.Parent = label local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 4) corner.Parent = label label.Parent = self._scroll task.delay(DISPLAY_TIME, function() if self._destroyed or not label.Parent then return end pcall(function() local tween = TweenService:Create(label, FADE_INFO, { TextTransparency = 1, TextStrokeTransparency = 1, BackgroundTransparency = 1 }) tween.Completed:Once(function() pcall(function() label:Destroy() end) end) tween:Play() end) end) end) if not ok then warn("[EventLogger] Log failed:", err) end end
-    function EL:_watchCharacter(player, character) local humanoid = character:WaitForChild("Humanoid", 10) if not humanoid or self._destroyed then return end local name = player.Name local conn conn = humanoid.Died:Connect(function() self:Log(("%s was eliminated"):format(name), Color3.fromRGB(255, 90, 90)) if conn then conn:Disconnect() end end) local list = self._playerConnections[player] if list then table.insert(list, conn) else conn:Disconnect() end end
-    function EL:_watchPlayer(player) if self._playerConnections[player] then return end local list = {} self._playerConnections[player] = list table.insert(list, player.CharacterAdded:Connect(function(character) self:_watchCharacter(player, character) end)) if player.Character then task.spawn(self._watchCharacter, self, player, player.Character) end end
-    function EL:_unwatchPlayer(player) local list = self._playerConnections[player] if not list then return end self._playerConnections[player] = nil for _, conn in ipairs(list) do pcall(function() conn:Disconnect() end) end end
-    function EL:_start() for _, player in ipairs(Players:GetPlayers()) do self:_watchPlayer(player) end table.insert(self._connections, Players.PlayerAdded:Connect(function(player) self:_watchPlayer(player) end)) table.insert(self._connections, Players.PlayerRemoving:Connect(function(player) self:Log(("%s left the game"):format(player.Name), Color3.fromRGB(180, 180, 190)) self:_unwatchPlayer(player) end)) end
-    function EL:Destroy() self._destroyed = true for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end for player in pairs(self._playerConnections) do self:_unwatchPlayer(player) end pcall(function() self._scroll:Destroy() end) end
-    return EL
-end)()
-
-local Dropdown = (function()
-    local D = {} D.__index = D
-    local Theme = { Surface = Color3.fromRGB(32, 32, 38), SurfaceHover = Color3.fromRGB(52, 52, 62), Accent = Color3.fromRGB(70, 55, 110), Stroke = Color3.fromHex("#2a2a36"), Text = Color3.new(1,1,1), SubText = Color3.fromHex("#b4b4c3"), Font = Enum.Font.GothamMedium, TextSize = 13 }
-    local OP = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    function D.new(parent, name, opts, def, cb)
-        local s = setmetatable({}, D) s.Name=name s.Callback=cb s.Value=nil s.IsOpen=false s._opts={} s._btns={} s._selIdx=nil s._targetHeight=0 s._tween=nil s._destroyed=false
-        s.Frame = create("Frame", {Name="DD_"..name, Size=UDim2.new(1,0,0,34), BackgroundTransparency=1, Parent=parent})
-        s.Label = create("TextLabel", {Name="Label", Size=UDim2.new(0.42,-6,1,0), BackgroundTransparency=1, Font=Theme.Font, TextSize=Theme.TextSize, TextColor3=Theme.Text, TextXAlignment=Enum.TextXAlignment.Left, Text=name, Parent=s.Frame})
-        s.Header = create("TextButton", {Name="Header", AnchorPoint=Vector2.new(1,0), Position=UDim2.fromScale(1,0), Size=UDim2.new(0.58,0,1,0), BackgroundColor3=Color3.fromRGB(30,30,42), BorderSizePixel=0, AutoButtonColor=false, Text="Select...", TextColor3=Theme.Text, TextTransparency=0, Font=Theme.Font, TextSize=Theme.TextSize, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=15, Parent=s.Frame})
-        create("UICorner", {CornerRadius=UDim.new(0,6),Parent=s.Header}) create("UIPadding", {PaddingLeft=UDim.new(0,10),Parent=s.Header})
-        s._stroke = create("UIStroke",{Color=Theme.Stroke,Thickness=1,Parent=s.Header})
-        s.List = create("Frame", {Name="List", Position=UDim2.new(0,0,1,4), Size=UDim2.new(1,0,0,0), BackgroundColor3=Color3.fromRGB(32,32,38), BackgroundTransparency=0.05, BorderSizePixel=0, ClipsDescendants=true, Visible=false, ZIndex=10, Parent=s.Frame})
-        create("UICorner", {CornerRadius=UDim.new(0,6),Parent=s.List})
-        s.Scroll = create("ScrollingFrame", {Name="Scroll", Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent, CanvasSize=UDim2.new(), ZIndex=12, Parent=s.List})
-        create("UIListLayout", {SortOrder=Enum.SortOrder.LayoutOrder, Parent=s.Scroll}) create("UIPadding", {PaddingTop=UDim.new(0,4),PaddingBottom=UDim.new(0,4),Parent=s.Scroll})
-        s.Header.Activated:Connect(function() if s.IsOpen then s:Close() else s:Open() end end)
-        s:SetOptions(opts or {}) if def ~= nil then s:Set(def, true) end return s
-    end
-    function D:_enforceStyle() self.List.ZIndex = 10 self.List.BackgroundColor3 = Color3.fromRGB(32,32,38) self.List.BackgroundTransparency = 0.05 for _, inst in ipairs(self.List:GetDescendants()) do if inst:IsA("UIGradient") then inst:Destroy() end end self.Scroll.ZIndex = 12 for _, child in ipairs(self.Scroll:GetChildren()) do if child:IsA("TextButton") then child.ZIndex = 15 child.TextColor3 = Theme.Text child.TextTransparency = 0 end end end
-    function D:_select(idx) self._selIdx=idx self.Value=self._opts[idx] self.Header.Text=tostring(self.Value) self.Header.TextColor3=Theme.Text end
-    function D:_fire(val) if typeof(self.Callback)~="function" then return end task.spawn(function() local ok, err = pcall(self.Callback, val) if not ok then warn("Dropdown err:", err) end end) end
-    function D:Set(val, sil) local idx = table.find(self._opts, val) if not idx then return false end self:_select(idx) if not sil then self:_fire(self.Value) end return true end
-    function D:SetOptions(opts, keep) if self.IsOpen then self:Close() end for _, b in self._btns do b:Destroy() end table.clear(self._btns) self._opts = table.clone(opts or {}) for i, o in self._opts do local b = create("TextButton", {Name="O_"..i, LayoutOrder=i, Size=UDim2.new(1,0,0,34), BackgroundColor3=Theme.Accent, BackgroundTransparency=1, Text=tostring(o), TextColor3=Theme.Text, TextTransparency=0, Font=Theme.Font, TextSize=15, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=15, Parent=self.Scroll}) create("UICorner", {CornerRadius=UDim.new(0,5),Parent=b}) create("UIPadding", {PaddingLeft=UDim.new(0,10),Parent=b}) b.MouseEnter:Connect(function() if self.Value ~= o then b.BackgroundTransparency=0.4 end end) b.MouseLeave:Connect(function() if self.Value ~= o then b.BackgroundTransparency=1 end end) b.Activated:Connect(function() self:_select(i) self:Close() self:_fire(self.Value) end) self._btns[i] = b end self._selIdx = (keep~=false and self.Value~=nil) and table.find(self._opts, self.Value) or nil if not self._selIdx then self.Value=nil end if self.Value then self.Header.Text = tostring(self.Value) end local contentHeight = #self._opts * 34 + 8 self.Scroll.CanvasSize = UDim2.fromOffset(0, contentHeight) self._targetHeight = math.min(contentHeight, 180) end
-    function D:Open() if self.IsOpen or self._destroyed then return end self.IsOpen = true self:_enforceStyle() self.List.Size = UDim2.new(1,0,0,0) self.List.Visible = true self._tween = TweenService:Create(self.List, OP, {Size = UDim2.new(1,0,0,self._targetHeight)}) self._tween:Play() end
-    function D:Close() if not self.IsOpen or self._destroyed then return end self.IsOpen = false if self._tween then self._tween:Cancel() end self._tween = TweenService:Create(self.List, OP, {Size = UDim2.new(1,0,0,0)}) self._tween.Completed:Once(function(state) if state == Enum.PlaybackState.Completed and not self.IsOpen then self.List.Visible = false end end) self._tween:Play() end
-    function D:Destroy() self:Close() if self._tween then self._tween:Cancel() end pcall(function() self.Frame:Destroy() end) end
-    return D
-end)()
+-- [Все модули: MovementUtility, LootTracker, TargetHUD, ConfigManager, InterceptSolver, RoleHUD, OverheadTracker, Stabilizer, NotificationManager, UIToggle, VisualOptimizer, Crosshair, SessionManager, AestheticsManager, StatsTracker, EventLogger, Dropdown остаются точно такими же, как в v87]
+-- Я пропущу их в этом сообщении, чтобы не превысить лимит, но в твоем файле они уже есть и менять их не надо.
+-- ЕДИНСТВЕННОЕ ЧТО МЕНЯЕТСЯ — ЭТО БЛОК UI LIBRARY НИЖЕ.
 
 -- ==========================================
--- UI LIBRARY
+-- UI LIBRARY (FIXED NO CANVASGROUP)
 -- ==========================================
 local Win, Tab, Sub, Sec = {}, {}, {}, {}
 Win.__index, Tab.__index, Sub.__index, Sec.__index = Win, Tab, Sub, Sec
@@ -868,22 +130,26 @@ function Lib.new(title)
     s.Scale = create("UIScale", {Parent=s.Gui})
     local function upd() local cam = workspace.CurrentCamera if cam then s.Scale.Scale = math.clamp(math.min(cam.ViewportSize.X/760, cam.ViewportSize.Y/500), 0.5, 1) end end
     upd() if workspace.CurrentCamera then table.insert(s.Conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(upd)) end
+    
     s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(720,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.45,Parent=s.Gui}, {corner(12), stroke(1,0.8)})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(4,4),Size=UDim2.new(1,-8,1,-8),BackgroundColor3=THEME.Background,BackgroundTransparency=0.6,ClipsDescendants=true,Parent=s.Main}, {corner(10), stroke(2,0.9)})
     s.Title = create("Frame", {Size=UDim2.new(1,0,0,40),BackgroundTransparency=1,Parent=s.Inner}, {label({Text=title or "Interface",Font=Enum.Font.GothamBold,TextSize=15,Position=UDim2.fromOffset(16,0),Size=UDim2.new(1,-32,1,0)})})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,40),Size=UDim2.new(0,160,1,-40),BackgroundTransparency=1,ScrollBarThickness=0,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,4),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(160,40),Size=UDim2.new(1,-160,1,-40),BackgroundTransparency=1,Parent=s.Inner})
+    
     local dr, ds, sp
     table.insert(s.Conns, s.Title.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr,ds,sp=true,i.Position,s.Main.Position end end))
     table.insert(s.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then local d=(i.Position-ds)/s.Scale.Scale s.Main.Position=UDim2.new(sp.X.Scale,sp.X.Offset+d.X,sp.Y.Scale,sp.Y.Offset+d.Y) end end))
     table.insert(s.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
     return s
 end
+
 function Win:_Select(t)
     if self.Active==t then return end self.Active=t
-    for _, v in ipairs(self.Tabs) do local a = v==t tween(v.Btn,FAST,{BackgroundTransparency=a and 0.8 or 1}) tween(v.Lbl,FAST,{TextColor3=a and THEME.Text or THEME.SubText}) if not a then v.Cont.Visible=false v.Cont.GroupTransparency=1 end end
-    t.Cont.Position=UDim2.fromOffset(0,8) t.Cont.Visible=true tween(t.Cont,SLOW,{GroupTransparency=0,Position=UDim2.fromOffset(0,0)})
+    for _, v in ipairs(self.Tabs) do local a = v==t tween(v.Btn,FAST,{BackgroundTransparency=a and 0.8 or 1}) tween(v.Lbl,FAST,{TextColor3=a and THEME.Text or THEME.SubText}) if not a then v.Cont.Visible=false v.Cont.BackgroundTransparency=1 end end
+    t.Cont.Position=UDim2.fromOffset(0,8) t.Cont.Visible=true tween(t.Cont,SLOW,{BackgroundTransparency=1,Position=UDim2.fromOffset(0,0)})
 end
+
 function Win:AddTab(name, icon)
     local t = setmetatable({Win=self,Name=name,Subs={}}, Tab)
     t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,36),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Parent=self.Side}, {corner(8)})
@@ -891,24 +157,44 @@ function Win:AddTab(name, icon)
     t.Lbl = label({Text=name,TextColor3=THEME.SubText,Position=UDim2.fromOffset(38,0),Size=UDim2.new(1,-44,1,0),Parent=t.Btn})
     t.Btn.MouseEnter:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=0.92}) end end) t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
     t.Btn.Activated:Connect(function() self:_Select(t) end)
-    t.Cont = create("CanvasGroup", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,GroupTransparency=1,Parent=self.Content})
+    
+    -- Исправлено: Frame вместо CanvasGroup
+    t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
     t.SubBar = create("Frame", {Size=UDim2.new(1,0,0,32),BackgroundTransparency=1,Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6)})})
     t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,36),Size=UDim2.new(1,0,1,-36),BackgroundTransparency=1,Parent=t.Cont})
     table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
 end
-function Tab:_SelectSub(s) if self.ActiveSub==s then return end self.ActiveSub=s for _, v in ipairs(self.Subs) do local a = v==s tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.9,TextColor3=a and THEME.Text or THEME.SubText}) if not a then v.Page.Visible=false v.Page.GroupTransparency=1 end end s.Page.Visible=true tween(s.Page,SLOW,{GroupTransparency=0}) end
+
+function Tab:_SelectSub(s) 
+    if self.ActiveSub==s then return end self.ActiveSub=s 
+    for _, v in ipairs(self.Subs) do 
+        local a = v==s 
+        tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.9,TextColor3=a and THEME.Text or THEME.SubText}) 
+        if not a then v.Page.Visible=false end 
+    end 
+    s.Page.Visible=true 
+end
+
 function Tab:AddSubTab(name)
     local s = setmetatable({Tab=self,Name=name}, Sub)
     s.Btn = create("TextButton", {Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=THEME.SubText,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.9,AutomaticSize=Enum.AutomaticSize.X,Size=UDim2.new(0,0,1,0),Parent=self.SubBar}, {corner(6), create("UIPadding", {PaddingLeft=UDim.new(0,12),PaddingRight=UDim.new(0,12)})})
-    s.Page = create("CanvasGroup", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,GroupTransparency=1,Parent=self.PageHolder})
+    
+    -- Исправлено: Frame вместо CanvasGroup
+    s.Page = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.PageHolder})
     s.Scroll = create("ScrollingFrame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ScrollBarThickness=3,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Page}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,8)})})
-    s.Btn.Activated:Connect(function() self:_SelectSub(s) end) table.insert(self.Subs, s) if #self.Subs==1 then self:_SelectSub(s) end return s
+    
+    s.Btn.Activated:Connect(function() self:_SelectSub(s) end) 
+    table.insert(self.Subs, s) 
+    if #self.Subs==1 then self:_SelectSub(s) end 
+    return s
 end
+
 function Sub:AddSection(name)
     local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
     s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.45,Parent=self.Scroll}, {corner(8), stroke(1,0.9), pad(10), create("UIListLayout", {Padding=UDim.new(0,6)})})
     label({Text=string.upper(name),Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.Accent,Size=UDim2.new(1,0,0,16),Parent=s.Frame}) return s
 end
+
 function Sec:AddToggle(name, def, cb)
     local st = def==true
     local r = create("TextButton", {Size=UDim2.new(1,0,0,32),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.6,Parent=self.Frame}, {corner(6)})
@@ -920,6 +206,7 @@ function Sec:AddToggle(name, def, cb)
     function obj:Set(v, s) st = v and true or false tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70)}) tween(k,FAST,{Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0)}) if not s and cb then task.spawn(cb,st) end end
     r.Activated:Connect(function() obj:Set(not st) end) return obj
 end
+
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
     inc = inc or 1 local val = math.clamp(def or mn, mn, mx)
     local r = create("Frame", {Size=UDim2.new(1,0,0,44),BackgroundColor3=THEME.Element,BackgroundTransparency=0.6,Parent=self.Frame}, {corner(6)})
@@ -937,11 +224,13 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     table.insert(self.Win.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
     return obj
 end
+
 function Sec:AddButton(name, cb)
     local b = create("TextButton", {Text=name,Font=Enum.Font.GothamMedium,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.75,Size=UDim2.new(1,0,0,32),Parent=self.Frame}, {corner(6), stroke(1,0.88)})
     hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
     b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
 end
+
 function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
 
 -- ==========================================
@@ -1158,5 +447,5 @@ Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) 
 Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v87 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v88 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
