@@ -1,128 +1,141 @@
--- LIBERIUM HUB TEMPORARY DIAGNOSTIC | MM2 COLLECTIBLE DETECTIVE v1.0
--- READ-ONLY: no collecting, teleporting, or world/property changes.
--- Run in an active MM2 round when candies/collectibles are visible.
+-- LIBERIUM HUB TEMPORARY DIAGNOSTIC | MM2 COLLECTIBLE DETECTIVE v1.1
+-- READ-ONLY: scans Workspace and shows results in a copyable on-screen window.
+-- Run during an active MM2 round when candies/collectibles are visible.
+local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local MAX_CANDIDATES, MAX_CONTAINERS, MAX_CHILDREN, MAX_ANCESTORS = 70, 25, 10, 5
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local MAX_CANDIDATES, MAX_CONTAINERS, MAX_CHILDREN, MAX_ANCESTORS = 55, 18, 8, 5
 local keywords = {"candy","candies","coin","coins","collect","collectible","pickup","loot","token","sweet","treat","pumpkin","present","egg","gem","cash","drop"}
 local containerWords = {"container","collect","loot","spawn","item","pickup","coin","candy","map","round","drop"}
+local lines = {}
+local function log(s) s=tostring(s); table.insert(lines,s); print(s) end
 local function hasWord(text, words)
- text = string.lower(tostring(text or ""))
- for _, word in ipairs(words) do if string.find(text, word, 1, true) then return true, word end end
+ text=string.lower(tostring(text or ""))
+ for _,word in ipairs(words) do if string.find(text,word,1,true) then return true,word end end
  return false
 end
 local function pathOf(inst)
- local parts, cur, hops = {}, inst, 0
- while cur and cur ~= Workspace and hops < 80 do
-  table.insert(parts, 1, cur.Name .. "[" .. cur.ClassName .. "]")
-  cur, hops = cur.Parent, hops + 1
- end
- return "Workspace." .. table.concat(parts, ".")
+ local parts,cur,hops={},inst,0
+ while cur and cur~=Workspace and hops<80 do table.insert(parts,1,cur.Name.."["..cur.ClassName.."]"); cur,hops=cur.Parent,hops+1 end
+ return "Workspace."..table.concat(parts,".")
 end
 local function posOf(inst)
- local ok, value = pcall(function()
+ local ok,value=pcall(function()
   if inst:IsA("BasePart") then return tostring(inst.Position) end
   if inst:IsA("Model") then return tostring(inst:GetPivot().Position) end
-  local p = inst:FindFirstChildWhichIsA("BasePart", true)
-  return p and (tostring(p.Position) .. " (descendant BasePart)") or "unavailable"
+  local p=inst:FindFirstChildWhichIsA("BasePart",true)
+  return p and (tostring(p.Position).." (descendant BasePart)") or "unavailable"
  end)
  return ok and value or "unavailable"
 end
 local function ancestorsOf(inst)
- local out, cur = {}, inst.Parent
- for _ = 1, MAX_ANCESTORS do
-  if not cur or cur == Workspace then break end
-  table.insert(out, cur.Name .. " (" .. cur.ClassName .. ")")
-  cur = cur.Parent
- end
- return #out > 0 and table.concat(out, " <- ") or "(direct child of Workspace)"
+ local out,cur={},inst.Parent
+ for _=1,MAX_ANCESTORS do if not cur or cur==Workspace then break end; table.insert(out,cur.Name.." ("..cur.ClassName..")"); cur=cur.Parent end
+ return #out>0 and table.concat(out," <- ") or "(direct child of Workspace)"
 end
 local function baseParts(inst)
- local n = inst:IsA("BasePart") and 1 or 0
- local ok, ds = pcall(function() return inst:GetDescendants() end)
- if ok then for _, d in ipairs(ds) do if d:IsA("BasePart") then n = n + 1 end end end
+ local n=inst:IsA("BasePart") and 1 or 0
+ local ok,ds=pcall(function() return inst:GetDescendants() end)
+ if ok then for _,d in ipairs(ds) do if d:IsA("BasePart") then n=n+1 end end end
  return n
 end
 local function childrenOf(inst)
- local out, kids = {}, inst:GetChildren()
- for i, ch in ipairs(kids) do
-  if i > MAX_CHILDREN then table.insert(out, "... +" .. (#kids - MAX_CHILDREN) .. " more"); break end
-  table.insert(out, ch.Name .. " (" .. ch.ClassName .. ")")
- end
- return #out > 0 and table.concat(out, "; ") or "(none)"
+ local out,kids={},inst:GetChildren()
+ for i,ch in ipairs(kids) do if i>MAX_CHILDREN then table.insert(out,"... +"..(#kids-MAX_CHILDREN).." more"); break end; table.insert(out,ch.Name.." ("..ch.ClassName..")") end
+ return #out>0 and table.concat(out,"; ") or "(none)"
 end
-local all = Workspace:GetDescendants()
-local candidates, containers, seenC, seenF, counts = {}, {}, {}, {}, {}
-for _, inst in ipairs(all) do
- local hit, word = hasWord(inst.Name, keywords)
- local ancestorWord, cur = nil, inst.Parent
- for _ = 1, MAX_ANCESTORS do
-  if not cur or cur == Workspace then break end
-  local h, w = hasWord(cur.Name, keywords)
-  if h then ancestorWord = w; break end
-  cur = cur.Parent
+local all=Workspace:GetDescendants()
+local candidates,containers,seenC,seenF,counts={},{},{},{},{}
+for _,inst in ipairs(all) do
+ local hit,word=hasWord(inst.Name,keywords)
+ local ancestorWord,cur=nil,inst.Parent
+ for _=1,MAX_ANCESTORS do
+  if not cur or cur==Workspace then break end
+  local h,w=hasWord(cur.Name,keywords)
+  if h then ancestorWord=w; break end
+  cur=cur.Parent
  end
  if hit and (inst:IsA("BasePart") or inst:IsA("Model") or inst:IsA("Folder") or inst:IsA("Tool")) then
-  if not seenC[inst] then
-   seenC[inst] = true
-   table.insert(candidates, {obj=inst, reason="name contains '" .. word .. "'"})
-   counts[inst.Name] = (counts[inst.Name] or 0) + 1
-  end
+  if not seenC[inst] then seenC[inst]=true; table.insert(candidates,{obj=inst,reason="name contains '"..word.."'" }); counts[inst.Name]=(counts[inst.Name] or 0)+1 end
  elseif ancestorWord and (inst:IsA("BasePart") or inst:IsA("Model") or inst:IsA("Tool")) then
-  if not seenC[inst] then
-   seenC[inst] = true
-   table.insert(candidates, {obj=inst, reason="inside ancestor containing '" .. ancestorWord .. "'"})
-   counts[inst.Name] = (counts[inst.Name] or 0) + 1
-  end
+  if not seenC[inst] then seenC[inst]=true; table.insert(candidates,{obj=inst,reason="inside ancestor containing '"..ancestorWord.."'" }); counts[inst.Name]=(counts[inst.Name] or 0)+1 end
  end
- local ch, cw = hasWord(inst.Name, containerWords)
- if ch and (inst:IsA("Folder") or inst:IsA("Model") or inst:IsA("Configuration")) and not seenF[inst] then
-  seenF[inst] = true
-  table.insert(containers, {obj=inst, reason="name contains '" .. cw .. "'"})
- end
+ local ch,cw=hasWord(inst.Name,containerWords)
+ if ch and (inst:IsA("Folder") or inst:IsA("Model") or inst:IsA("Configuration")) and not seenF[inst] then seenF[inst]=true; table.insert(containers,{obj=inst,reason="name contains '"..cw.."'"}) end
 end
-table.sort(candidates, function(a,b)
- local an,bn = string.lower(a.obj.Name),string.lower(b.obj.Name)
- local ac = string.find(an,"candy",1,true) and 0 or 1
- local bc = string.find(bn,"candy",1,true) and 0 or 1
- if ac ~= bc then return ac < bc end
- return an < bn
+table.sort(candidates,function(a,b)
+ local an,bn=string.lower(a.obj.Name),string.lower(b.obj.Name)
+ local ac=string.find(an,"candy",1,true) and 0 or 1
+ local bc=string.find(bn,"candy",1,true) and 0 or 1
+ if ac~=bc then return ac<bc end
+ return an<bn
 end)
 table.sort(containers,function(a,b) return string.lower(a.obj.Name)<string.lower(b.obj.Name) end)
-print("========== MM2 COLLECTIBLE DETECTIVE v1.0 ==========")
-print("READ-ONLY | Workspace descendants: "..#all)
-print("Candidates: "..#candidates.." | container-like objects: "..#containers)
-print("========== NAME COUNTS ==========")
-local rows = {}
+log("========== MM2 COLLECTIBLE DETECTIVE v1.1 ==========")
+log("READ-ONLY | Workspace descendants: "..#all)
+log("Candidates: "..#candidates.." | container-like objects: "..#containers)
+log("========== NAME COUNTS ==========")
+local rows={}
 for name,n in pairs(counts) do table.insert(rows,{name=name,n=n}) end
 table.sort(rows,function(a,b) return a.n>b.n end)
-for i=1,math.min(#rows,35) do print(rows[i].name.." = "..rows[i].n) end
-if #rows==0 then print("(no keyword matches)") end
-print("========== CANDIDATE DETAILS ==========")
+for i=1,math.min(#rows,30) do log(rows[i].name.." = "..rows[i].n) end
+if #rows==0 then log("(no keyword matches)") end
+log("========== CANDIDATE DETAILS ==========")
 for i=1,math.min(#candidates,MAX_CANDIDATES) do
  local e,o=candidates[i],candidates[i].obj
- print("--- Candidate "..i.." ---")
- print("Name: "..o.Name)
- print("ClassName: "..o.ClassName)
- print("Path: "..pathOf(o))
- print("Parent: "..(o.Parent and (o.Parent.Name.." ("..o.Parent.ClassName..")") or "nil"))
- print("Position: "..posOf(o))
- print("Ancestors: "..ancestorsOf(o))
- print("BasePartCountIncludingDescendants: "..baseParts(o))
- print("Reason: "..e.reason)
- print("Children: "..childrenOf(o))
+ log("--- Candidate "..i.." ---"); log("Name: "..o.Name); log("ClassName: "..o.ClassName); log("Path: "..pathOf(o))
+ log("Parent: "..(o.Parent and (o.Parent.Name.." ("..o.Parent.ClassName..")") or "nil"))
+ log("Position: "..posOf(o)); log("Ancestors: "..ancestorsOf(o)); log("BasePartCountIncludingDescendants: "..baseParts(o))
+ log("Reason: "..e.reason); log("Children: "..childrenOf(o))
 end
-if #candidates>MAX_CANDIDATES then print("Omitted candidates: "..(#candidates-MAX_CANDIDATES)) end
-print("========== CONTAINER DETAILS ==========")
+if #candidates>MAX_CANDIDATES then log("Omitted candidates: "..(#candidates-MAX_CANDIDATES)) end
+log("========== CONTAINER DETAILS ==========")
 for i=1,math.min(#containers,MAX_CONTAINERS) do
  local e,o=containers[i],containers[i].obj
- print("--- Container "..i.." ---")
- print("Name: "..o.Name)
- print("ClassName: "..o.ClassName)
- print("Path: "..pathOf(o))
- print("DirectChildCount: "..#o:GetChildren())
- print("Reason: "..e.reason)
- print("Children: "..childrenOf(o))
+ log("--- Container "..i.." ---"); log("Name: "..o.Name); log("ClassName: "..o.ClassName); log("Path: "..pathOf(o))
+ log("DirectChildCount: "..#o:GetChildren()); log("Reason: "..e.reason); log("Children: "..childrenOf(o))
 end
-if #containers>MAX_CONTAINERS then print("Omitted containers: "..(#containers-MAX_CONTAINERS)) end
-print("========== END DETECTIVE ==========")
-print("Send the output above. Run while candy/collectibles are visible.")
+if #containers>MAX_CONTAINERS then log("Omitted containers: "..(#containers-MAX_CONTAINERS)) end
+log("========== END DETECTIVE ==========")
+log("Tip: tap COPY RESULTS in the on-screen window.")
+local output=table.concat(lines,"\n")
+local gui
+local okGui,guiErr=pcall(function()
+ gui=Instance.new("ScreenGui"); gui.Name="MM2CollectibleDetective"; gui.ResetOnSpawn=false; gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+ local parent
+ if type(gethui)=="function" then local ok,h=pcall(gethui); if ok and h then parent=h end end
+ if not parent then local ok,cg=pcall(function() return CoreGui end); if ok and cg then parent=cg end end
+ if not parent and LocalPlayer then parent=LocalPlayer:WaitForChild("PlayerGui") end
+ gui.Parent=parent
+ local frame=Instance.new("Frame"); frame.Name="Panel"; frame.Size=UDim2.new(0.92,0,0.78,0); frame.Position=UDim2.new(0.04,0,0.11,0)
+ frame.BackgroundColor3=Color3.fromRGB(15,18,30); frame.BorderSizePixel=0; frame.Active=true; frame.Parent=gui
+ local corner=Instance.new("UICorner"); corner.CornerRadius=UDim.new(0,12); corner.Parent=frame
+ local stroke=Instance.new("UIStroke"); stroke.Color=Color3.fromRGB(160,112,255); stroke.Thickness=1.5; stroke.Parent=frame
+ local title=Instance.new("TextLabel"); title.Size=UDim2.new(1,-20,0,34); title.Position=UDim2.new(0,10,0,5); title.BackgroundTransparency=1
+ title.Text="MM2 DETECTIVE • RESULTS"; title.TextColor3=Color3.fromRGB(235,230,255); title.Font=Enum.Font.GothamBold; title.TextSize=16; title.Parent=frame
+ local box=Instance.new("TextBox"); box.Name="Results"; box.Position=UDim2.new(0,10,0,44); box.Size=UDim2.new(1,-20,1,-105)
+ box.BackgroundColor3=Color3.fromRGB(8,10,18); box.TextColor3=Color3.fromRGB(220,230,245); box.Font=Enum.Font.Code; box.TextSize=12
+ box.TextXAlignment=Enum.TextXAlignment.Left; box.TextYAlignment=Enum.TextYAlignment.Top; box.TextWrapped=true; box.MultiLine=true; box.ClearTextOnFocus=false; box.TextEditable=true; box.Text=output; box.Parent=frame
+ local bc=Instance.new("UICorner"); bc.CornerRadius=UDim.new(0,8); bc.Parent=box
+ local copy=Instance.new("TextButton"); copy.Name="CopyResults"; copy.Size=UDim2.new(0.62,-12,0,42); copy.Position=UDim2.new(0,10,1,-52)
+ copy.BackgroundColor3=Color3.fromRGB(105,75,190); copy.TextColor3=Color3.new(1,1,1); copy.Text="COPY RESULTS"; copy.Font=Enum.Font.GothamBold; copy.TextSize=14; copy.Parent=frame
+ Instance.new("UICorner",copy).CornerRadius=UDim.new(0,8)
+ local close=Instance.new("TextButton"); close.Name="Close"; close.Size=UDim2.new(0.38,-8,0,42); close.Position=UDim2.new(0.62,2,1,-52)
+ close.BackgroundColor3=Color3.fromRGB(45,50,68); close.TextColor3=Color3.new(1,1,1); close.Text="CLOSE"; close.Font=Enum.Font.GothamBold; close.TextSize=14; close.Parent=frame
+ Instance.new("UICorner",close).CornerRadius=UDim.new(0,8)
+ local status=Instance.new("TextLabel"); status.Size=UDim2.new(1,-20,0,18); status.Position=UDim2.new(0,10,1,-73); status.BackgroundTransparency=1
+ status.Text="Tap COPY RESULTS; otherwise long-press text to select."; status.TextColor3=Color3.fromRGB(155,210,190)
+ status.Font=Enum.Font.Gotham; status.TextSize=10; status.TextWrapped=true; status.Parent=frame
+ copy.Activated:Connect(function()
+  local copied=false
+  for _,fnName in ipairs({"setclipboard","toclipboard","writeclipboard"}) do
+   local fn=_G[fnName]
+   if type(fn)=="function" then local ok=pcall(fn,output); if ok then copied=true; break end end
+  end
+  if copied then status.Text="Copied! Paste results into ChatGPT."; copy.Text="COPIED!"
+  else box:CaptureFocus(); box.CursorPosition=1; box.SelectionStart=#box.Text+1; status.Text="Clipboard API unavailable: long-press text, Select All, then Copy." end
+ end)
+ close.Activated:Connect(function() gui:Destroy() end)
+end)
+if not okGui then warn("[DETECTIVE] Could not create results window: "..tostring(guiErr)); warn("[DETECTIVE] Results are printed in console.") end
