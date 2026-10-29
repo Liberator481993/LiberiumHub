@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.17 | DELTA MM2 PULSE-STYLE FARM + MOBILE STATUS HUD
+-- LIBERIUM HUB | v91.18 | NEON GLASS SIDEBAR + CANDY ESP
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -396,22 +396,19 @@ LootTracker = (function()
     local LT = {}; LT.__index = LT
     local UPDATE_INTERVAL, SCAN_BATCH_SIZE, MAX_TRACKED = 0.2, 500, 150
     local STUDS_PER_METER = 3.571
+    -- Loot ESP is intentionally candy-only. AutoFarm keeps its separate coin target logic.
     local TRACKED = {
-        Coin = Color3.fromRGB(255, 220, 60), Gem = Color3.fromRGB(70, 230, 255),
-        Cash = Color3.fromRGB(80, 230, 120), Gun = Color3.fromRGB(100, 170, 255),
-        Knife = Color3.fromRGB(255, 100, 120)
+        Candy = Color3.fromRGB(255, 110, 220)
     }
     local function getTrackedColor(inst)
         if not inst or not (inst:IsA("BasePart") or inst:IsA("Model")) then return nil end
         local n = string.lower(inst.Name)
-        -- Container/group models are not individual pickups.
-        if n == "coincontainer" or n == "coin_container" or n == "coins"
-            or n == "lootcontainer" or n == "loot_container" or n == "weaponcontainer" then return nil end
-        if n:find("coin", 1, true) then return TRACKED.Coin
-        elseif n:find("gem", 1, true) then return TRACKED.Gem
-        elseif n:find("cash", 1, true) or n:find("money", 1, true) then return TRACKED.Cash
-        elseif n:find("gundrop", 1, true) or n == "gun" or n == "pistol" then return TRACKED.Gun
-        elseif n:find("knife", 1, true) then return TRACKED.Knife end
+        -- Never highlight container/group models, even if their names contain "candy".
+        if n:find("container", 1, true) or n == "loot" or n == "collectibles" then return nil end
+        -- Accept candy-named pickups only; coins, gems, cash, weapons and knives are excluded.
+        if n == "candy" or n == "candies" or n:find("candy", 1, true) then
+            return TRACKED.Candy
+        end
         return nil
     end
     local function hasTrackedAncestor(inst)
@@ -759,7 +756,7 @@ function Lib.new(title)
         local cam = workspace.CurrentCamera
         if cam then
             -- Keep the panel usable on narrow phones without letting it overflow small screens.
-            s.Scale.Scale = math.clamp(math.min((cam.ViewportSize.X - 12) / 720, (cam.ViewportSize.Y - 18) / 480), 0.48, 1)
+            s.Scale.Scale = math.clamp(math.min((cam.ViewportSize.X - 12) / 620, (cam.ViewportSize.Y - 18) / 460), 0.48, 1)
         end
     end
     local function bindCamera()
@@ -771,7 +768,7 @@ function Lib.new(title)
     end
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
-    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(720,480),BackgroundColor3=THEME.Background,BackgroundTransparency=0.08,Parent=s.Gui}, {corner(16), stroke(1.2,0.42)})
+    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.08,Parent=s.Gui}, {corner(16), stroke(1.2,0.42)})
     create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(24,18,43)),ColorSequenceKeypoint.new(0.48,THEME.Background),ColorSequenceKeypoint.new(1,Color3.fromRGB(10,22,34))}),Rotation=28,Parent=s.Main})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.22,ClipsDescendants=true,Parent=s.Main}, {corner(13), stroke(1,0.78)})
     s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(18,18,30),BackgroundTransparency=0.08,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,Color3.fromRGB(37,45,68)),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0})})
@@ -779,7 +776,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.17",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.18",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     local dr, ds, sp
@@ -844,7 +841,7 @@ function Sub:AddSection(name)
 end
 function Sec:AddToggle(name, def, cb)
     local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,36),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(8), stroke(1,0.9)})
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,42),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(8), stroke(1,0.9)})
     label({Text=name,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-70,1,0),Parent=r})
     local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(38,20),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70),Parent=r}, {corner(10)})
     local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(14,14),BackgroundColor3=Color3.new(1,1,1),Parent=t}, {corner(7)})
@@ -858,7 +855,7 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     local r = create("Frame", {Size=UDim2.new(1,0,0,44),BackgroundColor3=THEME.Element,BackgroundTransparency=0.38,Parent=self.Frame}, {corner(8), stroke(1,0.92)})
     label({Text=name,Position=UDim2.fromOffset(10,4),Size=UDim2.new(1,-80,0,18),Parent=r})
     local vl = label({Text=tostring(val),TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,4),Size=UDim2.fromOffset(60,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,10,1,-14),Size=UDim2.new(1,-20,0,6),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(55,55,70),Parent=r}, {corner(3)})
+    local t = create("TextButton", {Position=UDim2.new(0,10,1,-20),Size=UDim2.new(1,-20,0,16),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(55,55,70),Parent=r}, {corner(3)})
     local f = create("Frame", {Size=UDim2.fromScale((val-mn)/(mx-mn),1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(3)})
     hover(r,r,0.6,0.4)
     local obj = {}
@@ -1439,7 +1436,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.17 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.18 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1451,4 +1448,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- coin hitbox offsets account for avatar/coin dimensions, failed targets receive a longer cooldown, and UI tabs gained
 -- an active neon rail, refined spacing, glass surfaces, and responsive sizing. Not a copy of PulseHub proprietary source.
 -- v91.17: added a compact, non-interactive mobile status pill for AutoFarm/AutoPickup state and diagnostics.
+-- v91.18: Loot ESP tracks candy-named pickups only; coin AutoFarm and weapon AutoPickup remain separate.
+-- v91.18 UI pass: increased mobile control hit areas and adjusted base dimensions for phone readability.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
