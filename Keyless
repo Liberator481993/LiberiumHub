@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.17 | DELTA MM2 PULSE-STYLE FARM + MOBILE STATUS HUD
+-- LIBERIUM HUB | v91.18 | NEON GLASS SIDEBAR + CANDY ESP
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -756,7 +756,7 @@ function Lib.new(title)
         local cam = workspace.CurrentCamera
         if cam then
             -- Keep the panel usable on narrow phones without letting it overflow small screens.
-            s.Scale.Scale = math.clamp(math.min((cam.ViewportSize.X - 12) / 720, (cam.ViewportSize.Y - 18) / 480), 0.48, 1)
+            s.Scale.Scale = math.clamp(math.min((cam.ViewportSize.X - 12) / 620, (cam.ViewportSize.Y - 18) / 460), 0.48, 1)
         end
     end
     local function bindCamera()
@@ -768,7 +768,7 @@ function Lib.new(title)
     end
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
-    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(720,480),BackgroundColor3=THEME.Background,BackgroundTransparency=0.08,Parent=s.Gui}, {corner(16), stroke(1.2,0.42)})
+    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.08,Parent=s.Gui}, {corner(16), stroke(1.2,0.42)})
     create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(24,18,43)),ColorSequenceKeypoint.new(0.48,THEME.Background),ColorSequenceKeypoint.new(1,Color3.fromRGB(10,22,34))}),Rotation=28,Parent=s.Main})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.22,ClipsDescendants=true,Parent=s.Main}, {corner(13), stroke(1,0.78)})
     s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(18,18,30),BackgroundTransparency=0.08,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,Color3.fromRGB(37,45,68)),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0})})
@@ -841,7 +841,7 @@ function Sub:AddSection(name)
 end
 function Sec:AddToggle(name, def, cb)
     local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,36),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(8), stroke(1,0.9)})
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,42),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(8), stroke(1,0.9)})
     label({Text=name,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-70,1,0),Parent=r})
     local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(38,20),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70),Parent=r}, {corner(10)})
     local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(14,14),BackgroundColor3=Color3.new(1,1,1),Parent=t}, {corner(7)})
@@ -855,7 +855,7 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     local r = create("Frame", {Size=UDim2.new(1,0,0,44),BackgroundColor3=THEME.Element,BackgroundTransparency=0.38,Parent=self.Frame}, {corner(8), stroke(1,0.92)})
     label({Text=name,Position=UDim2.fromOffset(10,4),Size=UDim2.new(1,-80,0,18),Parent=r})
     local vl = label({Text=tostring(val),TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,4),Size=UDim2.fromOffset(60,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,10,1,-14),Size=UDim2.new(1,-20,0,6),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(55,55,70),Parent=r}, {corner(3)})
+    local t = create("TextButton", {Position=UDim2.new(0,10,1,-20),Size=UDim2.new(1,-20,0,16),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(55,55,70),Parent=r}, {corner(3)})
     local f = create("Frame", {Size=UDim2.fromScale((val-mn)/(mx-mn),1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(3)})
     hover(r,r,0.6,0.4)
     local obj = {}
@@ -1448,5 +1448,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- coin hitbox offsets account for avatar/coin dimensions, failed targets receive a longer cooldown, and UI tabs gained
 -- an active neon rail, refined spacing, glass surfaces, and responsive sizing. Not a copy of PulseHub proprietary source.
 -- v91.17: added a compact, non-interactive mobile status pill for AutoFarm/AutoPickup state and diagnostics.
--- v91.18: Loot ESP now tracks candy-named pickups only; coin AutoFarm and weapon AutoPickup remain separate.
+-- v91.18: Loot ESP tracks candy-named pickups only; coin AutoFarm and weapon AutoPickup remain separate.
+-- v91.18 UI pass: increased mobile control hit areas and adjusted base dimensions for phone readability.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
