@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.36 | SKELETON DEFAULT OFF
+-- LIBERIUM HUB | v91.37 | STATS LAZY CONNECTION
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -416,7 +416,25 @@ StatsTracker = (function() local ST = {} ST.__index = ST local UPDATE_INTERVAL =
     if staleGui then staleGui:Destroy() end
     gui.Parent = parentGui
     self._gui = gui
-    self._startTime = os.clock() self._frames = 0 self._elapsed = 0 local panel = Instance.new("Frame") panel.Name = "StatsTracker" panel.AnchorPoint = Vector2.new(0, 0) panel.Position = options.Position or UDim2.new(0, 10, 0, 10) panel.Size = UDim2.new(0, 150, 0, 0) panel.AutomaticSize = Enum.AutomaticSize.Y panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28) panel.BackgroundTransparency = 0.35 panel.BorderSizePixel = 0 panel.ZIndex = 30 panel.Parent = gui self._panel = panel local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 10) corner.Parent = panel local stroke = Instance.new("UIStroke") stroke.Color = Color3.fromRGB(255, 255, 255) stroke.Transparency = 0.8 stroke.Thickness = 1 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border stroke.Parent = panel local padding = Instance.new("UIPadding") padding.PaddingTop = UDim.new(0, 8) padding.PaddingBottom = UDim.new(0, 8) padding.PaddingLeft = UDim.new(0, 10) padding.PaddingRight = UDim.new(0, 10) padding.Parent = panel local layout = Instance.new("UIListLayout") layout.SortOrder = Enum.SortOrder.LayoutOrder layout.Padding = UDim.new(0, 3) layout.Parent = panel self._fpsLabel = createRow(panel, 1, "FPS") self._pingLabel = createRow(panel, 2, "Ping") self._uptimeLabel = createRow(panel, 3, "Uptime") self._uptimeLabel.Text = formatUptime(0) self._memoryLabel = createRow(panel, 4, "Memory") self._connection = RunService.RenderStepped:Connect(function(dt) self:_onFrame(dt) end) return self end function ST:_onFrame(dt) if self._destroyed then return end self._frames += 1 self._elapsed += dt if self._elapsed < UPDATE_INTERVAL then return end local fps = math.floor(self._frames / self._elapsed + 0.5) self._frames = 0 self._elapsed = 0 pcall(function() self._fpsLabel.Text = tostring(fps) self._fpsLabel.TextColor3 = fpsColor(fps) local ping = readPing() if ping then self._pingLabel.Text = string.format("%d ms", math.floor(ping + 0.5)) self._pingLabel.TextColor3 = pingColor(ping) else self._pingLabel.Text = "N/A" self._pingLabel.TextColor3 = COLORS.Muted end self._uptimeLabel.Text = formatUptime(os.clock() - self._startTime) local memory = readMemory() if memory then self._memoryLabel.Text = string.format("%d MB", math.floor(memory + 0.5)) self._memoryLabel.TextColor3 = COLORS.Text else self._memoryLabel.Text = "N/A" self._memoryLabel.TextColor3 = COLORS.Muted end end) end function ST:SetVisible(visible) if self._destroyed then return end self._panel.Visible = visible == true end function ST:Destroy() if self._destroyed then return end self._destroyed = true if self._connection then self._connection:Disconnect() self._connection = nil end pcall(function() self._panel:Destroy() end)
+    self._startTime = os.clock() self._frames = 0 self._elapsed = 0 local panel = Instance.new("Frame") panel.Name = "StatsTracker" panel.AnchorPoint = Vector2.new(0, 0) panel.Position = options.Position or UDim2.new(0, 10, 0, 10) panel.Size = UDim2.new(0, 150, 0, 0) panel.AutomaticSize = Enum.AutomaticSize.Y panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28) panel.BackgroundTransparency = 0.35 panel.BorderSizePixel = 0 panel.ZIndex = 30 panel.Parent = gui self._panel = panel local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 10) corner.Parent = panel local stroke = Instance.new("UIStroke") stroke.Color = Color3.fromRGB(255, 255, 255) stroke.Transparency = 0.8 stroke.Thickness = 1 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border stroke.Parent = panel local padding = Instance.new("UIPadding") padding.PaddingTop = UDim.new(0, 8) padding.PaddingBottom = UDim.new(0, 8) padding.PaddingLeft = UDim.new(0, 10) padding.PaddingRight = UDim.new(0, 10) padding.Parent = panel local layout = Instance.new("UIListLayout") layout.SortOrder = Enum.SortOrder.LayoutOrder layout.Padding = UDim.new(0, 3) layout.Parent = panel self._fpsLabel = createRow(panel, 1, "FPS") self._pingLabel = createRow(panel, 2, "Ping") self._uptimeLabel = createRow(panel, 3, "Uptime") self._uptimeLabel.Text = formatUptime(0) self._memoryLabel = createRow(panel, 4, "Memory") self._connection = nil return self end function ST:_onFrame(dt) if self._destroyed then return end self._frames += 1 self._elapsed += dt if self._elapsed < UPDATE_INTERVAL then return end local fps = math.floor(self._frames / self._elapsed + 0.5) self._frames = 0 self._elapsed = 0 pcall(function() self._fpsLabel.Text = tostring(fps) self._fpsLabel.TextColor3 = fpsColor(fps) local ping = readPing() if ping then self._pingLabel.Text = string.format("%d ms", math.floor(ping + 0.5)) self._pingLabel.TextColor3 = pingColor(ping) else self._pingLabel.Text = "N/A" self._pingLabel.TextColor3 = COLORS.Muted end self._uptimeLabel.Text = formatUptime(os.clock() - self._startTime) local memory = readMemory() if memory then self._memoryLabel.Text = string.format("%d MB", math.floor(memory + 0.5)) self._memoryLabel.TextColor3 = COLORS.Text else self._memoryLabel.Text = "N/A" self._memoryLabel.TextColor3 = COLORS.Muted end end) end function ST:SetVisible(visible)
+    if self._destroyed then return end
+    visible = visible == true
+    self._panel.Visible = visible
+    if visible then
+        if not self._connection then
+            self._frames = 0
+            self._elapsed = 0
+            self._connection = RunService.RenderStepped:Connect(function(dt)
+                self:_onFrame(dt)
+            end)
+        end
+    elseif self._connection then
+        self._connection:Disconnect()
+        self._connection = nil
+        self._frames = 0
+        self._elapsed = 0
+    end
+end function ST:Destroy() if self._destroyed then return end self._destroyed = true if self._connection then self._connection:Disconnect() self._connection = nil end pcall(function() self._panel:Destroy() end)
     if self._gui then pcall(function() self._gui:Destroy() end); self._gui = nil end
 end
 return ST
@@ -947,7 +965,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.36",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.37",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
@@ -1881,7 +1899,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.36 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.37 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1926,4 +1944,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- inserted mid-session also have collisions disabled; the watcher disconnects on reset.
 -- v91.35: TargetHUD clears the previous target's health fraction/bar immediately on target change.
 -- v91.36: SkeletonVisualizer now starts hidden so Skeleton ESP cannot appear before its toggle/config enables it.
+-- v91.37: StatsTracker only subscribes to RenderStepped while the stats panel is visible;
+-- hiding or unloading it disconnects the per-frame updater and resets its counters.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
