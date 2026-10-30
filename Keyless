@@ -1200,6 +1200,7 @@ local function glideTo(target, speed, mode)
     local oldVelocity = root.AssemblyLinearVelocity
     local oldAngularVelocity = root.AssemblyAngularVelocity
     local oldAutoRotate = humanoid.AutoRotate
+    local oldHumanoidState = humanoid:GetState()
     local collisionState, touchState = {}, {}
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -1238,6 +1239,10 @@ local function glideTo(target, speed, mode)
         -- Delta-safe smooth step movement: no anchoring; only temporary collision changes.
         root.Anchored = false
         humanoid.AutoRotate = false
+        if mode == "farm" then
+            -- Farm is a direct ghost-flight: suspend humanoid floor/wall response while moving.
+            pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Physics) end)
+        end
         -- Clear inherited momentum once before stepping; clearing it every frame can fight replication.
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
@@ -1264,7 +1269,9 @@ local function glideTo(target, speed, mode)
                 -- Restore floor collisions before the collection attempt. The previous version
                 -- kept the avatar non-collidable while trying to touch the coin, which could
                 -- leave the feet below the hitbox and make the character hover beside it.
-                restoreCollisionForPickup()
+                -- Keep AutoFarm non-collidable through the contact pulse as well. Restoring
+                -- collisions while still inside a wall/coin causes the Humanoid to pop upward.
+                if mode ~= "farm" then restoreCollisionForPickup() end
                 local touchFn = firetouchinterest
                 local touchParts = {}
                 local function addTouchPart(part)
@@ -1297,8 +1304,10 @@ local function glideTo(target, speed, mode)
                     if not targetPart or not targetPart.Parent then collected = true break end
                     local contact = targetPart.Position + Vector3.new(0, heightOffset, 0)
                     root.CFrame = CFrame.new(contact, contact + root.CFrame.LookVector)
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
+                    if mode ~= "farm" then
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                    end
                     -- Allow the avatar to settle at the contact point before checking pickup state.
                     RunService.Heartbeat:Wait()
                     if typeof(touchFn) == "function" then
@@ -1329,6 +1338,10 @@ local function glideTo(target, speed, mode)
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
                 end
+                if mode == "farm" then
+                    -- Re-enable normal collisions only after the pickup attempt is complete.
+                    restoreCollisionForPickup()
+                end
                 break
             end
             if os.clock() - startedAt > timeLimit then break end
@@ -1353,7 +1366,14 @@ local function glideTo(target, speed, mode)
             root.AssemblyAngularVelocity = arrived and Vector3.zero or oldAngularVelocity
         end
     end)
-    pcall(function() if humanoid and humanoid.Parent then humanoid.AutoRotate = oldAutoRotate end end)
+    pcall(function()
+        if humanoid and humanoid.Parent then
+            humanoid.AutoRotate = oldAutoRotate
+            if mode == "farm" and humanoid.Health > 0 then
+                humanoid:ChangeState(oldHumanoidState)
+            end
+        end
+    end)
     for part, original in pairs(collisionState) do
         pcall(function() if part and part.Parent then part.CanCollide = original end end)
     end
