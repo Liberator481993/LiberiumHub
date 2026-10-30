@@ -823,8 +823,8 @@ function Win:AddTab(name, icon)
     t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
     t.Btn.Activated:Connect(function() self:_Select(t) end)
     t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
-    t.SubBar = create("Frame", {Size=UDim2.new(1,0,0,34),BackgroundTransparency=1,Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6)})})
-    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,38),Size=UDim2.new(1,0,1,-38),BackgroundTransparency=1,Parent=t.Cont})
+    t.SubBar = create("ScrollingFrame", {Size=UDim2.new(1,0,0,40),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,ScrollingDirection=Enum.ScrollingDirection.X,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
+    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,44),Size=UDim2.new(1,0,1,-44),BackgroundTransparency=1,Parent=t.Cont})
     table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
 end
 function Win:Destroy()
@@ -1698,5 +1698,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.17: added a compact, non-interactive mobile status pill for AutoFarm/AutoPickup state and diagnostics.
 -- v91.18: Loot ESP tracks candy-named pickups only; coin AutoFarm and weapon AutoPickup remain separate.
 -- v91.18 UI pass: increased mobile control hit areas and adjusted base dimensions for phone readability.
--- v91.19: portrait-first touch layout, adaptive sidebar/content sizing, larger tap targets, and unified neon dropdown styling.
+-- v91.19: portrait-first touch layout, adaptive sidebar/content sizing, larger tap targets,
+-- horizontal subtab scrolling, and unified neon dropdown styling.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
