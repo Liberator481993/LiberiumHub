@@ -819,7 +819,7 @@ function Lib.new(title)
         local cam = workspace.CurrentCamera
         if cam then
             -- Keep the panel usable on narrow phones without letting it overflow small screens.
-            s.Scale.Scale = math.clamp(math.min((cam.ViewportSize.X - 12) / 620, (cam.ViewportSize.Y - 18) / 460), 0.48, 1)
+            s.Scale.Scale = math.clamp(math.min((cam.ViewportSize.X - 12) / 620, (cam.ViewportSize.Y - 18) / 460), 0.35, 1)
         end
     end
     local function bindCamera()
@@ -938,6 +938,13 @@ function Win:AddTab(name, icon)
     t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,38),Size=UDim2.new(1,0,1,-38),BackgroundTransparency=1,Parent=t.Cont})
     table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
 end
+function Win:SetVisible(visible)
+    if self.Gui then self.Gui.Enabled = visible == true end
+end
+function Win:Toggle()
+    if self.Gui then self.Gui.Enabled = not self.Gui.Enabled end
+end
+
 function Win:Destroy()
     if self.CameraConnection then pcall(function() self.CameraConnection:Disconnect() end) self.CameraConnection = nil end
     for _, connection in ipairs(self.Conns or {}) do
