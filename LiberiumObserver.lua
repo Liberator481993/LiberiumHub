@@ -1,4 +1,4 @@
--- Liberium Observer v1.0
+-- Liberium Observer v1.1
 -- Standalone, opt-in diagnostics for visible Roblox client state.
 -- Does NOT inspect executor internals, closures, remote payloads, keys, or another script's source.
 -- Start/Stop controls what is recorded. Export writes a local TXT report when writefile is available.
@@ -16,14 +16,15 @@ if ENV.LiberiumObserver and ENV.LiberiumObserver.Destroy then
 end
 
 local Observer = {
-    Version = "1.0",
+    Version = "1.1",
     Running = false,
     Destroyed = false,
     StartedAt = 0,
     Events = {},
     Connections = {},
     Seen = {},
-    MaxEvents = 1200
+    Watched = {},
+    MaxEvents = 1800
 }
 ENV.LiberiumObserver = Observer
 
@@ -68,12 +69,65 @@ local function guiSummary(root)
     return "gui=" .. count .. ", visible=" .. visible .. ", types={" .. table.concat(parts, ",") .. "}"
 end
 
+local function detailedGuiSnapshot(gui)
+    local lines = {}
+    local total, included = 0, 0
+    local maxNodes = 140
+    local descendants = gui:GetDescendants()
+    total = #descendants
+    table.insert(lines, "TREE_BEGIN | " .. gui.Name .. " | descendants=" .. total)
+    for _, item in ipairs(descendants) do
+        if included >= maxNodes then break end
+        if item:IsA("GuiObject") and item.Visible then
+            local depth = 0
+            local parent = item.Parent
+            while parent and parent ~= gui do
+                depth += 1
+                parent = parent.Parent
+            end
+            local detail = string.rep("  ", math.min(depth, 5)) .. item.ClassName .. ":" .. safeText(item.Name)
+            detail ..= " size=" .. tostring(math.floor(item.AbsoluteSize.X)) .. "x" .. tostring(math.floor(item.AbsoluteSize.Y))
+            detail ..= " pos=" .. tostring(math.floor(item.AbsolutePosition.X)) .. "," .. tostring(math.floor(item.AbsolutePosition.Y))
+            if item:IsA("TextButton") then
+                detail ..= " text='" .. safeText(item.Text) .. "'"
+            elseif item:IsA("ImageButton") then
+                detail ..= " image-button"
+            end
+            table.insert(lines, detail)
+            included += 1
+        end
+    end
+    table.insert(lines, "TREE_END | included=" .. included .. " | truncated=" .. tostring(total > included))
+    return lines
+end
+
+local function watchGuiChanges(gui)
+    if Observer.Watched and Observer.Watched[gui] then return end
+    Observer.Watched = Observer.Watched or {}
+    Observer.Watched[gui] = true
+    local connection = gui.DescendantAdded:Connect(function(item)
+        if not Observer.Running then return end
+        if item:IsA("TextButton") then
+            task.defer(function()
+                if item.Parent then
+                    Observer:Log("UI_BUTTON_ADDED", gui.Name .. " | " .. item:GetFullName() .. " | text='" .. safeText(item.Text) .. "'")
+                end
+            end)
+        end
+    end)
+    table.insert(Observer.Connections, connection)
+end
+
 local function inspectScreenGui(gui)
     if not gui:IsA("ScreenGui") then return end
     local key = gui.Name .. "|" .. gui:GetFullName()
     if Observer.Seen[key] then return end
     Observer.Seen[key] = true
     Observer:Log("UI_ADDED", gui.Name .. " | " .. guiSummary(gui))
+    watchGuiChanges(gui)
+    for _, line in ipairs(detailedGuiSnapshot(gui)) do
+        Observer:Log("UI_TREE", line)
+    end
 end
 
 local function bindVisibleUi()
@@ -139,7 +193,8 @@ function Observer:Export()
         "Ping: " .. getPing(),
         "FPS: " .. getFps(),
         "Events: " .. tostring(#self.Events),
-        "NOTE: This report contains visible UI metadata and local performance readings only.",
+        "NOTE: Visible UI metadata only. No source code, remote payloads, keys, or TextBox contents are collected.",
+        "DETAILS: Visible GUI hierarchy is capped at 140 objects per newly detected ScreenGui; dynamic button additions are logged.",
         "------------------------------------------------------------"
     }
     for _, event in ipairs(self.Events) do
