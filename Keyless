@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.20 | NEON GLASS MOBILE REFINEMENT
+-- LIBERIUM HUB | v91.21 | TOUCH COLLECTION RELIABILITY
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -789,7 +789,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.20",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.21",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
@@ -1187,20 +1187,22 @@ local function glideTo(target, speed, mode)
                 addTouchPart(root)
                 if mode == "farm" then
                     -- Keep the farm contact set small to avoid repeated touch events for every body part.
-                    addTouchPart(character:FindFirstChild("LeftFoot"))
-                    addTouchPart(character:FindFirstChild("RightFoot"))
+                    addTouchPart(character:FindFirstChild("LeftFoot") or character:FindFirstChild("Left Leg"))
+                    addTouchPart(character:FindFirstChild("RightFoot") or character:FindFirstChild("Right Leg"))
                 else
                     addTouchPart(character:FindFirstChild("Head"))
                     addTouchPart(character:FindFirstChild("UpperTorso"))
                     addTouchPart(character:FindFirstChild("Torso"))
                     addTouchPart(character:FindFirstChild("LowerTorso"))
-                    addTouchPart(character:FindFirstChild("LeftFoot"))
-                    addTouchPart(character:FindFirstChild("RightFoot"))
+                    addTouchPart(character:FindFirstChild("LeftFoot") or character:FindFirstChild("Left Leg"))
+                    addTouchPart(character:FindFirstChild("RightFoot") or character:FindFirstChild("Right Leg"))
                 end
                 -- AutoFarm settles at one contact height instead of hopping through three heights.
                 -- Keep AutoPickup's previous height fallback to avoid changing its behavior unnecessarily.
                 local heightOffsets = mode == "farm"
-                    and { rootOffset }
+                    -- Small contact-height retries cover R6/R15 rig and hitbox differences
+                    -- without the large vertical hopping that made earlier farming look jerky.
+                    and { rootOffset, math.clamp(rootOffset - 0.18, 2.0, 3.8), math.clamp(rootOffset + 0.18, 2.0, 3.8) }
                     or { rootOffset, math.max(2.0, rootOffset - 0.2), math.max(1.8, rootOffset - 0.45) }
                 for _, heightOffset in ipairs(heightOffsets) do
                     if targetWasCollected(targetPart, originalTargetCanTouch, originalTargetTransparency) then collected = true break end
@@ -1684,7 +1686,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.20 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.21 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1701,4 +1703,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.19: portrait-first touch layout, adaptive sidebar/content sizing, larger tap targets,
 -- horizontal subtab scrolling, and unified neon dropdown styling.
 -- v91.20: larger dropdown rows, improved selected-state contrast, and expanded touch popup height.
+-- v91.21: AutoFarm/AutoPickup touch-part fallback supports both R15 feet and R6 legs;
+-- AutoFarm also retries at two nearby contact heights to reduce near-miss collections.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
