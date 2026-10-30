@@ -12,8 +12,27 @@ local TeleportService = game:GetService("TeleportService")
 local Stats = game:GetService("Stats")
 local Debris = game:GetService("Debris")
 
+-- Delta may execute during the first moments of client startup.
+-- Wait for the local player and PlayerGui instead of indexing nil immediately.
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local playerWaitDeadline = os.clock() + 15
+while not LocalPlayer and os.clock() < playerWaitDeadline do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
+if not LocalPlayer then
+    warn("[Liberium] Startup stopped: LocalPlayer was not available.")
+    return
+end
+
+local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+if not PlayerGui then
+    PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 15)
+end
+if not PlayerGui then
+    warn("[Liberium] Startup stopped: PlayerGui was not available.")
+    return
+end
 
 -- Early UI bootstrap: keep a visible surface while the larger systems initialize.
 local bootstrapGui = Instance.new("ScreenGui")
