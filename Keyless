@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.43 | TARGET HEALTH TWEEN RESET
+-- LIBERIUM HUB | v91.44 | PREDICTION IDLE THROTTLE
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -994,7 +994,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.43",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.44",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
@@ -1182,7 +1182,7 @@ task.spawn(function() while task.wait(0.5) and isRunning do if CFG.AutoFling and
 
 aimMarker = Instance.new("Part") aimMarker.Name = "LibAimMarker" aimMarker.Size = Vector3.new(1,1,1) aimMarker.Shape = Enum.PartType.Ball aimMarker.Color = Color3.fromRGB(255, 50, 50) aimMarker.Material = Enum.Material.Neon aimMarker.CanCollide = false aimMarker.CanTouch = false aimMarker.CanQuery = false aimMarker.Anchored = true aimMarker.Parent = Workspace aimMarker.Transparency = 1
 task.spawn(function()
-    while task.wait(0.1) and isRunning do
+    while isRunning do
         if CFG.Prediction and currentSession and currentSession.root and currentSession.root.Parent then
             local murdererRoot = getClosestMurderer(currentSession.root.Position)
             if murdererRoot then
@@ -1207,6 +1207,7 @@ task.spawn(function()
             aimMarker.Transparency = 1
             if targetHUD then targetHUD:SetTarget(nil) end
         end
+        task.wait(CFG.Prediction and 0.1 or 0.35)
     end
 end)
 
@@ -1934,7 +1935,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.43 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.44 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1989,4 +1990,5 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.42: TargetHUD tracks and cancels all six fade tweens on rapid target changes/unload,
 -- preventing stale transparency animations from competing with the current target.
 -- v91.43: cancels the previous target's health-bar tween before resetting the new target's bar.
+-- v91.44: Prediction loop sleeps longer while disabled and returns to 0.1s updates only when enabled.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
