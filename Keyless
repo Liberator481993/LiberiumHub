@@ -1567,8 +1567,20 @@ do
         table.clear(self._elements)
         table.clear(self._hooks)
     end
-    api.unload = api.unload
-    api.destroy = api.destroy
+    -- Public API accepts both Shitaro-style dot calls (sh.tab(...)) and colon calls.
+    local function dualCall(method)
+        return function(first, ...)
+            if first == api then return method(api, ...) end
+            return method(api, first, ...)
+        end
+    end
+    api.tab = dualCall(api.tab)
+    api.el = dualCall(api.el)
+    api.on = dualCall(api.on)
+    api.emit = dualCall(api.emit)
+    api.hook = dualCall(api.hook)
+    api.dispatchHook = dualCall(api.dispatchHook)
+    api.unload = dualCall(api.unload)
     LiberiumAPI = api
 end
 local sh = LiberiumAPI
