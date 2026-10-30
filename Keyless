@@ -779,10 +779,40 @@ function Lib.new(title)
     label({Text="MM2  •  v91.18",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
-    local dr, ds, sp
-    table.insert(s.Conns, s.Title.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr,ds,sp=true,i.Position,s.Main.Position end end))
-    table.insert(s.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then local d=(i.Position-ds)/s.Scale.Scale s.Main.Position=UDim2.new(sp.X.Scale,sp.X.Offset+d.X,sp.Y.Scale,sp.Y.Offset+d.Y) end end))
-    table.insert(s.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
+    local dragInput, dragStart, startPosition, dragging = nil, nil, nil, false
+    local function clampWindowPosition(x, y)
+        local cam = workspace.CurrentCamera
+        if not cam then return x, y end
+        local viewport = cam.ViewportSize
+        local scale = math.max(s.Scale.Scale, 0.01)
+        local w, h = s.Main.AbsoluteSize.X / scale, s.Main.AbsoluteSize.Y / scale
+        local minX, maxX = 12, math.max(12, viewport.X - w * scale - 12)
+        local minY, maxY = 12, math.max(12, viewport.Y - h * scale - 12)
+        return math.clamp(x, minX, maxX), math.clamp(y, minY, maxY)
+    end
+    table.insert(s.Conns, s.Title.InputBegan:Connect(function(i)
+        local kind = i.UserInputType
+        if kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
+            dragInput, dragStart, startPosition, dragging = i, i.Position, s.Main.Position, true
+        end
+    end))
+    table.insert(s.Conns, UserInputService.InputChanged:Connect(function(i)
+        if not dragging or not dragInput then return end
+        local isTouchMove = dragInput.UserInputType == Enum.UserInputType.Touch and i == dragInput
+        local isMouseMove = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and i.UserInputType == Enum.UserInputType.MouseMovement
+        if not (isTouchMove or isMouseMove) then return end
+        local delta = (i.Position - dragStart) / math.max(s.Scale.Scale, 0.01)
+        local x = startPosition.X.Offset + delta.X
+        local y = startPosition.Y.Offset + delta.Y
+        x, y = clampWindowPosition(x, y)
+        s.Main.Position = UDim2.new(startPosition.X.Scale, x, startPosition.Y.Scale, y)
+    end))
+    table.insert(s.Conns, UserInputService.InputEnded:Connect(function(i)
+        if not dragInput then return end
+        local isTouchEnd = dragInput.UserInputType == Enum.UserInputType.Touch and i == dragInput
+        local isMouseEnd = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and i.UserInputType == Enum.UserInputType.MouseButton1
+        if isTouchEnd or isMouseEnd then dragging, dragInput = false, nil end
+    end))
     return s
 end
 function Win:_Select(t)
@@ -809,7 +839,7 @@ function Win:AddTab(name, icon)
     t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
     t.Btn.Activated:Connect(function() self:_Select(t) end)
     t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
-    t.SubBar = create("Frame", {Size=UDim2.new(1,0,0,34),BackgroundTransparency=1,Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6)})})
+    t.SubBar = create("ScrollingFrame", {Name="SubTabScroller",Size=UDim2.new(1,0,0,36),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=0,ScrollingDirection=Enum.ScrollingDirection.X,ScrollingEnabled=true,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),ElasticBehavior=Enum.ElasticBehavior.WhenScrollable,Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,38),Size=UDim2.new(1,0,1,-38),BackgroundTransparency=1,Parent=t.Cont})
     table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
 end
