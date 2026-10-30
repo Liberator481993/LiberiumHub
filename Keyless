@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.46 | OVERHEAD ON-DEMAND BUILD
+-- LIBERIUM HUB | v91.47 | LAZY FARM TRACKERS
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -740,14 +740,41 @@ weaponTracker = (function()
             current = current.Parent
         end
     end
-    local conn1 = Workspace.DescendantAdded:Connect(add)
-    local conn2 = Workspace.DescendantRemoving:Connect(function(inst)
-        local idx = table.find(weapons, inst)
-        if idx then table.remove(weapons, idx) end
+    local conn1, conn2
+    local running = false
+    local scanToken = 0
+    local function onRemoving(inst)
+        local index = table.find(weapons, inst)
+        if index then table.remove(weapons, index) end
         if inst then skipped[inst] = nil end
-    end)
-    for _, inst in ipairs(Workspace:GetDescendants()) do add(inst) end
+    end
+    function API:Start()
+        if running then return end
+        running = true
+        scanToken += 1
+        local token = scanToken
+        conn1 = Workspace.DescendantAdded:Connect(add)
+        conn2 = Workspace.DescendantRemoving:Connect(onRemoving)
+        task.spawn(function()
+            local descendants = Workspace:GetDescendants()
+            for index, inst in ipairs(descendants) do
+                if not running or scanToken ~= token then return end
+                add(inst)
+                if index % 350 == 0 then task.wait() end
+            end
+        end)
+    end
+    function API:Stop()
+        if not running then return end
+        running = false
+        scanToken += 1
+        if conn1 then pcall(function() conn1:Disconnect() end); conn1 = nil end
+        if conn2 then pcall(function() conn2:Disconnect() end); conn2 = nil end
+        table.clear(weapons)
+        table.clear(skipped)
+    end
     function API:GetClosest(origin, maxDist)
+        if not running then return nil, nil end
         local best, bestSq = nil, (maxDist and maxDist * maxDist or math.huge)
         local now = os.clock()
         for i = #weapons, 1, -1 do
@@ -775,13 +802,11 @@ weaponTracker = (function()
         return best, best and math.sqrt(bestSq) or nil
     end
     function API:Skip(obj, seconds)
-        if obj then skipped[obj] = os.clock() + math.clamp(tonumber(seconds) or 2, 0.25, 15) end
+        if not running or not obj then return end
+        skipped[obj] = os.clock() + math.clamp(tonumber(seconds) or 2, 0.25, 15)
     end
     function API:Destroy()
-        pcall(function() conn1:Disconnect() end)
-        pcall(function() conn2:Disconnect() end)
-        table.clear(weapons)
-        table.clear(skipped)
+        self:Stop()
     end
     return API
 end)()
@@ -1026,7 +1051,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.46",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.47",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
@@ -1325,14 +1350,41 @@ coinTracker = (function()
             current = current.Parent
         end
     end
-    local conn1 = Workspace.DescendantAdded:Connect(add)
-    local conn2 = Workspace.DescendantRemoving:Connect(function(inst)
+    local conn1, conn2
+    local running = false
+    local scanToken = 0
+    local function onRemoving(inst)
         local index = table.find(coins, inst)
         if index then table.remove(coins, index) end
         if inst then skipped[inst] = nil end
-    end)
-    for _, inst in ipairs(Workspace:GetDescendants()) do add(inst) end
+    end
+    function API:Start()
+        if running then return end
+        running = true
+        scanToken += 1
+        local token = scanToken
+        conn1 = Workspace.DescendantAdded:Connect(add)
+        conn2 = Workspace.DescendantRemoving:Connect(onRemoving)
+        task.spawn(function()
+            local descendants = Workspace:GetDescendants()
+            for index, inst in ipairs(descendants) do
+                if not running or scanToken ~= token then return end
+                add(inst)
+                if index % 350 == 0 then task.wait() end
+            end
+        end)
+    end
+    function API:Stop()
+        if not running then return end
+        running = false
+        scanToken += 1
+        if conn1 then pcall(function() conn1:Disconnect() end); conn1 = nil end
+        if conn2 then pcall(function() conn2:Disconnect() end); conn2 = nil end
+        table.clear(coins)
+        table.clear(skipped)
+    end
     function API:GetClosest(origin, maxDist)
+        if not running then return nil, nil end
         local best, bestSq = nil, (maxDist and maxDist * maxDist or math.huge)
         local now = os.clock()
         for i = #coins, 1, -1 do
@@ -1355,13 +1407,11 @@ coinTracker = (function()
         return best, best and math.sqrt(bestSq) or nil
     end
     function API:Skip(obj, seconds)
-        if obj then skipped[obj] = os.clock() + math.clamp(tonumber(seconds) or 2, 0.25, 15) end
+        if not running or not obj then return end
+        skipped[obj] = os.clock() + math.clamp(tonumber(seconds) or 2, 0.25, 15)
     end
     function API:Destroy()
-        pcall(function() conn1:Disconnect() end)
-        pcall(function() conn2:Disconnect() end)
-        table.clear(coins)
-        table.clear(skipped)
+        self:Stop()
     end
     return API
 end)()
@@ -1884,8 +1934,8 @@ local sh = LiberiumAPI
 win.API = sh
 table.insert(win.Conns, { Disconnect = function() sh:destroy() end })
 
-local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
-local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Weapons"); local pickupToggle = secPick:AddToggle("Auto Pickup Weapons", CFG.AutoPickup, function(v) CFG.AutoPickup = v end); local pickupRangeSlider = secPick:AddSlider("Pickup Range", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
+local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start() else coinTracker:Stop() end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
+local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Weapons"); local pickupToggle = secPick:AddToggle("Auto Pickup Weapons", CFG.AutoPickup, function(v) CFG.AutoPickup = v if v then weaponTracker:Start() else weaponTracker:Stop() end end); local pickupRangeSlider = secPick:AddSlider("Pickup Range", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
 
 local tVis = win:AddTab("Visuals", "👁"); local sVis = tVis:AddSubTab("ESP"); local secV = sVis:AddSection("Players"); local espOutlineToggle = secV:AddToggle("ESP Outline", CFG.ESP_Outline, function(v) CFG.ESP_Outline = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espFillToggle = secV:AddToggle("ESP Fill", CFG.ESP_Fill, function(v) CFG.ESP_Fill = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espNameToggle = secV:AddToggle("ESP Name", CFG.ESP_Name, function(v) CFG.ESP_Name = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end); local espDistToggle = secV:AddToggle("ESP Distance", CFG.ESP_Distance, function(v) CFG.ESP_Distance = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end)
 colorFromName = function(name)
@@ -1915,6 +1965,8 @@ secCfg:AddButton("Load Settings", function()
     end
     -- Revalidate every persisted value, not only the few controls most likely to break.
     normalizeConfig()
+    if CFG.AutoFarm then coinTracker:Start() else coinTracker:Stop() end
+    if CFG.AutoPickup then weaponTracker:Start() else weaponTracker:Stop() end
 
     farmToggle:Set(CFG.AutoFarm, true); speedSlider:Set(CFG.MaxSpeed, true)
     pickupToggle:Set(CFG.AutoPickup, true); pickupRangeSlider:Set(CFG.PickupRange, true)
@@ -1951,7 +2003,7 @@ secCfg:AddButton("Load Settings", function()
 end)
 local sSess = tSet:AddSubTab("Session"); local secSess = sSess:AddSection("Anti-AFK"); local afkToggle = secSess:AddToggle("Enable Anti-AFK", CFG.AntiAFK, function(v) CFG.AntiAFK = v if v then SessionManager.StartAntiAFK() else SessionManager.StopAntiAFK() end end); local secTeleport = sSess:AddSection("Teleport"); secTeleport:AddButton("Rejoin Server", function() SessionManager.RejoinServer() end); secTeleport:AddButton("Server Hop", function() SessionManager.ServerHop() end)
 
-task.defer(function() if CFG.AutoFarm then farmToggle:Set(true, true) end if CFG.AutoPickup then pickupToggle:Set(true, true) end if CFG.ESP_Outline or CFG.ESP_Fill then espOutlineToggle:Set(CFG.ESP_Outline, true) espFillToggle:Set(CFG.ESP_Fill, true) roleHUD:Start() end if CFG.ESP_Name or CFG.ESP_Distance then espNameToggle:Set(CFG.ESP_Name, true) espDistToggle:Set(CFG.ESP_Distance, true) overheadTracker:Start() end if CFG.SkeletonESP then skelToggle:Set(true, true) skeletonObj:SetVisible(true) end skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) if CFG.LootESP then lootToggle:Set(true, true) lootObj:Start() end if CFG.AntiFling then antiFlingToggle:Set(true, true) Stabilizer.Start() end if CFG.OptimizeFPS then optToggle:Set(true, true) VisualOptimizer.OptimizeVisuals(true) end if CFG.AntiAFK then afkToggle:Set(true, true) SessionManager.StartAntiAFK() end if CFG.WalkSpeed ~= 16 then wsSlider:Set(CFG.WalkSpeed, true) movementObj:SetWalkSpeed(CFG.WalkSpeed) end if CFG.JumpPower ~= 50 then jpSlider:Set(CFG.JumpPower, true) movementObj:SetJumpPower(CFG.JumpPower) end if CFG.Noclip then noclipToggle:Set(true, true) movementObj:SetCollision(false) end if CFG.FOVCircle then fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then tracerToggle:Set(true, true); startTracerHooks() end shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
+task.defer(function() if CFG.AutoFarm then coinTracker:Start(); farmToggle:Set(true, true) end if CFG.AutoPickup then weaponTracker:Start(); pickupToggle:Set(true, true) end if CFG.ESP_Outline or CFG.ESP_Fill then espOutlineToggle:Set(CFG.ESP_Outline, true) espFillToggle:Set(CFG.ESP_Fill, true) roleHUD:Start() end if CFG.ESP_Name or CFG.ESP_Distance then espNameToggle:Set(CFG.ESP_Name, true) espDistToggle:Set(CFG.ESP_Distance, true) overheadTracker:Start() end if CFG.SkeletonESP then skelToggle:Set(true, true) skeletonObj:SetVisible(true) end skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) if CFG.LootESP then lootToggle:Set(true, true) lootObj:Start() end if CFG.AntiFling then antiFlingToggle:Set(true, true) Stabilizer.Start() end if CFG.OptimizeFPS then optToggle:Set(true, true) VisualOptimizer.OptimizeVisuals(true) end if CFG.AntiAFK then afkToggle:Set(true, true) SessionManager.StartAntiAFK() end if CFG.WalkSpeed ~= 16 then wsSlider:Set(CFG.WalkSpeed, true) movementObj:SetWalkSpeed(CFG.WalkSpeed) end if CFG.JumpPower ~= 50 then jpSlider:Set(CFG.JumpPower, true) movementObj:SetJumpPower(CFG.JumpPower) end if CFG.Noclip then noclipToggle:Set(true, true) movementObj:SetCollision(false) end if CFG.FOVCircle then fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then tracerToggle:Set(true, true); startTracerHooks() end shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
 
 statsObj = StatsTracker.new(PlayerGui, { Position = UDim2.new(0, 10, 0, 180) }) statsObj:SetVisible(CFG.ShowStats)
 crosshairObj = Crosshair.new(PlayerGui, { Color = Color3.fromRGB(255, 255, 255), Size = 20 })
@@ -1967,7 +2019,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.46 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.47 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -2027,4 +2079,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- them when disabled; stale asynchronous builds are invalidated by the player token.
 -- v91.46: OverheadTracker creates BillboardGuis only while Name/Distance ESP is active;
 -- Stop clears entries/listeners and Start rebuilds for current characters.
+-- v91.47: coin/weapon trackers scan Workspace and connect Descendant events only while
+-- their AutoFarm/AutoPickup toggle is enabled; initial scans run in 350-instance batches.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
