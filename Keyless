@@ -867,40 +867,44 @@ function Tab:AddSubTab(name)
 end
 function Sub:AddSection(name)
     local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
-    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.16,Parent=self.Scroll}, {corner(11), stroke(1,0.72), pad(10), create("UIListLayout", {Padding=UDim.new(0,6)})})
-    label({Text=string.upper(name),Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.Accent,Size=UDim2.new(1,0,0,16),Parent=s.Frame}) return s
+    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.12,Parent=self.Scroll}, {corner(12), stroke(1,0.62), pad(11), create("UIListLayout", {Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder})})
+    label({Text=string.upper(name),Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.Accent2,Size=UDim2.new(1,0,0,17),Parent=s.Frame})
+    create("Frame", {Name="SectionAccent",Size=UDim2.new(1,0,0,1),BackgroundColor3=THEME.Accent,BackgroundTransparency=0.48,BorderSizePixel=0,Parent=s.Frame})
+    return s
 end
 function Sec:AddToggle(name, def, cb)
     local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,42),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(8), stroke(1,0.9)})
-    label({Text=name,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-70,1,0),Parent=r})
-    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(38,20),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70),Parent=r}, {corner(10)})
-    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(14,14),BackgroundColor3=Color3.new(1,1,1),Parent=t}, {corner(7)})
-    hover(r,r,0.6,0.4)
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,46),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Surface,BackgroundTransparency=0.12,BorderSizePixel=0,Parent=self.Frame}, {corner(9), stroke(1,0.78)})
+    label({Text=name,Position=UDim2.fromOffset(12,0),Size=UDim2.new(1,-82,1,0),Font=Enum.Font.GothamMedium,TextSize=13,Parent=r})
+    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-11,0.5,0),Size=UDim2.fromOffset(42,23),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(48,52,68),BackgroundTransparency=st and 0.08 or 0.12,Parent=r}, {corner(12),stroke(1,st and 0.42 or 0.78)})
+    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(16,16),BackgroundColor3=Color3.fromRGB(245,246,255),Parent=t}, {corner(8),stroke(1,0.72)})
+    hover(r,r,0.78,0.68)
     local obj = {}
-    function obj:Set(v, s) st = v and true or false tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(55,55,70)}) tween(k,FAST,{Position=st and UDim2.new(1,-17,0.5,0) or UDim2.new(0,3,0.5,0)}) if not s and cb then task.spawn(cb,st) end end
+    function obj:Set(v, s) st = v and true or false tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(48,52,68),BackgroundTransparency=st and 0.08 or 0.12}) tween(k,FAST,{Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0)}) if not s and cb then task.spawn(cb,st) end end
     r.Activated:Connect(function() obj:Set(not st) end) return obj
 end
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
     inc = inc or 1 local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,44),BackgroundColor3=THEME.Element,BackgroundTransparency=0.38,Parent=self.Frame}, {corner(8), stroke(1,0.92)})
-    label({Text=name,Position=UDim2.fromOffset(10,4),Size=UDim2.new(1,-80,0,18),Parent=r})
-    local vl = label({Text=tostring(val),TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,4),Size=UDim2.fromOffset(60,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,10,1,-20),Size=UDim2.new(1,-20,0,16),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(55,55,70),Parent=r}, {corner(3)})
-    local f = create("Frame", {Size=UDim2.fromScale((val-mn)/(mx-mn),1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(3)})
-    hover(r,r,0.6,0.4)
+    local r = create("Frame", {Size=UDim2.new(1,0,0,54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.16,BorderSizePixel=0,Parent=self.Frame}, {corner(9),stroke(1,0.82)})
+    label({Text=name,Position=UDim2.fromOffset(12,5),Size=UDim2.new(1,-86,0,18),Font=Enum.Font.GothamMedium,TextSize=13,Parent=r})
+    local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-72,0,5),Size=UDim2.fromOffset(60,18),Parent=r})
+    local t = create("TextButton", {Position=UDim2.new(0,10,1,-29),Size=UDim2.new(1,-20,0,24),Text="",AutoButtonColor=false,BackgroundTransparency=1,Parent=r})
+    local rail = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.new(1,0,0,6),BackgroundColor3=Color3.fromRGB(48,52,68),BorderSizePixel=0,Parent=t}, {corner(4)})
+    local f = create("Frame", {Size=UDim2.fromScale((val-mn)/(mx-mn),1),BackgroundColor3=THEME.Accent,BorderSizePixel=0,Parent=rail}, {corner(4)})
+    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale((val-mn)/(mx-mn),0.5),Size=UDim2.fromOffset(13,13),BackgroundColor3=Color3.fromRGB(245,246,255),BorderSizePixel=0,Parent=rail}, {corner(7),stroke(1,0.55)})
+    hover(r,r,0.78,0.68)
     local obj = {}
-    function obj:Set(v, s) v = tonumber(v) or val v = math.clamp(math.floor(v/inc+0.5)*inc, mn, mx) val=v vl.Text=tostring(math.round(v*1000)/1000) tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale((v-mn)/(mx-mn),1)}) if not s and cb then task.spawn(cb,v) end end
-    local dr = false
-    local function fromX(x) local width = t.AbsoluteSize.X if width <= 0 then return end local a = math.clamp((x-t.AbsolutePosition.X)/width,0,1) obj:Set(mn+(mx-mn)*a) end
-    t.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=true fromX(i.Position.X) end end)
-    table.insert(self.Win.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then fromX(i.Position.X) end end))
-    table.insert(self.Win.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
+    function obj:Set(v, s) v = tonumber(v) or val v = math.clamp(math.floor(v/inc+0.5)*inc, mn, mx) val=v local ratio=(v-mn)/(mx-mn) vl.Text=tostring(math.round(v*1000)/1000) tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale(ratio,1)}) tween(knob,TweenInfo.new(0.08),{Position=UDim2.fromScale(ratio,0.5)}) if not s and cb then task.spawn(cb,v) end end
+    local dragInput, dragType = nil, nil
+    local function fromX(x) local width=t.AbsoluteSize.X if width<=0 then return end local a=math.clamp((x-t.AbsolutePosition.X)/width,0,1) obj:Set(mn+(mx-mn)*a) end
+    t.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragInput=i dragType=i.UserInputType fromX(i.Position.X) end end)
+    table.insert(self.Win.Conns,UserInputService.InputChanged:Connect(function(i) if not dragInput then return end local moving=(dragType==Enum.UserInputType.Touch and i==dragInput) or (dragType==Enum.UserInputType.MouseButton1 and i.UserInputType==Enum.UserInputType.MouseMovement) if moving then fromX(i.Position.X) end end))
+    table.insert(self.Win.Conns,UserInputService.InputEnded:Connect(function(i) if dragInput and ((dragType==Enum.UserInputType.Touch and i==dragInput) or (dragType==Enum.UserInputType.MouseButton1 and i.UserInputType==Enum.UserInputType.MouseButton1)) then dragInput=nil dragType=nil end end))
     return obj
 end
 function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamMedium,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.75,Size=UDim2.new(1,0,0,36),Parent=self.Frame}, {corner(8), stroke(1,0.78)})
-    hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
+    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.72,Size=UDim2.new(1,0,0,40),AutoButtonColor=false,Parent=self.Frame}, {corner(9),stroke(1,0.68),create("UIGradient",{Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})
+    hover(b,b,0.72,0.48) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.28}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.52}) end)
     b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
 end
 function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
