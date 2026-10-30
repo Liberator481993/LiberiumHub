@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.59 | CONFIG SCHEMA MIGRATION + USER RANGE PRESERVATION
+-- LIBERIUM HUB | v91.60 | SHADER OWNERSHIP + PRESET TWEEN CLEANUP
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -397,7 +397,109 @@ Crosshair = (function() local CH = {} CH.__index = CH local DEFAULT_COLOR = Colo
 
 SessionManager = (function() local SM = {} local AFK_INTERVAL = 60 local SERVER_LIST_URL = "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100" local afkToken = 0 local afkRunning = false local isTeleporting = false local teleportFailedConnection SM.Notify = function(msg) if NotificationManager then NotificationManager.Notify(msg, "Error", 4) end end local function getLocalPlayer() return Players.LocalPlayer end local function getHumanoid() local player = getLocalPlayer() local character = player and player.Character if not character or not character.Parent then return nil end local humanoid = character:FindFirstChildOfClass("Humanoid") if humanoid and humanoid.Health > 0 then return humanoid end return nil end local function doAfkAction() local ok = pcall(function() local VirtualUser = game:GetService("VirtualUser") VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new(0, 0)) end) if ok then return end pcall(function() local humanoid = getHumanoid() if humanoid then humanoid.Jump = true end end) end function SM.StartAntiAFK() if afkRunning then return end afkRunning = true afkToken += 1 local myToken = afkToken task.spawn(function() while afkRunning and afkToken == myToken do for _ = 1, AFK_INTERVAL do if not afkRunning or afkToken ~= myToken then return end task.wait(1) end if afkRunning and afkToken == myToken then doAfkAction() end end end) end function SM.StopAntiAFK() afkRunning = false afkToken += 1 end function SM.IsAntiAFKRunning() return afkRunning end teleportFailedConnection = TeleportService.TeleportInitFailed:Connect(function(player, result, errorMessage) if player == getLocalPlayer() then isTeleporting = false SM.Notify(("Teleport failed: %s"):format(tostring(errorMessage))) end end) function SM.Destroy() SM.StopAntiAFK() if teleportFailedConnection then teleportFailedConnection:Disconnect() teleportFailedConnection = nil end end function SM.RejoinServer() if isTeleporting then return end local player = getLocalPlayer() if not player then return end isTeleporting = true local ok, err = pcall(function() if #Players:GetPlayers() <= 1 then TeleportService:Teleport(game.PlaceId, player) else TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end end) if not ok then isTeleporting = false SM.Notify("Rejoin failed: " .. tostring(err)) end end function SM.ServerHop() if isTeleporting then return end isTeleporting = true local ok, err = pcall(function() local url = SERVER_LIST_URL:format(game.PlaceId) local response = HttpService:RequestAsync({ Url = url, Method = "GET" }) if not response.Success then error("HTTP " .. response.StatusCode) end local data = HttpService:JSONDecode(response.Body) local candidates = {} for _, server in ipairs(data.data or {}) do if server.id ~= game.JobId and server.playing < server.maxPlayers then table.insert(candidates, server.id) end end if #candidates == 0 then error("no other open public servers found") end local jobId = candidates[math.random(1, #candidates)] TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, getLocalPlayer()) end) if not ok then isTeleporting = false SM.Notify("Server hop failed (HttpService blocked?)") end end return SM end)()
 
-AestheticsManager = (function() local AM = {} local TRANSITION = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) local MAX_EMITTER_RATE = 25 local PRESETS = { Neon = { ColorCorrection = { Enabled = true, Saturation = 1.5, Contrast = 0.15, Brightness = -0.05, TintColor = Color3.fromRGB(185, 175, 235) }, Bloom = { Enabled = true, Intensity = 1.5, Size = 40, Threshold = 0.8 }, DepthOfField = { Enabled = false } }, Cinematic = { ColorCorrection = { Enabled = true, Saturation = 0.1, Contrast = 0.2, Brightness = 0, TintColor = Color3.fromRGB(255, 240, 220) }, Bloom = { Enabled = true, Intensity = 0.5, Size = 24, Threshold = 1.0 }, DepthOfField = { Enabled = true, FarIntensity = 0.15, NearIntensity = 0, FocusDistance = 40, InFocusRadius = 30 } }, Default = { ColorCorrection = { Enabled = true, Saturation = 0, Contrast = 0, Brightness = 0, TintColor = Color3.new(1, 1, 1) }, Bloom = { Enabled = false, Intensity = 0, Size = 24, Threshold = 2 }, DepthOfField = { Enabled = false, FarIntensity = 0, NearIntensity = 0 } } } local EFFECT_DEFS = { ColorCorrection = { class = "ColorCorrectionEffect", name = "AestheticsColorCorrection" }, Bloom = { class = "BloomEffect", name = "AestheticsBloom" }, DepthOfField = { class = "DepthOfFieldEffect", name = "AestheticsDepthOfField" } } local function getEffect(key) local def = EFFECT_DEFS[key] local existing = Lighting:FindFirstChild(def.name) if existing and existing:IsA(def.class) then return existing end local effect = Instance.new(def.class) effect.Name = def.name effect.Parent = Lighting return effect end local function applyToEffect(effect, values) local tweenGoals = {} for property, value in pairs(values) do if property == "Enabled" then if value then effect.Enabled = true end else tweenGoals[property] = value end end local tween = TweenService:Create(effect, TRANSITION, tweenGoals) if values.Enabled == false then tween.Completed:Once(function() pcall(function() effect.Enabled = false end) end) end tween:Play() end function AM.ApplyShaderPreset(presetName) local preset = PRESETS[presetName] if not preset then return false end for key, values in pairs(preset) do pcall(function() applyToEffect(getEffect(key), values) end) end return true end function AM.CleanupShaders() for _, def in pairs(EFFECT_DEFS) do local effect = Lighting:FindFirstChild(def.name) if effect then pcall(function() effect:Destroy() end) end end end local function seq(...) return NumberSequence.new({ ... }) end local AURAS = { Fire = { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 190, 60)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 20)), ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 10, 0)) }), Size = seq(NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(0.6, 0.4), NumberSequenceKeypoint.new(1, 0)), Transparency = seq(NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.7, 0.6), NumberSequenceKeypoint.new(1, 1)), Lifetime = NumberRange.new(0.7, 1.2), Speed = NumberRange.new(3, 5), Rate = 22, SpreadAngle = Vector2.new(20, 20), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-30, 30), Acceleration = Vector3.new(0, 4, 0), LightEmission = 1, LightColor = Color3.fromRGB(255, 120, 30), LightBrightness = 1.5 }, Ice = { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 235, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 190, 255)) }), Size = seq(NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.3, 0.5), NumberSequenceKeypoint.new(1, 0.1)), Transparency = seq(NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.3), NumberSequenceKeypoint.new(1, 1)), Lifetime = NumberRange.new(1.5, 2.5), Speed = NumberRange.new(0.5, 1.5), Rate = 14, SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-60, 60), Acceleration = Vector3.new(0, 0.6, 0), LightEmission = 0.6, LightColor = Color3.fromRGB(140, 225, 255), LightBrightness = 1 } } local EMITTER_NAME = "AestheticsAuraEmitter" local LIGHT_NAME = "AestheticsAuraLight" local auraState = {} local playerRemovingConnection local managerDestroyed = false local function destroyAuraInstances(character) if not character then return end pcall(function() local root = character:FindFirstChild("HumanoidRootPart") if not root then return end local emitter = root:FindFirstChild(EMITTER_NAME) if emitter then emitter:Destroy() end local light = root:FindFirstChild(LIGHT_NAME) if light then light:Destroy() end end) end local function isAuraRequestCurrent(character, auraType, player, state)
+AestheticsManager = (function() local AM = {} local TRANSITION = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) local MAX_EMITTER_RATE = 25 local PRESETS = { Neon = { ColorCorrection = { Enabled = true, Saturation = 1.5, Contrast = 0.15, Brightness = -0.05, TintColor = Color3.fromRGB(185, 175, 235) }, Bloom = { Enabled = true, Intensity = 1.5, Size = 40, Threshold = 0.8 }, DepthOfField = { Enabled = false } }, Cinematic = { ColorCorrection = { Enabled = true, Saturation = 0.1, Contrast = 0.2, Brightness = 0, TintColor = Color3.fromRGB(255, 240, 220) }, Bloom = { Enabled = true, Intensity = 0.5, Size = 24, Threshold = 1.0 }, DepthOfField = { Enabled = true, FarIntensity = 0.15, NearIntensity = 0, FocusDistance = 40, InFocusRadius = 30 } }, Default = { ColorCorrection = { Enabled = true, Saturation = 0, Contrast = 0, Brightness = 0, TintColor = Color3.new(1, 1, 1) }, Bloom = { Enabled = false, Intensity = 0, Size = 24, Threshold = 2 }, DepthOfField = { Enabled = false, FarIntensity = 0, NearIntensity = 0 } } } local EFFECT_DEFS = {
+    ColorCorrection = { class = "ColorCorrectionEffect", name = "AestheticsColorCorrection" },
+    Bloom = { class = "BloomEffect", name = "AestheticsBloom" },
+    DepthOfField = { class = "DepthOfFieldEffect", name = "AestheticsDepthOfField" }
+}
+local EFFECT_PROPERTIES = {
+    ColorCorrection = {"Enabled","Saturation","Contrast","Brightness","TintColor"},
+    Bloom = {"Enabled","Intensity","Size","Threshold"},
+    DepthOfField = {"Enabled","FarIntensity","NearIntensity","FocusDistance","InFocusRadius"}
+}
+local originalEffectValues = setmetatable({}, {__mode = "k"})
+local createdEffects = setmetatable({}, {__mode = "k"})
+local activeEffectTweens = setmetatable({}, {__mode = "k"})
+local effectByKey = {}
+
+local function getEffect(key)
+    local def = EFFECT_DEFS[key]
+    local existing = Lighting:FindFirstChild(def.name)
+    if existing and existing:IsA(def.class) then
+        if not originalEffectValues[existing] and not createdEffects[existing] then
+            local snapshot = {}
+            for _, property in ipairs(EFFECT_PROPERTIES[key]) do
+                local ok, value = pcall(function() return existing[property] end)
+                if ok then snapshot[property] = value end
+            end
+            originalEffectValues[existing] = snapshot
+        end
+        effectByKey[key] = existing
+        return existing
+    end
+
+    local effect = Instance.new(def.class)
+    effect.Name = def.name
+    effect.Parent = Lighting
+    createdEffects[effect] = true
+    effectByKey[key] = effect
+    return effect
+end
+
+local function applyToEffect(effect, values)
+    local previousTween = activeEffectTweens[effect]
+    if previousTween then
+        activeEffectTweens[effect] = nil
+        pcall(function() previousTween:Cancel() end)
+    end
+
+    local tweenGoals = {}
+    for property, value in pairs(values) do
+        if property == "Enabled" then
+            if value then effect.Enabled = true end
+        else
+            tweenGoals[property] = value
+        end
+    end
+
+    local activeTween = TweenService:Create(effect, TRANSITION, tweenGoals)
+    activeEffectTweens[effect] = activeTween
+    activeTween.Completed:Connect(function(playbackState)
+        if activeEffectTweens[effect] ~= activeTween then return end
+        activeEffectTweens[effect] = nil
+        if values.Enabled == false and playbackState == Enum.PlaybackState.Completed then
+            pcall(function() effect.Enabled = false end)
+        end
+    end)
+    activeTween:Play()
+end
+
+function AM.ApplyShaderPreset(presetName)
+    local preset = PRESETS[presetName]
+    if not preset then return false end
+    for key, values in pairs(preset) do
+        pcall(function() applyToEffect(getEffect(key), values) end)
+    end
+    return true
+end
+
+function AM.CleanupShaders()
+    for key, effect in pairs(effectByKey) do
+        local activeTween = activeEffectTweens[effect]
+        if activeTween then
+            activeEffectTweens[effect] = nil
+            pcall(function() activeTween:Cancel() end)
+        end
+
+        if effect and effect.Parent then
+            if createdEffects[effect] then
+                pcall(function() effect:Destroy() end)
+            else
+                local snapshot = originalEffectValues[effect]
+                if snapshot then
+                    for property, value in pairs(snapshot) do
+                        pcall(function() effect[property] = value end)
+                    end
+                end
+            end
+        end
+
+        effectByKey[key] = nil
+    end
+    table.clear(originalEffectValues)
+    table.clear(createdEffects)
+    table.clear(activeEffectTweens)
+end local function seq(...) return NumberSequence.new({ ... }) end local AURAS = { Fire = { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 190, 60)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 20)), ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 10, 0)) }), Size = seq(NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(0.6, 0.4), NumberSequenceKeypoint.new(1, 0)), Transparency = seq(NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.7, 0.6), NumberSequenceKeypoint.new(1, 1)), Lifetime = NumberRange.new(0.7, 1.2), Speed = NumberRange.new(3, 5), Rate = 22, SpreadAngle = Vector2.new(20, 20), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-30, 30), Acceleration = Vector3.new(0, 4, 0), LightEmission = 1, LightColor = Color3.fromRGB(255, 120, 30), LightBrightness = 1.5 }, Ice = { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 235, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 190, 255)) }), Size = seq(NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.3, 0.5), NumberSequenceKeypoint.new(1, 0.1)), Transparency = seq(NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.3), NumberSequenceKeypoint.new(1, 1)), Lifetime = NumberRange.new(1.5, 2.5), Speed = NumberRange.new(0.5, 1.5), Rate = 14, SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-60, 60), Acceleration = Vector3.new(0, 0.6, 0), LightEmission = 0.6, LightColor = Color3.fromRGB(140, 225, 255), LightBrightness = 1 } } local EMITTER_NAME = "AestheticsAuraEmitter" local LIGHT_NAME = "AestheticsAuraLight" local auraState = {} local playerRemovingConnection local managerDestroyed = false local function destroyAuraInstances(character) if not character then return end pcall(function() local root = character:FindFirstChild("HumanoidRootPart") if not root then return end local emitter = root:FindFirstChild(EMITTER_NAME) if emitter then emitter:Destroy() end local light = root:FindFirstChild(LIGHT_NAME) if light then light:Destroy() end end) end local function isAuraRequestCurrent(character, auraType, player, state)
     if managerDestroyed then return false end
     if player and (auraState[player] ~= state or player.Character ~= character) then return false end
     if state and state.type ~= auraType then return false end
@@ -1219,14 +1321,14 @@ function Lib.new(title)
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.59",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text="MM2  /  LIVE  /  v91.60",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.59",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="NEON BUILD  /  v91.60",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -2591,7 +2693,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.59 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.60 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -2667,6 +2769,8 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- preventing the old cleanup closure from destroying the new BlurEffect reference.
 -- v91.59: config schema version 2 migrates legacy default pickup range once; a user-saved 100-stud
 -- range is preserved on restart and during manual config reload.
+-- v91.60: Shader Preset tracks effects created by Liberium separately from existing Lighting effects;
+-- pre-existing properties are restored on unload, and superseded preset tweens are cancelled safely.
 -- v91.55: coin tracker now binds only to the active CoinContainer, scans its descendants in small batches,
 -- automatically rebinds on map/container replacement, and removes the previous full-Workspace initial scan.
 -- v91.54: adds a live Home dashboard for farm, gun pickup, ESP and map state without changing
