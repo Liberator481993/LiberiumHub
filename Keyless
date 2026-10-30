@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.31 | CHARACTER CONNECTION CLEANUP
+-- LIBERIUM HUB | v91.32 | TRACER RESPAWN WATCHERS
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -766,14 +766,19 @@ local tracerToolConnections = setmetatable({}, { __mode = "k" })
 local tracerWatchConnections = {}
 local function startTracerHooks()
     if #tracerWatchConnections > 0 then return end
+
+    local watchedContainers = setmetatable({}, { __mode = "k" })
+
     local function bindTool(tool)
         if not tool or not tool:IsA("Tool") or tracerToolConnections[tool] then return end
         local name = string.lower(tool.Name)
         if not (name:find("gun", 1, true) or name:find("pistol", 1, true) or name:find("revolver", 1, true)) then return end
-        tracerToolConnections[tool] = tool.Activated:Connect(function()
+
+        local activatedConnection = tool.Activated:Connect(function()
             if not CFG.Tracers or not isRunning then return end
             local camera = Workspace.CurrentCamera
             if not camera then return end
+
             local viewport = camera.ViewportSize
             local ray = camera:ViewportPointToRay(viewport.X * 0.5, viewport.Y * 0.5)
             local params = RaycastParams.new()
@@ -782,44 +787,93 @@ local function startTracerHooks()
             if LocalPlayer.Character then table.insert(excluded, LocalPlayer.Character) end
             if aimMarker then table.insert(excluded, aimMarker) end
             params.FilterDescendantsInstances = excluded
+
             local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
             local endpoint = hit and hit.Position or (ray.Origin + ray.Direction * 250)
             local handle = tool:FindFirstChild("Handle")
             local origin = handle and handle:IsA("BasePart") and handle.Position or ray.Origin
             TracerEffect.Create(origin, endpoint, colorFromName and colorFromName(CFG.TracerColor) or Color3.fromRGB(255,220,48))
         end)
+
+        local ancestryConnection
+        ancestryConnection = tool.AncestryChanged:Connect(function(_, parent)
+            if parent ~= nil then return end
+            pcall(function() activatedConnection:Disconnect() end)
+            if ancestryConnection then pcall(function() ancestryConnection:Disconnect() end) end
+            tracerToolConnections[tool] = nil
+        end)
+        tracerToolConnections[tool] = {
+            Activated = activatedConnection,
+            Ancestry = ancestryConnection
+        }
     end
-    local watchedContainers = setmetatable({}, { __mode = "k" })
+
+    local function trackConnection(connection)
+        table.insert(tracerWatchConnections, connection)
+        return connection
+    end
+
     local function watch(container)
         if not container or watchedContainers[container] then return end
         watchedContainers[container] = true
+
         for _, child in ipairs(container:GetChildren()) do bindTool(child) end
-        local added = container.ChildAdded:Connect(bindTool)
-        table.insert(tracerWatchConnections, added)
+
+        local added
         local removing
-        removing = container.AncestryChanged:Connect(function(_, parent)
-            if parent == nil then
-                pcall(function() added:Disconnect() end)
-                pcall(function() removing:Disconnect() end)
-                watchedContainers[container] = nil
+        local function detach()
+            if not watchedContainers[container] then return end
+            watchedContainers[container] = nil
+
+            if added then pcall(function() added:Disconnect() end) end
+            if removing then pcall(function() removing:Disconnect() end) end
+
+            for index = #tracerWatchConnections, 1, -1 do
+                local connection = tracerWatchConnections[index]
+                if connection == added or connection == removing then
+                    table.remove(tracerWatchConnections, index)
+                end
             end
-        end)
-        table.insert(tracerWatchConnections, removing)
+        end
+
+        added = trackConnection(container.ChildAdded:Connect(bindTool))
+        removing = trackConnection(container.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then detach() end
+        end))
     end
-    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-    if backpack then watch(backpack) end
+
+    local function watchCurrentBackpack()
+        local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+        if backpack then watch(backpack) end
+    end
+
+    watchCurrentBackpack()
     if LocalPlayer.Character then watch(LocalPlayer.Character) end
-    table.insert(tracerWatchConnections, LocalPlayer.CharacterAdded:Connect(function(character) watch(character) end))
+
+    trackConnection(LocalPlayer.ChildAdded:Connect(function(child)
+        if child:IsA("Backpack") then watch(child) end
+    end))
+    trackConnection(LocalPlayer.CharacterAdded:Connect(function(character)
+        watch(character)
+        watchCurrentBackpack()
+    end))
 end
+
 stopTracerHooks = function()
-    for _, connection in ipairs(tracerWatchConnections) do pcall(function() connection:Disconnect() end) end
-    table.clear(tracerWatchConnections)
-    -- Remove container dedupe state so a later re-enable can bind the current character/backpack again.
-    -- Weak keys also release destroyed character containers automatically.
-    for tool, connection in pairs(tracerToolConnections) do
+    for _, connection in ipairs(tracerWatchConnections) do
         pcall(function() connection:Disconnect() end)
+    end
+    table.clear(tracerWatchConnections)
+
+    -- Disconnect both the firing callback and the destruction watcher for every tool.
+    for tool, connections in pairs(tracerToolConnections) do
+        if connections then
+            if connections.Activated then pcall(function() connections.Activated:Disconnect() end) end
+            if connections.Ancestry then pcall(function() connections.Ancestry:Disconnect() end) end
+        end
         tracerToolConnections[tool] = nil
     end
+
     if TracerEffect then pcall(function() TracerEffect.DestroyAll() end) end
 end
 
@@ -872,7 +926,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.31",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.32",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
@@ -1806,7 +1860,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.31 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.32 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1843,4 +1897,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- a newer character has already replaced the one that started the task.
 -- v91.31: TargetHUD replaces old humanoid health listeners on respawn; EventLogger keeps
 -- at most one active Died listener per player and removes it on death/leave.
+-- v91.32: Tracers now watch delayed/recreated Backpacks and respawned Characters;
+-- removed containers release their watcher slots, and destroyed Tools disconnect their callbacks.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
