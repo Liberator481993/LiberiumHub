@@ -1220,9 +1220,13 @@ end)()
 local glideInProgress = false
 local function glideTo(target, speed, mode)
     local session = currentSession
-    if glideInProgress or not session or session.destroyed or not session.root or not session.root.Parent
+    -- A second worker can briefly request movement while the first one is still
+    -- releasing character physics. Report that separately so the caller does not
+    -- incorrectly blacklist a perfectly valid coin/weapon target.
+    if glideInProgress then return nil, "busy" end
+    if not session or session.destroyed or not session.root or not session.root.Parent
         or not session.humanoid or session.humanoid.Health <= 0 or not target or not target.Parent then
-        return false
+        return false, "invalid"
     end
     local character, root, humanoid = session.character, session.root, session.humanoid
     local targetPart = getTouchPart(target)
@@ -1485,11 +1489,14 @@ task.spawn(function()
                 local target = coinTracker:GetClosest(root.Position, 220)
                 if target then
                     updateFarmHUD("AutoFarm • moving to coin", THEME.Good, true)
-                    local okMove = glideTo(target, CFG.MaxSpeed, "farm")
-                    -- Even unreachable coins get a temporary cooldown so the next coin can be attempted.
-                    local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
-                    coinTracker:Skip(target, stillPresent and (okMove and 5.0 or 9.0) or 0.35)
-                    task.wait(okMove and 0.08 or 0.15)
+                    local okMove, moveReason = glideTo(target, CFG.MaxSpeed, "farm")
+                    if moveReason ~= "busy" then
+                        -- Keep failed targets on cooldown, but never penalize a target
+                        -- merely because AutoPickup was finishing its movement lock.
+                        local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
+                        coinTracker:Skip(target, stillPresent and (okMove and 2.0 or 4.0) or 0.2)
+                    end
+                    task.wait(moveReason == "busy" and 0.12 or (okMove and 0.06 or 0.12))
                 else
                     updateFarmHUD("AutoFarm • no coin detected", Color3.fromRGB(255, 195, 90), true)
                     task.wait(0.2)
@@ -1514,10 +1521,12 @@ task.spawn(function()
                 local target = weaponTracker:GetClosest(root.Position, CFG.PickupRange)
                 if target then
                     updateFarmHUD("AutoPickup • moving to weapon", THEME.Good, true)
-                    local okMove = glideTo(target, CFG.MaxSpeed, "pickup")
-                    local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
-                    weaponTracker:Skip(target, stillPresent and (okMove and 4.0 or 8.0) or 0.35)
-                    task.wait(okMove and 0.1 or 0.2)
+                    local okMove, moveReason = glideTo(target, CFG.MaxSpeed, "pickup")
+                    if moveReason ~= "busy" then
+                        local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
+                        weaponTracker:Skip(target, stillPresent and (okMove and 2.0 or 5.0) or 0.2)
+                    end
+                    task.wait(moveReason == "busy" and 0.12 or (okMove and 0.08 or 0.15))
                 else
                     updateFarmHUD("AutoPickup • no weapon detected", Color3.fromRGB(255, 195, 90), true)
                     task.wait(0.2)
@@ -1841,3 +1850,5 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.18: Loot ESP tracks candy-named pickups only; coin AutoFarm and weapon AutoPickup remain separate.
 -- v91.18 UI pass: increased mobile control hit areas and adjusted base dimensions for phone readability.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
+-- v91.18.1: movement-lock contention no longer blacklists a target; shorter retry cooldowns
+-- let the farm/pickup workers recover faster when a target is collected or another worker yields.
