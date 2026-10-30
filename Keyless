@@ -1093,11 +1093,11 @@ function Lib.new(title)
     label({Text="MM2  /  LIVE  /  v91.50",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
-    label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
+    label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
-    label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.50",Font=Enum.Font.GothamMedium,TextSize=7,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
+    label({Text="NEON BUILD  /  v91.50",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -1181,7 +1181,7 @@ function Sub:AddSection(name)
     s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
     local heading = create("Frame", {Size=UDim2.new(1,0,0,23),BackgroundTransparency=1,Parent=s.Frame})
     create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=10,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
+    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
     create("Frame", {Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-10,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.68,BorderSizePixel=0,Parent=heading})
     return s
 end
@@ -1361,17 +1361,17 @@ local function bindCharacter(char)
     currentSession = session
     table.insert(session.connections, hum.Died:Connect(function()
         session.destroyed = true
-        if currentSession == session then currentSession = nil end
+        if currentSession == session then currentSession = nil; canFarmNow = false end
     end))
     table.insert(session.connections, char.AncestryChanged:Connect(function(_, parent)
         if parent == nil then
             session.destroyed = true
             for _, connection in ipairs(session.connections) do pcall(function() connection:Disconnect() end) end
-            if currentSession == session then currentSession = nil end
+            if currentSession == session then currentSession = nil; canFarmNow = false end
         end
     end))
     task.wait(3)
-    if currentSession == session and not session.destroyed and isRunning then canFarmNow = true end
+    if currentSession == session and not session.destroyed and hum.Health > 0 and isRunning then canFarmNow = true end
 end
 characterAddedConnection = LocalPlayer.CharacterAdded:Connect(bindCharacter) if LocalPlayer.Character then task.spawn(bindCharacter, LocalPlayer.Character) end
 
@@ -1452,9 +1452,12 @@ coinTracker = (function()
         params.FilterDescendantsInstances = excluded
         params.IgnoreWater = true
         local ok, result = pcall(function()
-            return Workspace:Raycast(part.Position + Vector3.new(0, 4, 0), Vector3.new(0, -44, 0), params)
+            return Workspace:Raycast(part.Position + Vector3.new(0, 4, 0), Vector3.new(0, -32, 0), params)
         end)
-        return ok and result ~= nil
+        if not ok or not result then return nil end
+        local groundGap = part.Position.Y - result.Position.Y
+        if groundGap < -2 or groundGap > 11 then return nil end
+        return result
     end
 
     local function add(inst)
@@ -1534,13 +1537,12 @@ coinTracker = (function()
                     local pos = part.Position
                     local offset = pos - origin
                     -- Ignore suspicious targets on another floor or below/above the playable map.
-                    if math.abs(offset.Y) <= 42 then
-                        if hasGroundBelow(obj, part) then
-                            local sq = offset:Dot(offset)
-                            if sq < bestSq then bestSq = sq; best = obj end
-                        else
-                            skipped[obj] = now + 1.0
-                        end
+                    local ground = hasGroundBelow(obj, part)
+                    local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
+                    -- Only route to coins supported by the same nearby floor level.
+                    if ground and floorDelta <= 21 and math.abs(offset.Y) <= 24 then
+                        local sq = offset:Dot(offset)
+                        if sq < bestSq then bestSq = sq; best = obj end
                     else
                         skipped[obj] = now + 1.0
                     end
@@ -1573,9 +1575,11 @@ local function glideTo(target, speed, mode)
         return false
     end
     local character, root, humanoid = session.character, session.root, session.humanoid
+    local startCFrame = root.CFrame
     local targetPart = getTouchPart(target)
     if not targetPart then return false end
-    if mode == "farm" and (not coinTracker or not coinTracker:IsValid(target)) then return false end
+    if mode == "farm" and (not coinTracker or not coinTracker:IsValid(target)
+        or math.abs(targetPart.Position.Y - root.Position.Y) > 24) then return false end
     speed = math.clamp(tonumber(speed) or 62, 25, 80)
 
     local oldAnchored = root.Anchored
@@ -1649,7 +1653,7 @@ local function glideTo(target, speed, mode)
             local contactPosition = targetPart.Position + Vector3.new(0, rootOffset, 0)
             local delta = contactPosition - root.Position
             local distance = delta.Magnitude
-            if mode == "farm" and math.abs(delta.Y) > 42 then break end
+            if mode == "farm" and math.abs(delta.Y) > 24 then break end
             if distance <= 0.8 then
                 arrived = true
                 -- Restore floor collisions before the collection attempt. The previous version
@@ -1737,6 +1741,23 @@ local function glideTo(target, speed, mode)
             end
         end
     end)
+
+    -- On an interrupted farm route, return smoothly to the exact starting position
+    -- before restoring collisions; never leave the avatar suspended over an unsupported gap.
+    if mode == "farm" and not arrived and root and root.Parent and humanoid
+        and humanoid.Parent and humanoid.Health > 0 and LocalPlayer.Character == character then
+        pcall(function()
+            local from = root.Position
+            local destination = startCFrame.Position
+            for stepIndex = 1, 7 do
+                if not root.Parent or humanoid.Health <= 0 then break end
+                local alpha = stepIndex / 7
+                local position = from:Lerp(destination, alpha)
+                root.CFrame = CFrame.new(position, position + startCFrame.LookVector)
+                RunService.Heartbeat:Wait()
+            end
+        end)
+    end
 
     -- Always restore physics flags, even when the target disappears or the executor errors.
     pcall(function()
@@ -2315,6 +2336,8 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- during coin farming and restarts automatically when AutoFarm is turned off.
 -- v91.50: refined brand header, navigation chrome, active tab states, glass section cards, touch-friendly
 -- switches/sliders, chevron dropdowns, adaptive popup heights and stronger popup stacking; public UI API stays intact.
+-- v91.50 hotfix: farm targets must be on a nearby supported floor; interrupted farm movement eases back
+-- to the saved start CFrame before restoring collisions, and character death immediately clears farm-ready state.
 -- v91.49: candy Loot ESP now uses compact neon-glass labels; the startup notification reports the correct build.
 -- v91.49: default AutoPickup range increased to 300 studs (including migration from the old 100-stud default).
 -- v91.49: AutoFarm only tracks touchable coin objects inside a live CoinContainer, waits for
