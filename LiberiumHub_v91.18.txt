@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.18 | NEON GLASS SIDEBAR + CANDY ESP
+-- LIBERIUM HUB | v91.18.1 | NEON GLASS SIDEBAR + CANDY ESP
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
