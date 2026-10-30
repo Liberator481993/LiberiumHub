@@ -499,7 +499,9 @@ MovementUtility = (function() local MU = {} MU.__index = MU local DEFAULT_WALKSP
             table.clear(self._originalStateEnabled)
             for _, state in ipairs(SUPPRESSED_STATES) do
                 local ok, enabled = pcall(function() return humanoid:GetStateEnabled(state) end)
-                self._originalStateEnabled[state] = ok and enabled or true
+                local original = true
+                if ok then original = enabled end
+                self._originalStateEnabled[state] = original
             end
         end
         for _, state in ipairs(SUPPRESSED_STATES) do
@@ -1964,7 +1966,7 @@ end)
 task.spawn(function()
     while isRunning do
         if CFG.AutoPickup and canFarmNow and not CFG.AutoFarm then
-            updateFarmHUD("AutoPickup • searching for weapons", THEME.Accent2, true)
+            updateFarmHUD("AutoPickup • searching for guns", THEME.Accent2, true)
             local session = currentSession
             local root = session and session.root
             if root and root.Parent and session and not session.destroyed then
@@ -1983,7 +1985,7 @@ task.spawn(function()
                     end
                     task.wait(collected and 0.12 or 0.28)
                 else
-                    updateFarmHUD("AutoPickup • no weapon detected", Color3.fromRGB(255, 195, 90), true)
+                    updateFarmHUD("AutoPickup • no gun detected", Color3.fromRGB(255, 195, 90), true)
                     task.wait(0.2)
                 end
             else
@@ -2364,8 +2366,8 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- switches/sliders, chevron dropdowns, adaptive popup heights and stronger popup stacking; public UI API stays intact.
 -- v91.50 hotfix: farm targets must be on a nearby supported floor; interrupted farm movement eases back
 -- to the saved start CFrame before restoring collisions, and character death immediately clears farm-ready state.
--- v91.51: Noclip now restores the Humanoid FallingDown/Ragdoll state values it found before activation;
--- AutoPickup controls use explicit Gun/Gun Distance labels.
+-- v91.51: Noclip captures and restores exact Humanoid FallingDown/Ragdoll state values (including false);
+-- AutoPickup controls and HUD use explicit Gun/Gun Distance labels.
 -- v91.49: candy Loot ESP now uses compact neon-glass labels; the startup notification reports the correct build.
 -- v91.49: default AutoPickup range increased to 300 studs (including migration from the old 100-stud default).
 -- v91.49: AutoFarm only tracks touchable coin objects inside a live CoinContainer, waits for
