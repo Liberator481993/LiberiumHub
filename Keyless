@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.63 | CACHED COIN FLOOR VALIDATION
+-- LIBERIUM HUB | v91.64 | GUN PICKUP RANGE DIAGNOSTICS
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -970,7 +970,7 @@ weaponTracker = (function()
         if (skipped[drop] or 0) > now then return nil, nil end
         local offset = part.Position - origin
         local distance = offset.Magnitude
-        if maxDist and distance > maxDist then return nil, nil end
+        if maxDist and distance > maxDist then return nil, distance end
         return drop, distance
     end
 
@@ -1364,14 +1364,14 @@ function Lib.new(title)
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.63",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text="MM2  /  LIVE  /  v91.64",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.63",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="NEON BUILD  /  v91.64",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -2272,7 +2272,7 @@ task.spawn(function()
             local session = currentSession
             local root = session and session.root
             if root and root.Parent and session and not session.destroyed then
-                local target = weaponTracker:GetClosest(root.Position, CFG.PickupRange)
+                local target, targetDistance = weaponTracker:GetClosest(root.Position, CFG.PickupRange)
                 if target then
                     updateFarmHUD("AutoPickup • trying distance pickup", THEME.Good, true)
                     local collected, pickupState = tryDistanceGunPickup(target, session)
@@ -2287,7 +2287,11 @@ task.spawn(function()
                     end
                     task.wait(collected and 0.12 or 0.28)
                 else
-                    updateFarmHUD("AutoPickup • no dropped gun in active map", Color3.fromRGB(255, 195, 90), true)
+                    if targetDistance then
+                        updateFarmHUD("AutoPickup • GunDrop out of range", Color3.fromRGB(255, 195, 90), true)
+                    else
+                        updateFarmHUD("AutoPickup • no dropped gun in active map", Color3.fromRGB(255, 195, 90), true)
+                    end
                     task.wait(0.2)
                 end
             else
@@ -2760,7 +2764,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.63 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.64 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -2842,6 +2846,8 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- preventing rapid taps from leaving the popup at a stale/intermediate height.
 -- v91.63: AutoFarm caches each coin's floor raycast briefly and invalidates it when the coin moves,
 -- reducing repeated raycast work on mobile while keeping the same-floor and ground-gap checks.
+-- v91.64: GunDrop lookup returns its measured distance even when it exceeds Pickup Distance; the HUD now
+-- distinguishes an out-of-range drop from a map with no dropped gun at all.
 -- v91.61: Aura manager tracks the exact character instance and destroys old emitter/light on CharacterRemoving,
 -- aura disable, player removal, and unload; stale respawn tasks remain blocked by the existing state checks.
 -- v91.55: coin tracker now binds only to the active CoinContainer, scans its descendants in small batches,
