@@ -571,24 +571,29 @@ LootTracker = (function()
             billboard.Name = "LootBillboard"
             billboard.Adornee = getTouchPart(item)
             billboard.AlwaysOnTop = true
-            billboard.Size = UDim2.new(0, 120, 0, 34)
-            billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.5, 0)
+            billboard.Size = UDim2.new(0, 132, 0, 38)
+            billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.7, 0)
             billboard.MaxDistance = 300
             billboard.ResetOnSpawn = false
             billboard.Active = false
             billboard.Parent = self._parentGui
             local textLabel = Instance.new("TextLabel")
             textLabel.Size = UDim2.new(1, 0, 1, 0)
-            textLabel.BackgroundTransparency = 1
+            textLabel.BackgroundColor3 = THEME.Surface
+            textLabel.BackgroundTransparency = 0.16
+            textLabel.BorderSizePixel = 0
             textLabel.Active = false
             textLabel.Text = item.Name
             textLabel.TextColor3 = color
-            textLabel.TextStrokeTransparency = 0.4
-            textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            textLabel.TextStrokeTransparency = 1
             textLabel.Font = Enum.Font.GothamBold
-            textLabel.TextSize = 14
+            textLabel.TextSize = 12
             textLabel.TextWrapped = true
             textLabel.Parent = billboard
+            create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = textLabel})
+            create("UIStroke", {Color = color, Thickness = 1, Transparency = 0.28, Parent = textLabel})
+            create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(28, 22, 44), Color3.fromRGB(13, 19, 32)), Rotation = 0, Parent = textLabel})
+            create("UIPadding", {PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5), Parent = textLabel})
             return { highlight = highlight, billboard = billboard, label = textLabel, name = item.Name, lastText = "" }
         end)
         if ok and entry then
@@ -2203,7 +2208,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.48 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.49 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -2267,6 +2272,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- their AutoFarm/AutoPickup toggle is enabled; initial scans run in 350-instance batches.
 -- v91.48: AutoFarm has priority if both toggles are enabled; the weapon tracker stops
 -- during coin farming and restarts automatically when AutoFarm is turned off.
+-- v91.49: candy Loot ESP now uses compact neon-glass labels; the startup notification reports the correct build.
 -- v91.49: default AutoPickup range increased to 300 studs (including migration from the old 100-stud default).
 -- v91.49: AutoFarm only tracks touchable coin objects inside a live CoinContainer, waits for
 -- stable targets, rejects targets without ground support or with unsafe vertical offsets, and
