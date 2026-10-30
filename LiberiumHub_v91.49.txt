@@ -88,7 +88,7 @@ local CFG = {
     FOVCircle = false, FOVRadius = 150, FOVColor = "Purple",
     SkeletonESP = false, SkeletonColor = "Purple", ShaderPreset = "Default", LocalAura = "None",
     Tracers = false, TracerColor = "Yellow",
-    AutoPickup = false, PickupRange = 100
+    AutoPickup = false, PickupRange = 300
 }
 local roles = {} currentSession = nil canFarmNow = false
 local KILLER_ROLES = { murderer = true, zombie = true, killer = true }
@@ -1216,8 +1216,10 @@ end
 function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
 
 local Config = ConfigManager.new() local SavedData = Config:Load("settings") for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
+-- Upgrade the previous built-in 100-stud default so the new no-glide pickup can reach lobby drops.
+if CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=100}
+local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300}
 local ENUM_CONFIG_VALUES = {
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
     FOVColor = {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"},
@@ -1743,7 +1745,7 @@ local function tryDistanceGunPickup(target, session)
     -- Unlike glideTo(), this routine never teleports, flies, anchors or edits collisions.
     for attempt = 1, 4 do
         if not isRunning or currentSession ~= session or session.destroyed
-            or not root.Parent or session.humanoid.Health <= 0 then
+            or not root.Parent or not session.humanoid or session.humanoid.Health <= 0 then
             return false, "interrupted"
         end
         if not weaponTracker:IsValid(target) then return true, "collected" end
@@ -2265,6 +2267,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- their AutoFarm/AutoPickup toggle is enabled; initial scans run in 350-instance batches.
 -- v91.48: AutoFarm has priority if both toggles are enabled; the weapon tracker stops
 -- during coin farming and restarts automatically when AutoFarm is turned off.
+-- v91.49: default AutoPickup range increased to 300 studs (including migration from the old 100-stud default).
 -- v91.49: AutoFarm only tracks touchable coin objects inside a live CoinContainer, waits for
 -- stable targets, rejects targets without ground support or with unsafe vertical offsets, and
 -- revalidates targets during movement. AutoPickup is gun-only and uses bounded distance-touch
