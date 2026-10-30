@@ -859,6 +859,8 @@ function Lib.new(title)
         s.SideHeader.Visible = not s.Minimized
         s.Side.Visible = not s.Minimized
         s.Content.Visible = not s.Minimized
+        minimizeButton.Text = s.Minimized and "+" or "—"
+        minimizeButton.TextSize = s.Minimized and 20 or 18
         local target = s.Minimized and UDim2.fromOffset(620,70) or s.FullSize
         tween(s.Main,SLOW,{Size=target})
     end
