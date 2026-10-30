@@ -15,6 +15,49 @@ local Debris = game:GetService("Debris")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
+-- Early UI bootstrap: keep a visible surface while the larger systems initialize.
+local bootstrapGui = Instance.new("ScreenGui")
+bootstrapGui.Name = "GlassUI"
+bootstrapGui.ResetOnSpawn = false
+bootstrapGui.IgnoreGuiInset = true
+bootstrapGui.DisplayOrder = 2000
+bootstrapGui.Parent = PlayerGui
+local bootstrapPanel = Instance.new("Frame")
+bootstrapPanel.Name = "Bootstrap"
+bootstrapPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+bootstrapPanel.Position = UDim2.fromScale(0.5, 0.5)
+bootstrapPanel.Size = UDim2.fromOffset(300, 104)
+bootstrapPanel.BackgroundColor3 = Color3.fromRGB(12, 14, 24)
+bootstrapPanel.BorderSizePixel = 0
+bootstrapPanel.Parent = bootstrapGui
+Instance.new("UICorner", bootstrapPanel).CornerRadius = UDim.new(0, 14)
+local bootstrapStroke = Instance.new("UIStroke")
+bootstrapStroke.Color = Color3.fromRGB(157, 105, 255)
+bootstrapStroke.Transparency = 0.25
+bootstrapStroke.Parent = bootstrapPanel
+local bootstrapTitle = Instance.new("TextLabel")
+bootstrapTitle.BackgroundTransparency = 1
+bootstrapTitle.Position = UDim2.fromOffset(16, 16)
+bootstrapTitle.Size = UDim2.new(1, -32, 0, 26)
+bootstrapTitle.Font = Enum.Font.GothamBold
+bootstrapTitle.Text = "LIBERIUM HUB"
+bootstrapTitle.TextColor3 = Color3.fromRGB(246, 247, 255)
+bootstrapTitle.TextSize = 17
+bootstrapTitle.TextXAlignment = Enum.TextXAlignment.Left
+bootstrapTitle.Parent = bootstrapPanel
+local bootstrapStatus = Instance.new("TextLabel")
+bootstrapStatus.BackgroundTransparency = 1
+bootstrapStatus.Position = UDim2.fromOffset(16, 49)
+bootstrapStatus.Size = UDim2.new(1, -32, 0, 32)
+bootstrapStatus.Font = Enum.Font.Gotham
+bootstrapStatus.Text = "Starting interface..."
+bootstrapStatus.TextColor3 = Color3.fromRGB(154, 162, 188)
+bootstrapStatus.TextSize = 12
+bootstrapStatus.TextWrapped = true
+bootstrapStatus.TextXAlignment = Enum.TextXAlignment.Left
+bootstrapStatus.Parent = bootstrapPanel
+
+
 local THEME = { Background = Color3.fromRGB(8, 9, 16), Element = Color3.fromRGB(20, 22, 35), Accent = Color3.fromRGB(157, 105, 255), Accent2 = Color3.fromRGB(65, 215, 255), Text = Color3.fromRGB(246, 247, 255), SubText = Color3.fromRGB(154, 162, 188), Stroke = Color3.fromRGB(116, 104, 176), Surface = Color3.fromRGB(14, 16, 27), Good = Color3.fromRGB(91, 238, 177) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
