@@ -1379,6 +1379,202 @@ end)
 
 roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("LIBERIUM HUB")
 
+-- LIBERIUM API v92: additive developer facade.
+-- Keeps the v91.18 UI and gameplay systems intact while providing a consistent
+-- registry, event bus, middleware hooks, pre-checks, and cleanup lifecycle.
+local LiberiumAPI = {}
+do
+    local api = { _win = win, _elements = {}, _events = {}, _hooks = {}, _unload = {}, _destroyed = false }
+    local function normalizeId(value)
+        return string.lower(tostring(value or "")):gsub("[^%w_%-]", "_")
+    end
+    local function track(obj)
+        api._elements[normalizeId(obj.id)] = obj
+        return obj
+    end
+    local function makeElement(id, control, kind)
+        local obj = { id = id, kind = kind, control = control, _pre = {}, _opts = nil }
+        function obj:get()
+            if self.kind == "toggle" then return self._value end
+            if self.kind == "slider" or self.kind == "dropdown" then return self._value end
+            return self._value
+        end
+        function obj:Set(value, silent)
+            if self.control and self.control.Set then self.control:Set(value, silent) end
+            self._value = value
+            return self
+        end
+        function obj:set(value, silent) return self:Set(value, silent) end
+        function obj:Get() return self:get() end
+        function obj:on(callback) self._callback = callback return self end
+        function obj:pre(callback)
+            if type(callback) == "function" then table.insert(self._pre, callback) end
+            return self
+        end
+        function obj:opts()
+            if self._opts then return self._opts end
+            local sub = api._win.Tabs[#api._win.Tabs]
+            local activeSub = sub and sub.ActiveSub
+            if not activeSub then return nil end
+            local sec = activeSub:AddSection(tostring(self.id) .. " OPTIONS")
+            self._opts = api._makeSection(sec, tostring(self.id) .. "/options")
+            return self._opts
+        end
+        return track(obj)
+    end
+    local function bindCallback(obj, callback)
+        return function(value)
+            for _, check in ipairs(obj._pre) do
+                local ok, result = pcall(check, value)
+                if not ok or result == false then return end
+            end
+            obj._value = value
+            if obj._callback then task.spawn(obj._callback, value) end
+            if callback then callback(value) end
+            api:emit("change", obj.id, value)
+        end
+    end
+    function api._makeSection(section, prefix)
+        local wrapper = { _section = section, _prefix = prefix }
+        local function idFor(config) return normalizeId(prefix .. "/" .. tostring(config.name or "element")) end
+        function wrapper:toggle(config)
+            config = config or {}
+            local id = idFor(config)
+            local obj
+            local cb = config.callback
+            local control = self._section:AddToggle(config.name or id, config.default == true or config.opts == true, function(v)
+                if obj then bindCallback(obj, cb)(v) end
+            end)
+            obj = makeElement(id, control, "toggle")
+            obj._value = config.default == true or config.opts == true
+            return obj
+        end
+        function wrapper:slider(config)
+            config = config or {}
+            local id = idFor(config)
+            local obj
+            local control = self._section:AddSlider(config.name or id, tonumber(config.min) or 0, tonumber(config.max) or 100, tonumber(config.default) or 0, function(v)
+                if obj then bindCallback(obj, config.callback)(v) end
+            end, tonumber(config.step) or 1)
+            obj = makeElement(id, control, "slider")
+            obj._value = tonumber(config.default) or 0
+            return obj
+        end
+        function wrapper:dropdown(config)
+            config = config or {}
+            local id = idFor(config)
+            local obj
+            local control = self._section:AddDropdown(config.name or id, config.list or {}, config.default, function(v)
+                if obj then bindCallback(obj, config.callback)(v) end
+            end)
+            obj = makeElement(id, control, "dropdown")
+            obj._value = config.default
+            return obj
+        end
+        function wrapper:button(config)
+            config = config or {}
+            local id = idFor(config)
+            local obj
+            local control = self._section:AddButton(config.name or id, function()
+                if obj then
+                    for _, check in ipairs(obj._pre) do
+                        local ok, result = pcall(check, true)
+                        if not ok or result == false then return end
+                    end
+                end
+                if config.callback then task.spawn(config.callback) end
+                api:emit("action", id)
+            end)
+            obj = makeElement(id, control, "button")
+            return obj
+        end
+        function wrapper:label(config)
+            config = config or {}
+            local id = idFor(config)
+            local obj = makeElement(id, nil, "label")
+            obj._value = config.text or config.name or ""
+            return obj
+        end
+        return wrapper
+    end
+    function api:tab(config, icon)
+        local name = type(config) == "table" and config.name or config
+        local glyph = type(config) == "table" and config.icon or icon
+        local tab = self._win:AddTab(tostring(name or "Tab"), glyph)
+        local wrapper = { _tab = tab }
+        function wrapper:sec(sectionConfig)
+            local sectionName = type(sectionConfig) == "table" and sectionConfig.name or sectionConfig
+            local sub = self._tab:AddSubTab(tostring(sectionName or "Section"))
+            local sec = sub:AddSection(tostring(sectionName or "Section"))
+            return api._makeSection(sec, normalizeId(name) .. "/" .. normalizeId(sectionName))
+        end
+        function wrapper:sub(subConfig)
+            local subName = type(subConfig) == "table" and subConfig.name or subConfig
+            local sub = self._tab:AddSubTab(tostring(subName or "Sub"))
+            local subWrapper = { _sub = sub }
+            function subWrapper:sec(secConfig)
+                local secName = type(secConfig) == "table" and secConfig.name or secConfig
+                return api._makeSection(self._sub:AddSection(tostring(secName or "Section")), normalizeId(name) .. "/" .. normalizeId(subName) .. "/" .. normalizeId(secName))
+            end
+            return subWrapper
+        end
+        return wrapper
+    end
+    function api:el(id) return self._elements[normalizeId(id)] end
+    function api:on(eventName, callback)
+        if type(callback) ~= "function" then return nil end
+        local bucket = self._events[eventName] or {}
+        self._events[eventName] = bucket
+        local entry = { callback = callback, connected = true }
+        table.insert(bucket, entry)
+        local connection = {}
+        function connection:Disconnect() entry.connected = false end
+        return connection
+    end
+    function api:emit(eventName, ...)
+        local bucket = self._events[eventName]
+        if not bucket then return end
+        for _, entry in ipairs(bucket) do
+            if entry.connected then task.spawn(entry.callback, ...) end
+        end
+    end
+    function api:hook(name, middleware)
+        if type(middleware) ~= "function" then return false end
+        local bucket = self._hooks[name] or {}
+        self._hooks[name] = bucket
+        table.insert(bucket, middleware)
+        return true
+    end
+    function api:dispatchHook(name, original, ...)
+        local args = table.pack(...)
+        local function invoke(index, ...)
+            local middleware = self._hooks[name] and self._hooks[name][index]
+            if not middleware then return original(...) end
+            return middleware(function(...) return invoke(index + 1, ...) end, ...)
+        end
+        return invoke(1, table.unpack(args, 1, args.n))
+    end
+    function api:unload(callback)
+        if type(callback) == "function" then table.insert(self._unload, callback) end
+    end
+    function api:destroy()
+        if self._destroyed then return end
+        self._destroyed = true
+        for _, callback in ipairs(self._unload) do pcall(callback) end
+        for _, bucket in pairs(self._events) do
+            for _, entry in ipairs(bucket) do entry.connected = false end
+        end
+        table.clear(self._elements)
+        table.clear(self._hooks)
+    end
+    api.unload = api.unload
+    api.destroy = api.destroy
+    LiberiumAPI = api
+end
+local sh = LiberiumAPI
+win.API = sh
+table.insert(win.Conns, { Disconnect = function() sh:destroy() end })
+
 local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
 local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Weapons"); local pickupToggle = secPick:AddToggle("Auto Pickup Weapons", CFG.AutoPickup, function(v) CFG.AutoPickup = v end); local pickupRangeSlider = secPick:AddSlider("Pickup Range", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
 
