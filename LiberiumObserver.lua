@@ -70,7 +70,7 @@ end
 
 local function inspectScreenGui(gui)
     if not gui:IsA("ScreenGui") then return end
-    local key = gui:GetDebugId and gui:GetDebugId() or (gui.Name .. tostring(gui))
+    local key = gui.Name .. "|" .. gui:GetFullName()
     if Observer.Seen[key] then return end
     Observer.Seen[key] = true
     Observer:Log("UI_ADDED", gui.Name .. " | " .. guiSummary(gui))
