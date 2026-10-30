@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.23 | DROPDOWN CLEANUP HARDENING
+-- LIBERIUM HUB | v91.24 | TOUCH INPUT TRACKING
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -796,14 +796,31 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.23",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.24",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
-    local dr, ds, sp
-    table.insert(s.Conns, s.Title.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr,ds,sp=true,i.Position,s.Main.Position end end))
-    table.insert(s.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then local d=(i.Position-ds)/s.Scale.Scale s.Main.Position=UDim2.new(sp.X.Scale,sp.X.Offset+d.X,sp.Y.Scale,sp.Y.Offset+d.Y) end end))
-    table.insert(s.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
+    local dragInput, dragStart, dragPosition
+    table.insert(s.Conns, s.Title.InputBegan:Connect(function(input)
+        if dragInput then return end
+        local inputType = input.UserInputType
+        if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
+        dragInput, dragStart, dragPosition = input, input.Position, s.Main.Position
+    end))
+    table.insert(s.Conns, UserInputService.InputChanged:Connect(function(input)
+        if not dragInput then return end
+        local isTouchDrag = input == dragInput
+        local isMouseDrag = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
+        if not (isTouchDrag or isMouseDrag) then return end
+        local delta = (input.Position - dragStart) / s.Scale.Scale
+        s.Main.Position = UDim2.new(dragPosition.X.Scale, dragPosition.X.Offset + delta.X, dragPosition.Y.Scale, dragPosition.Y.Offset + delta.Y)
+    end))
+    table.insert(s.Conns, UserInputService.InputEnded:Connect(function(input)
+        if not dragInput then return end
+        local isTouchEnd = input == dragInput
+        local isMouseEnd = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
+        if isTouchEnd or isMouseEnd then dragInput, dragStart, dragPosition = nil, nil, nil end
+    end))
     return s
 end
 function Win:_Select(t)
@@ -881,11 +898,27 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     hover(r,r,0.6,0.4)
     local obj = {}
     function obj:Set(v, s) v = tonumber(v) or val v = math.clamp(math.floor(v/inc+0.5)*inc, mn, mx) val=v vl.Text=tostring(math.round(v*1000)/1000) tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale((v-mn)/(mx-mn),1)}) if not s and cb then task.spawn(cb,v) end end
-    local dr = false
+    local activeInput = nil
     local function fromX(x) local width = t.AbsoluteSize.X if width <= 0 then return end local a = math.clamp((x-t.AbsolutePosition.X)/width,0,1) obj:Set(mn+(mx-mn)*a) end
-    t.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=true fromX(i.Position.X) end end)
-    table.insert(self.Win.Conns, UserInputService.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then fromX(i.Position.X) end end))
-    table.insert(self.Win.Conns, UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end))
+    t.InputBegan:Connect(function(input)
+        if activeInput then return end
+        local inputType = input.UserInputType
+        if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
+        activeInput = input
+        fromX(input.Position.X)
+    end)
+    table.insert(self.Win.Conns, UserInputService.InputChanged:Connect(function(input)
+        if not activeInput then return end
+        local isTouchDrag = input == activeInput
+        local isMouseDrag = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
+        if isTouchDrag or isMouseDrag then fromX(input.Position.X) end
+    end))
+    table.insert(self.Win.Conns, UserInputService.InputEnded:Connect(function(input)
+        if not activeInput then return end
+        local isTouchEnd = input == activeInput
+        local isMouseEnd = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
+        if isTouchEnd or isMouseEnd then activeInput = nil end
+    end))
     return obj
 end
 function Sec:AddButton(name, cb)
@@ -1697,7 +1730,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.23 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.24 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1719,4 +1752,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.22: AutoPickup exclusively owns its HUD while active, preventing status flicker;
 -- enlarged floating mobile UI toggle for easier touch access.
 -- v91.23: dropdowns reset stale labels when options change and destroy idempotently.
+-- v91.24: slider dragging and window dragging track the initiating pointer, avoiding
+-- accidental release when a second touch ends first.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
