@@ -1970,7 +1970,7 @@ task.spawn(function()
                     if pickupState == "unavailable" then
                         updateFarmHUD("AutoPickup • distance touch unavailable", Color3.fromRGB(255, 195, 90), true)
                     elseif collected then
-                        updateFarmHUD("AutoPickup • gun removed", THEME.Good, true)
+                        updateFarmHUD("AutoPickup • GunDrop disappeared", Color3.fromRGB(255,195,90), true)
                     else
                         updateFarmHUD("AutoPickup • pickup not confirmed", Color3.fromRGB(255, 195, 90), true)
                     end
@@ -2531,4 +2531,4 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- stable targets, rejects targets without ground support or with unsafe vertical offsets, and
 -- revalidates targets during movement. AutoPickup is gun-only and uses bounded distance-touch
 -- attempts without moving the character. The existing sidebar UI receives a darker neon-glass pass.
--- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
+-- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
