@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.53 | ACTIVE MAP GUN DROP + COIN CONTAINER FILTER
+-- LIBERIUM HUB | v91.54 | HOME DASHBOARD + ACTIVE MAP TRACKING
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -1080,14 +1080,14 @@ function Lib.new(title)
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.53",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text="MM2  /  LIVE  /  v91.54",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.53",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="NEON BUILD  /  v91.54",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -2173,6 +2173,163 @@ local sh = LiberiumAPI
 win.API = sh
 table.insert(win.Conns, { Disconnect = function() sh:destroy() end })
 
+local tHome = win:AddTab("Home", "⌂")
+local sHome = tHome:AddSubTab("Overview")
+local secHome = sHome:AddSection("LIVE OVERVIEW")
+
+local homeHero = create("Frame", {
+    Name="HomeHero",
+    Size=UDim2.new(1,0,0,78),
+    BackgroundColor3=Color3.fromRGB(29,23,52),
+    BackgroundTransparency=0.06,
+    Parent=secHome.Frame
+}, {
+    corner(13),
+    stroke(1,0.42),
+    create("UIGradient", {
+        Color=ColorSequence.new({
+            ColorSequenceKeypoint.new(0,Color3.fromRGB(65,39,105)),
+            ColorSequenceKeypoint.new(0.54,Color3.fromRGB(27,37,68)),
+            ColorSequenceKeypoint.new(1,Color3.fromRGB(17,65,76))
+        }),
+        Rotation=0
+    })
+})
+label({
+    Text="LIBERIUM  /  MM2",
+    Font=Enum.Font.GothamBlack,
+    TextSize=16,
+    TextColor3=THEME.Text,
+    Position=UDim2.fromOffset(14,10),
+    Size=UDim2.new(1,-28,0,24),
+    Parent=homeHero
+})
+label({
+    Text="NEON CONTROL CENTER  •  DELTA MOBILE",
+    Font=Enum.Font.GothamSemibold,
+    TextSize=9,
+    TextColor3=Color3.fromRGB(190,202,233),
+    Position=UDim2.fromOffset(15,39),
+    Size=UDim2.new(1,-30,0,17),
+    Parent=homeHero
+})
+
+local homeGrid = create("Frame", {
+    Name="HomeStatusGrid",
+    Size=UDim2.new(1,0,0,112),
+    BackgroundTransparency=1,
+    Parent=secHome.Frame
+}, {
+    create("UIGridLayout", {
+        CellSize=UDim2.new(0.5,-5,0,52),
+        CellPadding=UDim2.fromOffset(8,8),
+        FillDirection=Enum.FillDirection.Horizontal,
+        FillDirectionMaxCells=2,
+        SortOrder=Enum.SortOrder.LayoutOrder
+    })
+})
+
+local function makeHomeStatusCard(parent, order, titleText)
+    local card = create("Frame", {
+        Name="Home_"..titleText:gsub("%W",""),
+        LayoutOrder=order,
+        BackgroundColor3=THEME.Element,
+        BackgroundTransparency=0.12,
+        BorderSizePixel=0,
+        Parent=parent
+    }, {
+        corner(10),
+        stroke(1,0.72),
+        create("UIGradient", {
+            Color=ColorSequence.new(Color3.fromRGB(28,32,54),Color3.fromRGB(14,23,39)),
+            Rotation=90
+        })
+    })
+    label({
+        Text=titleText:upper(),
+        Font=Enum.Font.GothamBold,
+        TextSize=8,
+        TextColor3=THEME.SubText,
+        Position=UDim2.fromOffset(9,5),
+        Size=UDim2.new(1,-18,0,13),
+        Parent=card
+    })
+    local value = label({
+        Text="CHECKING",
+        Font=Enum.Font.GothamBlack,
+        TextSize=11,
+        TextColor3=THEME.Accent2,
+        Position=UDim2.fromOffset(9,20),
+        Size=UDim2.new(1,-18,0,21),
+        Parent=card
+    })
+    return value
+end
+
+local homeFarmValue = makeHomeStatusCard(homeGrid,1,"AutoFarm")
+local homePickupValue = makeHomeStatusCard(homeGrid,2,"Gun Pickup")
+local homeEspValue = makeHomeStatusCard(homeGrid,3,"Visual ESP")
+local homeMapValue = makeHomeStatusCard(homeGrid,4,"Round State")
+
+local homeHint = create("Frame", {
+    Name="HomeHint",
+    Size=UDim2.new(1,0,0,57),
+    BackgroundColor3=THEME.Surface,
+    BackgroundTransparency=0.12,
+    Parent=secHome.Frame
+}, {corner(10),stroke(1,0.78)})
+label({
+    Text="FARM waits for real coins in the active map. GUN PICKUP waits for the real GunDrop hitbox; lobby display models are not collectible drops.",
+    Font=Enum.Font.GothamMedium,
+    TextSize=9,
+    TextColor3=THEME.SubText,
+    TextWrapped=true,
+    Position=UDim2.fromOffset(10,6),
+    Size=UDim2.new(1,-20,1,-12),
+    Parent=homeHint
+})
+
+local function setHomeValue(target, value, color)
+    if target and target.Parent then
+        if target.Text ~= value then target.Text = value end
+        target.TextColor3 = color
+    end
+end
+
+task.spawn(function()
+    while isRunning and homeFarmValue and homeFarmValue.Parent do
+        local good = THEME.Good
+        local muted = THEME.SubText
+        local waitColor = Color3.fromRGB(255,195,90)
+
+        if CFG.AutoFarm then
+            setHomeValue(homeFarmValue,canFarmNow and "ACTIVE" or "WAITING",canFarmNow and good or waitColor)
+        else
+            setHomeValue(homeFarmValue,"OFF",muted)
+        end
+
+        if CFG.AutoPickup then
+            setHomeValue(homePickupValue,canFarmNow and "SEARCHING" or "WAITING",canFarmNow and THEME.Accent2 or waitColor)
+        else
+            setHomeValue(homePickupValue,"OFF",muted)
+        end
+
+        local espActive = CFG.ESP_Outline or CFG.ESP_Fill or CFG.ESP_Name or CFG.ESP_Distance or CFG.SkeletonESP or CFG.LootESP
+        setHomeValue(homeEspValue,espActive and "ON" or "OFF",espActive and THEME.Accent2 or muted)
+
+        local map = getActiveMap()
+        if map and map:FindFirstChild("CoinContainer") then
+            setHomeValue(homeMapValue,"ROUND",good)
+        elseif map and map:FindFirstChild("Spawns") then
+            setHomeValue(homeMapValue,"LOBBY / WAIT",waitColor)
+        else
+            setHomeValue(homeMapValue,"LOADING",muted)
+        end
+
+        task.wait(0.75)
+    end
+end)
+
 local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start(); if CFG.AutoPickup then weaponTracker:Stop() end else coinTracker:Stop(); if CFG.AutoPickup then weaponTracker:Start() end end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
 local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Gun Pickup"); local pickupToggle = secPick:AddToggle("Auto Pickup Guns", CFG.AutoPickup, function(v) CFG.AutoPickup = v if v and not CFG.AutoFarm then weaponTracker:Start() else weaponTracker:Stop() end end); local pickupRangeSlider = secPick:AddSlider("Pickup Distance", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
 
@@ -2258,7 +2415,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.53 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.54 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -2326,6 +2483,8 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- switches/sliders, chevron dropdowns, adaptive popup heights and stronger popup stacking; public UI API stays intact.
 -- v91.50 hotfix: farm targets must be on a nearby supported floor; interrupted farm movement eases back
 -- to the saved start CFrame before restoring collisions, and character death immediately clears farm-ready state.
+-- v91.54: adds a live Home dashboard for farm, gun pickup, ESP and map state without changing
+-- the existing tab/section/control API or moving the original feature pages.
 -- v91.53: AutoPickup resolves only the active map GunDrop with a real TouchTransmitter hitbox;
 -- decorative lobby guns are not treated as pickups. Gun tracker is now a lightweight live lookup,
 -- and AutoFarm coins must belong to the active map CoinContainer.
