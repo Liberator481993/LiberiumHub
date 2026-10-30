@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.26 | MOBILE SAFE AREA
+-- LIBERIUM HUB | v91.27 | ROLE ESP LIFECYCLE
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -287,6 +287,10 @@ local RoleHUD = (function()
             self._hl[player] = hl
             self._state[player] = color
         end
+        if not CFG.ESP_Fill and not CFG.ESP_Outline then
+            if hl then hl.Enabled = false end
+            return
+        end
         -- Re-apply both colors on every refresh; fill and outline must never drift apart.
         hl.Adornee = char
         hl.FillColor = color
@@ -330,7 +334,11 @@ local RoleHUD = (function()
         self._runToken += 1
         for _, connection in ipairs(self._conns) do pcall(function() connection:Disconnect() end) end
         table.clear(self._conns)
-        for _, hl in pairs(self._hl) do if hl then hl.Enabled = false end end
+        for player, hl in pairs(self._hl) do
+            if hl then pcall(function() hl:Destroy() end) end
+            self._hl[player] = nil
+            self._state[player] = nil
+        end
     end
     function API:Destroy()
         self:Stop()
@@ -823,7 +831,7 @@ function Lib.new(title)
     label({Text=title or "HUB  /  CONTROL CENTER",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=THEME.SubText,Position=UDim2.fromOffset(17,29),Size=UDim2.new(1,-150,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(92,25),BackgroundColor3=Color3.fromRGB(28,44,48),BackgroundTransparency=0.15,Parent=s.Title}, {corner(12),stroke(1,0.65)})
     create("Frame", {Position=UDim2.fromOffset(10,9),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4)})
-    label({Text="MM2  •  v91.26",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
+    label({Text="MM2  •  v91.27",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=Color3.fromRGB(160,245,210),Position=UDim2.fromOffset(22,0),Size=UDim2.new(1,-25,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.04,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9), create("UIListLayout", {Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundTransparency=1,Parent=s.Inner})
     upd()
@@ -1757,7 +1765,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.26 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.27 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -1785,4 +1793,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- Loot ESP Billboards are parented directly to PlayerGui rather than a Folder.
 -- v91.26: main window and floating toggle respect Core UI safe insets; portrait/landscape
 -- scaling reserves additional vertical room on touch devices.
+-- v91.27: disabled role ESP no longer creates hidden Highlights; Stop destroys and clears
+-- role Highlight instances/state to prevent stale objects across repeated toggles.
 -- Status is client-side only and cannot guarantee that the server accepted a coin/weapon pickup.
