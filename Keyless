@@ -783,12 +783,13 @@ function Lib.new(title)
     local function clampWindowPosition(x, y)
         local cam = workspace.CurrentCamera
         if not cam then return x, y end
-        local viewport = cam.ViewportSize
         local scale = math.max(s.Scale.Scale, 0.01)
+        local viewW, viewH = cam.ViewportSize.X / scale, cam.ViewportSize.Y / scale
         local w, h = s.Main.AbsoluteSize.X / scale, s.Main.AbsoluteSize.Y / scale
-        local minX, maxX = 12, math.max(12, viewport.X - w * scale - 12)
-        local minY, maxY = 12, math.max(12, viewport.Y - h * scale - 12)
-        return math.clamp(x, minX, maxX), math.clamp(y, minY, maxY)
+        local centerX, centerY = viewW * 0.5 + x, viewH * 0.5 + y
+        centerX = math.clamp(centerX, w * 0.5 + 12, math.max(w * 0.5 + 12, viewW - w * 0.5 - 12))
+        centerY = math.clamp(centerY, h * 0.5 + 12, math.max(h * 0.5 + 12, viewH - h * 0.5 - 12))
+        return centerX - viewW * 0.5, centerY - viewH * 0.5
     end
     table.insert(s.Conns, s.Title.InputBegan:Connect(function(i)
         local kind = i.UserInputType
