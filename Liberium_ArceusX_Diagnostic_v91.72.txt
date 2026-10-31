@@ -43,25 +43,34 @@ local screen, bodyLabel
 local function show(message, isError)
     local ok = pcall(function()
         if not screen or not screen.Parent then
-            local parent
+            local candidates = {}
+            local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+            local playerGui = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 15)
+            if playerGui then table.insert(candidates, playerGui) end
             local getGui = executorFunction("gethui", "get_hidden_gui")
             if getGui then
                 local got, value = pcall(getGui)
-                if got and typeof(value) == "Instance" then parent = value end
+                if got and typeof(value) == "Instance" and value ~= playerGui then
+                    table.insert(candidates, value)
+                end
             end
-            if not parent then
-                local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
-                local playerGui = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 15)
-                parent = playerGui
-            end
-            assert(parent, "Could not resolve gethui() or PlayerGui")
 
-            screen = Instance.new("ScreenGui")
-            screen.Name = "LiberiumArceusDiagnostics"
-            screen.ResetOnSpawn = false
-            screen.IgnoreGuiInset = true
-            screen.DisplayOrder = 30000
-            screen.Parent = parent
+            local assigned = false
+            for _, parent in ipairs(candidates) do
+                local candidateGui = Instance.new("ScreenGui")
+                candidateGui.Name = "LiberiumArceusDiagnostics"
+                candidateGui.ResetOnSpawn = false
+                candidateGui.IgnoreGuiInset = true
+                candidateGui.DisplayOrder = 30000
+                local parentOK = pcall(function() candidateGui.Parent = parent end)
+                if parentOK and candidateGui.Parent then
+                    screen = candidateGui
+                    assigned = true
+                    break
+                end
+                pcall(function() candidateGui:Destroy() end)
+            end
+            assert(assigned, "Could not parent diagnostic ScreenGui to PlayerGui or gethui()")
 
             local panel = Instance.new("Frame")
             panel.Name = "Panel"
