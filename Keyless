@@ -2100,9 +2100,22 @@ task.spawn(function()
     local remotes = ReplicatedStorage:WaitForChild("Remotes", 20)
     local gameplay = remotes and remotes:WaitForChild("Gameplay", 20)
     if not gameplay or not isRunning then return end
-    local event = gameplay:FindFirstChild("CoinCollected")
-    if not event or not event:IsA("RemoteEvent") then return end
-    coinCollectedConnection = event.OnClientEvent:Connect(function(kind, count, maximum)
+    local function listen(name, callback)
+        local remote = gameplay:FindFirstChild(name)
+        if remote and remote:IsA("RemoteEvent") then
+            local connection = remote.OnClientEvent:Connect(callback)
+            if name == "CoinCollected" then coinCollectedConnection = connection end
+        end
+    end
+    local function resetRoundFarmState()
+        farmLastCollectedPosition = nil
+        farmCoinEventAt, farmCoinEventCount = 0, 0
+        farmBagCache.full, farmBagCache.checkedAt = false, 0
+    end
+    listen("RoundStart", resetRoundFarmState)
+    listen("CoinsStarted", resetRoundFarmState)
+    listen("RoundEndFade", resetRoundFarmState)
+    listen("CoinCollected", function(kind, count, maximum)
         if not isRunning then return end
         farmCoinEventAt = os.clock()
         farmCoinEventCount += 1
