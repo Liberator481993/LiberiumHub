@@ -2595,11 +2595,43 @@ function Sub:AddSection(name)
         collapsed = collapsed == true
         if self._collapsed == collapsed then return end
         self._collapsed = collapsed
+        self._collapseToken = (self._collapseToken or 0) + 1
+        local token = self._collapseToken
         self.Chevron.Text = collapsed and "›" or "⌄"
         tween(self.Chevron, FAST, {Rotation = collapsed and -90 or 0})
         tween(self.Card, FAST, {BackgroundTransparency = collapsed and 0.07 or 0.015})
-        self.Body.Visible = not collapsed
         self.HeaderDivider.Visible = not collapsed
+
+        local layout = self.Body:FindFirstChildOfClass("UIListLayout")
+        local padding = self.Win.MobileLayout and 24 or 22
+        local contentHeight = (layout and layout.AbsoluteContentSize.Y or 0) + padding
+        self.Body.AutomaticSize = Enum.AutomaticSize.None
+
+        if collapsed then
+            local currentHeight = math.max(self.Body.AbsoluteSize.Y, contentHeight)
+            self.Body.Visible = true
+            self.Body.Size = UDim2.new(1, 0, 0, currentHeight)
+            tween(self.Body, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, 0, 0, 0)
+            })
+            task.delay(0.19, function()
+                if self._collapseToken == token and self._collapsed then
+                    self.Body.Visible = false
+                end
+            end)
+        else
+            self.Body.Visible = true
+            self.Body.Size = UDim2.new(1, 0, 0, 0)
+            tween(self.Body, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, 0, 0, contentHeight)
+            })
+            task.delay(0.21, function()
+                if self._collapseToken == token and not self._collapsed then
+                    self.Body.AutomaticSize = Enum.AutomaticSize.Y
+                    self.Body.Size = UDim2.new(1, 0, 0, 0)
+                end
+            end)
+        end
     end
     function section:IsCollapsed() return self._collapsed end
 
