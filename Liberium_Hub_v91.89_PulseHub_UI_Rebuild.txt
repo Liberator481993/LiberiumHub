@@ -130,6 +130,7 @@ setStartupStatus("INITIALIZING • ANDROID")
 local THEME = { Background = Color3.fromRGB(12, 13, 16), Element = Color3.fromRGB(20, 22, 27), Accent = Color3.fromRGB(214, 68, 88), Accent2 = Color3.fromRGB(255, 122, 61), Text = Color3.fromRGB(236, 238, 243), SubText = Color3.fromRGB(138, 143, 158), Stroke = Color3.fromRGB(31, 34, 41), Surface = Color3.fromRGB(15, 16, 20), Good = Color3.fromRGB(61, 220, 151), AccentSoft = Color3.fromRGB(60, 28, 37), Surface2 = Color3.fromRGB(27, 30, 37), Elevated = Color3.fromRGB(34, 37, 45) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local NAV_TWEEN = TweenInfo.new(0.34, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local function create(c, p, ch) local i = Instance.new(c) for k, v in pairs(p or {}) do i[k]=v end for _, x in ipairs(ch or {}) do x.Parent=i end return i end
 local function tween(i, inf, p) local t = TweenService:Create(i, inf, p) t:Play() return t end
 local function corner(r) return create("UICorner", {CornerRadius=UDim.new(0,r)}) end
@@ -2002,10 +2003,12 @@ function Win:SetSidebarCollapsed(collapsed)
     local compact = self.SideCollapsed
     local width = compact and (self.PortraitLayout and 62 or 68) or (self.PortraitLayout and 176 or (self.MobileLayout and 202 or 228))
     self.SideWidth = width
-    if self.Side then self.Side.Size = UDim2.new(0, width, 1, 0) end
+    if self.Side then tween(self.Side, NAV_TWEEN, {Size = UDim2.new(0, width, 1, 0)}) end
     if self.Content then
-        self.Content.Position = UDim2.fromOffset(width, 0)
-        self.Content.Size = UDim2.new(1, -width, 1, 0)
+        tween(self.Content, NAV_TWEEN, {
+            Position = UDim2.fromOffset(width, 0),
+            Size = UDim2.new(1, -width, 1, 0)
+        })
     end
     if self.BrandTitle then self.BrandTitle.Visible = not compact end
     if self.BrandSubtitle then self.BrandSubtitle.Visible = not compact end
@@ -2017,13 +2020,13 @@ function Win:SetSidebarCollapsed(collapsed)
     end
     if self.NavHeader then self.NavHeader.Visible = not compact end
     if self.NavSearch then
-        self.NavSearch.Size = compact and UDim2.new(1, 0, 0, 36) or UDim2.new(1, 0, 0, 36)
+        self.NavSearch.Size = UDim2.new(1, 0, 0, 42)
         self.NavSearch.BackgroundTransparency = compact and 1 or 0.06
     end
     if self.SearchBox then self.SearchBox.Visible = not compact end
     if self.SearchIcon then
         self.SearchIcon.Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(5, 0)
-        self.SearchIcon.Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(25, 36)
+        self.SearchIcon.Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(27, 42)
         self.SearchIcon.TextColor3 = compact and THEME.Accent2 or THEME.SubText
     end
     if self.NavFooter then self.NavFooter.Size = compact and UDim2.new(1, 0, 0, 38) or UDim2.new(1, 0, 0, 54) end
@@ -2115,6 +2118,7 @@ function Win:AddTab(name, icon, groupName)
         })
         group = {
             Name = groupName,
+            _layoutToken = 0,
             Header = header,
             Button = groupButton,
             Label = groupLabel,
@@ -2132,13 +2136,29 @@ function Win:AddTab(name, icon, groupName)
         end)
         groupButton.Activated:Connect(function()
             group.Collapsed = not group.Collapsed
+            group._layoutToken = (group._layoutToken or 0) + 1
+            local layoutToken = group._layoutToken
             groupArrow.Text = group.Collapsed and "›" or "⌄"
+            tween(groupArrow, NAV_TWEEN, {Rotation = group.Collapsed and -90 or 0})
             tween(groupButton, FAST, {BackgroundTransparency = group.Collapsed and 0.72 or 1})
             for _, member in ipairs(group.Tabs) do
-                if self.SearchQuery ~= "" then
-                    member.Btn.Visible = member._searchVisible == true
+                local shouldShow = self.SearchQuery ~= "" and member._searchVisible == true or self.SearchQuery == "" and not group.Collapsed
+                if shouldShow then
+                    member.Btn.Visible = true
+                    if self.SearchQuery == "" then
+                        member.Btn.Size = UDim2.new(1, 0, 0, 0)
+                        tween(member.Btn, NAV_TWEEN, {Size = UDim2.new(1, 0, 0, 50)})
+                    end
+                elseif self.SearchQuery == "" then
+                    local closing = tween(member.Btn, NAV_TWEEN, {Size = UDim2.new(1, 0, 0, 0)})
+                    closing.Completed:Connect(function(playbackState)
+                        if playbackState == Enum.PlaybackState.Completed and group._layoutToken == layoutToken and group.Collapsed then
+                            member.Btn.Visible = false
+                            member.Btn.Size = UDim2.new(1, 0, 0, 50)
+                        end
+                    end)
                 else
-                    member.Btn.Visible = not group.Collapsed
+                    member.Btn.Visible = false
                 end
             end
         end)
@@ -4378,6 +4398,7 @@ end)
 -- v91.89: Rebuilt touch-first presentation around PulseHub's Midnight/Crimson/Ember visual language:
 --         viewport-sized mobile canvas, enlarged 60-66px action targets, larger switches/sliders/dropdowns,
 --         roomier subnavigation, stronger card hierarchy, local ambient grid/bloom decoration and clearer branding.
+--         Sidebar resizing and nav-group expansion now use Quint easing with guarded accordion completion callbacks.
 --         No external images or remote UI assets are required; all gameplay modules and control callbacks are retained.
 
 -- v91.88: removes the unused secTeleport local that exceeded Luau's 200-register limit in the main chunk.
