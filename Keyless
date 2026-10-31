@@ -1009,91 +1009,16 @@ weaponTracker = (function()
         return nil
     end
 
-    function API:GetGround(obj, part)
-        if not running or not obj or not obj.Parent then return nil end
-        part = part or getTouchPart(obj)
-        if not part or not part.Parent then return nil end
-        return getCachedGround(obj, part)
-    end
-
-    function API:GetClosest(origin, maxDist, method, murdererPosition)
-        if not running or not origin then return nil, nil end
-        if getActiveCoinContainer() ~= boundContainer then bindContainer() end
-        if not boundContainer then return nil, nil end
-
-        method = method or CFG.FarmMethod or "Fast"
+    function API:GetClosest(origin, maxDist)
+        if not running then return nil, nil end
+        local drop, part = findDroppedGun()
+        if not drop or not part then return nil, nil end
         local now = os.clock()
-        local candidates = {}
-        for i = #coins, 1, -1 do
-            local obj = coins[i]
-            if not obj or not obj.Parent or not obj:IsDescendantOf(boundContainer) or not isCoin(obj) then
-                table.remove(coins, i)
-                if obj then skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil end
-            elseif (skipped[obj] or 0) <= now and now - (observedAt[obj] or now) >= 0.18 then
-                local part = getTouchPart(obj)
-                if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
-                    local directDistance = (part.Position - origin).Magnitude
-                    if not maxDist or directDistance <= maxDist then
-                        local ground = getCachedGround(obj, part)
-                        local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
-                        if ground and floorDelta <= 21 and math.abs(part.Position.Y - origin.Y) <= 24 then
-                            table.insert(candidates, {
-                                object = obj, part = part, ground = ground,
-                                distance = directDistance, score = directDistance
-                            })
-                        else
-                            skipped[obj] = now + 1.0
-                        end
-                    end
-                else
-                    table.remove(coins, i)
-                    skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil
-                end
-            end
-        end
-        if #candidates == 0 then return nil, nil end
-
-        local best, bestScore
-        for _, candidate in ipairs(candidates) do
-            local position = candidate.part.Position
-            local score = candidate.distance
-            if method == "Under Map" then
-                local hidden = Vector3.new(position.X, candidate.ground.Position.Y - 3.8, position.Z)
-                score = (hidden - origin).Magnitude + math.max(0, position.Y - hidden.Y) * 1.2
-            elseif method == "Teleport" then
-                local nearest, second, third = math.huge, math.huge, math.huge
-                for _, other in ipairs(candidates) do
-                    if other ~= candidate then
-                        local distance = (other.part.Position - position).Magnitude
-                        if distance < nearest then
-                            nearest, second, third = distance, nearest, second
-                        elseif distance < second then
-                            second, third = distance, second
-                        elseif distance < third then
-                            third = distance
-                        end
-                    end
-                end
-                score = candidate.distance * 0.2
-                    + math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
-            end
-
-            if murdererPosition then
-                local threatDistance = (position - murdererPosition).Magnitude
-                if threatDistance < 24 then
-                    score += CFG.FarmAvoidMurderer and 1000000 or 300
-                elseif threatDistance < 48 then
-                    score += (48 - threatDistance) * 2
-                end
-            end
-            candidate.score = score
-            if not bestScore or score < bestScore then best, bestScore = candidate, score end
-        end
-
-        if not best or (CFG.FarmAvoidMurderer and murdererPosition and bestScore >= 1000000) then
-            return nil, nil
-        end
-        return best.object, best.distance
+        if (skipped[drop] or 0) > now then return nil, nil end
+        local offset = part.Position - origin
+        local distance = offset.Magnitude
+        if maxDist and distance > maxDist then return nil, distance end
+        return drop, distance
     end
 
     function API:GetStatus(origin, maxDist)
@@ -2015,46 +1940,91 @@ coinTracker = (function()
         return part ~= nil and part.Parent ~= nil and part.CanTouch and part.Transparency < 0.98
     end
 
-    function API:GetClosest(origin, maxDist)
-        if not running then return nil, nil end
-        -- A map/container can be replaced without a character respawn.
+    function API:GetGround(obj, part)
+        if not running or not obj or not obj.Parent then return nil end
+        part = part or getTouchPart(obj)
+        if not part or not part.Parent then return nil end
+        return getCachedGround(obj, part)
+    end
+
+    function API:GetClosest(origin, maxDist, method, murdererPosition)
+        if not running or not origin then return nil, nil end
         if getActiveCoinContainer() ~= boundContainer then bindContainer() end
         if not boundContainer then return nil, nil end
 
-        local best, bestSq = nil, (maxDist and maxDist * maxDist or math.huge)
+        method = method or CFG.FarmMethod or "Fast"
         local now = os.clock()
+        local candidates = {}
         for i = #coins, 1, -1 do
             local obj = coins[i]
             if not obj or not obj.Parent or not obj:IsDescendantOf(boundContainer) or not isCoin(obj) then
                 table.remove(coins, i)
-                if obj then
-                    skipped[obj] = nil
-                    observedAt[obj] = nil
-                    groundCache[obj] = nil
-                end
+                if obj then skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil end
             elseif (skipped[obj] or 0) <= now and now - (observedAt[obj] or now) >= 0.18 then
                 local part = getTouchPart(obj)
                 if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
-                    local pos = part.Position
-                    local offset = pos - origin
-                    local ground = getCachedGround(obj, part)
-                    local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
-                    -- Ignore unsupported coins, lobby templates, and coins on a different floor.
-                    if ground and floorDelta <= 21 and math.abs(offset.Y) <= 24 then
-                        local sq = offset:Dot(offset)
-                        if sq < bestSq then bestSq = sq; best = obj end
-                    else
-                        skipped[obj] = now + 1.0
+                    local directDistance = (part.Position - origin).Magnitude
+                    if not maxDist or directDistance <= maxDist then
+                        local ground = getCachedGround(obj, part)
+                        local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
+                        if ground and floorDelta <= 21 and math.abs(part.Position.Y - origin.Y) <= 24 then
+                            table.insert(candidates, {
+                                object = obj, part = part, ground = ground,
+                                distance = directDistance, score = directDistance
+                            })
+                        else
+                            skipped[obj] = now + 1.0
+                        end
                     end
                 else
                     table.remove(coins, i)
-                    skipped[obj] = nil
-                    observedAt[obj] = nil
-                    groundCache[obj] = nil
+                    skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil
                 end
             end
         end
-        return best, best and math.sqrt(bestSq) or nil
+        if #candidates == 0 then return nil, nil end
+
+        local best, bestScore
+        for _, candidate in ipairs(candidates) do
+            local position = candidate.part.Position
+            local score = candidate.distance
+            if method == "Under Map" then
+                local hidden = Vector3.new(position.X, candidate.ground.Position.Y - 3.8, position.Z)
+                score = (hidden - origin).Magnitude + math.max(0, position.Y - hidden.Y) * 1.2
+            elseif method == "Teleport" then
+                local nearest, second, third = math.huge, math.huge, math.huge
+                for _, other in ipairs(candidates) do
+                    if other ~= candidate then
+                        local distance = (other.part.Position - position).Magnitude
+                        if distance < nearest then
+                            nearest, second, third = distance, nearest, second
+                        elseif distance < second then
+                            second, third = distance, second
+                        elseif distance < third then
+                            third = distance
+                        end
+                    end
+                end
+                score = candidate.distance * 0.2
+                    + math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
+            end
+
+            if murdererPosition then
+                local threatDistance = (position - murdererPosition).Magnitude
+                if threatDistance < 24 then
+                    score += CFG.FarmAvoidMurderer and 1000000 or 300
+                elseif threatDistance < 48 then
+                    score += (48 - threatDistance) * 2
+                end
+            end
+            candidate.score = score
+            if not bestScore or score < bestScore then best, bestScore = candidate, score end
+        end
+
+        if not best or (CFG.FarmAvoidMurderer and murdererPosition and bestScore >= 1000000) then
+            return nil, nil
+        end
+        return best.object, best.distance
     end
 
     function API:GetStatus(origin, maxDist)
