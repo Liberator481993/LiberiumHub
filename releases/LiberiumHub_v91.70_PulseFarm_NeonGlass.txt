@@ -54,7 +54,8 @@ blur.Size = 10 blur.Enabled = true
 
 local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleHUD, win, characterAddedConnection
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
-local coinCollectedConnection, farmRemoteConnections = {}
+local coinCollectedConnection
+local farmRemoteConnections = {}
 local farmCoinEventAt, farmCoinEventCount, farmLastCollectedPosition
 local farmBagEventFull = {}
 farmCoinEventAt, farmCoinEventCount = 0, 0
