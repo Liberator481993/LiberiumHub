@@ -2092,6 +2092,8 @@ coinTracker = (function()
     return API
 end)()
 
+local farmBagCache = {checkedAt = 0, full = false, bag = nil}
+
 -- PulseHub's collector listens for the game's local CoinCollected confirmation.
 -- The event is used as a secondary success signal and to continue Teleport mode's coin cluster.
 task.spawn(function()
@@ -2117,7 +2119,6 @@ task.spawn(function()
     end)
 end)
 
-local farmBagCache = {checkedAt = 0, full = false, bag = nil}
 local function isCoinBagFull()
     local now = os.clock()
     if now - farmBagCache.checkedAt < 0.45 then return farmBagCache.full end
