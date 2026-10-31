@@ -1040,6 +1040,10 @@ Dropdown = (function()
             self._destroyed = true
             self.IsOpen = false
             if self._tween then pcall(function() self._tween:Cancel() end); self._tween = nil end
+            if self._headerConnection then
+                pcall(function() self._headerConnection:Disconnect() end)
+                self._headerConnection = nil
+            end
             for _, connection in ipairs(self._connections) do
                 pcall(function() connection:Disconnect() end)
             end
@@ -1047,9 +1051,9 @@ Dropdown = (function()
             pcall(function() self.Frame:Destroy() end)
             table.clear(self._buttons)
         end
-        table.insert(self._connections, self.Header.Activated:Connect(function()
+        self._headerConnection = self.Header.Activated:Connect(function()
             if self.IsOpen then self:Close() else self:Open() end
-        end))
+        end)
         self:SetOptions(options or {}, false)
         if default ~= nil then self:Set(default, true) end
         return self
