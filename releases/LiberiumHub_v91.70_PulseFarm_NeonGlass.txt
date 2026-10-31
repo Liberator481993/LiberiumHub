@@ -2150,6 +2150,16 @@ local function isCoinBagFull()
     farmBagCache.checkedAt = now
     farmBagCache.full = false
 
+    local anyType, allTypesFull = false, true
+    for _, full in pairs(farmBagEventFull) do
+        anyType = true
+        if not full then allTypesFull = false end
+    end
+    if anyType and allTypesFull then
+        farmBagCache.full = true
+        return true
+    end
+
     local main = PlayerGui and PlayerGui:FindFirstChild("MainGUI")
     local game = main and main:FindFirstChild("Game")
     local bag = game and game:FindFirstChild("CoinBags")
