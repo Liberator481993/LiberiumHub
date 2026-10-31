@@ -2238,7 +2238,7 @@ function Sec:AddToggle(name, def, callback)
         Size = UDim2.fromOffset(42, 24),
         BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(38, 44, 61),
         Parent = row
-    }, {corner(13), stroke(1, state and 0.42 or 0.84), create("UIGradient", {Color = ColorSequence.new(state and Color3.fromRGB(133, 93, 223) or Color3.fromRGB(54, 62, 82), state and Color3.fromRGB(47, 173, 193) or Color3.fromRGB(29, 36, 53), Rotation = 0})})
+    }, {corner(13), stroke(1, state and 0.42 or 0.84), create("UIGradient", {Color = ColorSequence.new(state and Color3.fromRGB(133, 93, 223) or Color3.fromRGB(54, 62, 82), state and Color3.fromRGB(47, 173, 193) or Color3.fromRGB(29, 36, 53)), Rotation = 0})})
     local knob = create("Frame", {
         AnchorPoint = Vector2.new(0, 0.5),
         Position = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
