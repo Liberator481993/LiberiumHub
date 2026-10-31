@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.71 | NEON GLASS UI + AUTOFARM CONTACT REPAIR
+-- LIBERIUM HUB | v91.72 | NEON GLASS UI + ARCEUS X COMPATIBILITY
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -12,7 +12,36 @@ local TeleportService = game:GetService("TeleportService")
 local Stats = game:GetService("Stats")
 local Debris = game:GetService("Debris")
 
--- Delta can execute during the first moments of client startup.
+-- Resolve executor globals from both the shared executor environment and the script environment.
+-- Arceus X exposes getgenv/gethui; other mobile executors may expose only a subset.
+local function getSharedEnvironment()
+    if type(getgenv) == "function" then
+        local ok, env = pcall(getgenv)
+        if ok and type(env) == "table" then return env end
+    end
+    return _G
+end
+local SharedEnv = getSharedEnvironment()
+
+local function getExecutorValue(name)
+    local ok, value = pcall(function() return SharedEnv[name] end)
+    if ok and value ~= nil then return value end
+    if type(getfenv) == "function" then
+        local envOk, env = pcall(getfenv)
+        if envOk and type(env) == "table" then
+            local valueOk, envValue = pcall(function() return env[name] end)
+            if valueOk and envValue ~= nil then return envValue end
+        end
+    end
+    return nil
+end
+
+local function getExecutorFunction(name)
+    local value = getExecutorValue(name)
+    return type(value) == "function" and value or nil
+end
+
+-- Mobile executors can execute during the first moments of client startup.
 -- Wait briefly for the local player and PlayerGui instead of indexing nil or yielding forever.
 local LocalPlayer = Players.LocalPlayer
 local playerWaitDeadline = os.clock() + 15
@@ -34,6 +63,69 @@ if not PlayerGui then
     return
 end
 
+-- Prefer the executor's hidden GUI container where available (Arceus X gethui),
+-- then fall back to PlayerGui for Delta and standard Roblox environments.
+local function resolveGuiParent()
+    for _, getterName in ipairs({"gethui", "get_hidden_gui"}) do
+        local getter = getExecutorFunction(getterName)
+        if getter then
+            local ok, parent = pcall(getter)
+            if ok and typeof(parent) == "Instance" then return parent end
+        end
+    end
+    return PlayerGui
+end
+local UIParent = resolveGuiParent()
+
+-- Temporary visible startup status: if construction stops early, the last stage stays on-screen.
+local startupGui, startupLabel
+local function setStartupStatus(message)
+    pcall(function()
+        if not startupGui or not startupGui.Parent then
+            local gui = Instance.new("ScreenGui")
+            gui.Name = "LiberiumStartupStatus"
+            gui.ResetOnSpawn = false
+            gui.IgnoreGuiInset = true
+            gui.DisplayOrder = 30000
+            local parentOk = pcall(function() gui.Parent = UIParent end)
+            if not parentOk or not gui.Parent then gui.Parent = PlayerGui end
+            startupGui = gui
+
+            local panel = Instance.new("Frame")
+            panel.Name = "Status"
+            panel.AnchorPoint = Vector2.new(0.5, 0)
+            panel.Position = UDim2.new(0.5, 0, 0, 42)
+            panel.Size = UDim2.fromOffset(224, 34)
+            panel.BackgroundColor3 = Color3.fromRGB(15, 18, 31)
+            panel.BackgroundTransparency = 0.08
+            panel.BorderSizePixel = 0
+            panel.Parent = gui
+            local panelCorner = Instance.new("UICorner")
+            panelCorner.CornerRadius = UDim.new(0, 10)
+            panelCorner.Parent = panel
+            local panelStroke = Instance.new("UIStroke")
+            panelStroke.Color = Color3.fromRGB(151, 111, 255)
+            panelStroke.Transparency = 0.25
+            panelStroke.Parent = panel
+
+            local label = Instance.new("TextLabel")
+            label.Name = "Message"
+            label.BackgroundTransparency = 1
+            label.Position = UDim2.fromOffset(10, 0)
+            label.Size = UDim2.new(1, -20, 1, 0)
+            label.Font = Enum.Font.GothamSemibold
+            label.TextSize = 10
+            label.TextColor3 = Color3.fromRGB(225, 235, 255)
+            label.TextXAlignment = Enum.TextXAlignment.Center
+            label.Text = "LIBERIUM • STARTING"
+            label.Parent = panel
+            startupLabel = label
+        end
+        if startupLabel then startupLabel.Text = "LIBERIUM • " .. tostring(message) end
+    end)
+end
+setStartupStatus("INITIALIZING • ANDROID")
+
 local THEME = { Background = Color3.fromRGB(7, 10, 18), Element = Color3.fromRGB(17, 22, 36), Accent = Color3.fromRGB(151, 111, 255), Accent2 = Color3.fromRGB(77, 220, 246), Text = Color3.fromRGB(241, 245, 255), SubText = Color3.fromRGB(143, 157, 184), Stroke = Color3.fromRGB(93, 110, 151), Surface = Color3.fromRGB(10, 15, 27), Good = Color3.fromRGB(93, 232, 177) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -46,7 +138,10 @@ local function label(p) p.BackgroundTransparency=1 p.Font=p.Font or Enum.Font.Go
 local function hover(b, t, id, ov) b.MouseEnter:Connect(function() tween(t,FAST,{BackgroundTransparency=ov}) end) b.MouseLeave:Connect(function() tween(t,FAST,{BackgroundTransparency=id}) end) end
 
 -- Stop the previous hub before acquiring shared Lighting effects.
-if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
+if type(SharedEnv.LiberiumCleanup) == "function" then
+    pcall(SharedEnv.LiberiumCleanup)
+    SharedEnv.LiberiumCleanup = nil
+end
 
 local blur = Lighting:FindFirstChild("LiberiumBlur")
 if not blur then blur = Instance.new("BlurEffect", Lighting) blur.Name = "LiberiumBlur" end
@@ -64,7 +159,7 @@ local colorFromName
 
 local staleRoleFolder = Workspace:FindFirstChild("LibHUD") if staleRoleFolder then pcall(function() staleRoleFolder:Destroy() end) end
 local isRunning = true
-getgenv().LiberiumCleanup = function()
+SharedEnv.LiberiumCleanup = function()
     isRunning = false
     if characterAddedConnection then pcall(function() characterAddedConnection:Disconnect() end) characterAddedConnection = nil end
     if Hotkeys then pcall(function() Hotkeys.Destroy() end) end
@@ -98,6 +193,7 @@ getgenv().LiberiumCleanup = function()
     if skeletonObj then pcall(function() skeletonObj:Destroy() end) end
     if weaponTracker then pcall(function() weaponTracker:Destroy() end) end
     if win then pcall(function() win:Destroy() end) end
+    if startupGui then pcall(function() startupGui:Destroy() end); startupGui = nil; startupLabel = nil end
 end
 
 local CFG = {
@@ -273,7 +369,7 @@ local function isKillerRole(role) return KILLER_ROLES[normalizeRoleName(role)] =
 
 Hotkeys = (function() local HK = {} HK._binds = {} HK._connection = nil local function onInputBegan(input, gameProcessed) if gameProcessed then return end if input.UserInputType ~= Enum.UserInputType.Keyboard then return end local callbacks = HK._binds[input.KeyCode] if not callbacks then return end for _, callback in ipairs(callbacks) do task.spawn(function() pcall(callback) end) end end function HK.Bind(keyCode, callback) local list = HK._binds[keyCode] if not list then list = {} HK._binds[keyCode] = list end table.insert(list, callback) if not HK._connection then HK._connection = UserInputService.InputBegan:Connect(onInputBegan) end return function() local idx = table.find(list, callback) if idx then table.remove(list, idx) end end end function HK.Destroy() if HK._connection then HK._connection:Disconnect() HK._connection = nil end table.clear(HK._binds) end return HK end)()
 
-local ConfigManager = (function() local DEFAULT_FOLDER = "DashboardConfig" local DEFAULT_FILE = "settings" local CM = {} CM.__index = CM local function hasFunction(name) local ok, v = pcall(function() return getfenv()[name] end) return ok and typeof(v) == "function" end local function callGlobal(name, ...) return getfenv()[name](...) end local function isFiniteNumber(n) return n == n and n ~= math.huge and n ~= -math.huge end local function isArray(t) local count = 0 for key in pairs(t) do if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end count += 1 end return count == #t end local function sanitize(value, depth, seen) local vType = typeof(value) if vType == "string" or vType == "boolean" then return value elseif vType == "number" then return isFiniteNumber(value) and value or nil elseif vType == "Color3" then return { __type = "Color3", R = value.R, G = value.G, B = value.B } elseif vType == "Vector2" then return { __type = "Vector2", X = value.X, Y = value.Y } elseif vType == "table" then if depth >= 32 or seen[value] then return nil end seen[value] = true local res = {} if isArray(value) then for i = 1, #value do res[i] = sanitize(value[i], depth + 1, seen) or false end else for k, v in pairs(value) do if type(k) == "string" or type(k) == "number" then local c = sanitize(v, depth + 1, seen) if c ~= nil then res[tostring(k)] = c end end end end seen[value] = nil return res end return nil end local function restore(value, depth) if type(value) ~= "table" or depth >= 32 then return value end if value.__type == "Color3" then return Color3.new(value.R, value.G, value.B) elseif value.__type == "Vector2" then return Vector2.new(value.X, value.Y) end local res = {} for k, v in pairs(value) do res[k] = restore(v, depth + 1) end return res end function CM.new() local self = setmetatable({}, CM) self._folder = DEFAULT_FOLDER self._memory = {} self._canWrite = hasFunction("writefile") self._canRead = hasFunction("readfile") self._canMakeFolder = hasFunction("makefolder") self._canCheckFolder = hasFunction("isfolder") return self end function CM:_normalizeName(fileName) local name = type(fileName) == "string" and fileName or DEFAULT_FILE name = name:gsub("[^%w_%-%.]", "_") if name == "" or name == "." or name == ".." then name = DEFAULT_FILE end if name:sub(-5):lower() ~= ".json" then name ..= ".json" end return name end function CM:_path(name) return self._folder .. "/" .. name end function CM:_ensureFolder() if not self._canMakeFolder then return end pcall(function() if not (hasFunction("isfolder") and callGlobal("isfolder", self._folder)) then callGlobal("makefolder", self._folder) end end) end function CM:Save(tbl, fileName) local clean = sanitize(tbl, 0, {}) if not clean then return false end local ok, json = pcall(HttpService.JSONEncode, HttpService, clean) if not ok then return false end local name = self:_normalizeName(fileName) self._memory[name] = json if not self._canWrite then return false end self:_ensureFolder() local okW = pcall(function() callGlobal("writefile", self:_path(name), json) end) return okW end function CM:Load(fileName) local name = self:_normalizeName(fileName) if self._canRead then local ok, contents = pcall(function() local p = self:_path(name) if hasFunction("isfile") and not callGlobal("isfile", p) then return nil end return callGlobal("readfile", p) end) if ok and type(contents) == "string" and contents ~= "" then local okD, dec = pcall(HttpService.JSONDecode, HttpService, contents) if okD and type(dec) == "table" then local okR, rest = pcall(restore, dec, 0) if okR and type(rest) == "table" then self._memory[name] = contents return rest end end end end local cached = self._memory[name] if cached then local okD, dec = pcall(HttpService.JSONDecode, HttpService, cached) if okD then return restore(dec, 0) end end return {} end return CM end)()
+local ConfigManager = (function() local DEFAULT_FOLDER = "DashboardConfig" local DEFAULT_FILE = "settings" local CM = {} CM.__index = CM local function hasFunction(name) return getExecutorFunction(name) ~= nil end local function callGlobal(name, ...) local fn = getExecutorFunction(name) if not fn then error("Executor function unavailable: " .. tostring(name)) end return fn(...) end local function isFiniteNumber(n) return n == n and n ~= math.huge and n ~= -math.huge end local function isArray(t) local count = 0 for key in pairs(t) do if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end count += 1 end return count == #t end local function sanitize(value, depth, seen) local vType = typeof(value) if vType == "string" or vType == "boolean" then return value elseif vType == "number" then return isFiniteNumber(value) and value or nil elseif vType == "Color3" then return { __type = "Color3", R = value.R, G = value.G, B = value.B } elseif vType == "Vector2" then return { __type = "Vector2", X = value.X, Y = value.Y } elseif vType == "table" then if depth >= 32 or seen[value] then return nil end seen[value] = true local res = {} if isArray(value) then for i = 1, #value do res[i] = sanitize(value[i], depth + 1, seen) or false end else for k, v in pairs(value) do if type(k) == "string" or type(k) == "number" then local c = sanitize(v, depth + 1, seen) if c ~= nil then res[tostring(k)] = c end end end end seen[value] = nil return res end return nil end local function restore(value, depth) if type(value) ~= "table" or depth >= 32 then return value end if value.__type == "Color3" then return Color3.new(value.R, value.G, value.B) elseif value.__type == "Vector2" then return Vector2.new(value.X, value.Y) end local res = {} for k, v in pairs(value) do res[k] = restore(v, depth + 1) end return res end function CM.new() local self = setmetatable({}, CM) self._folder = DEFAULT_FOLDER self._memory = {} self._canWrite = hasFunction("writefile") self._canRead = hasFunction("readfile") self._canMakeFolder = hasFunction("makefolder") self._canCheckFolder = hasFunction("isfolder") return self end function CM:_normalizeName(fileName) local name = type(fileName) == "string" and fileName or DEFAULT_FILE name = name:gsub("[^%w_%-%.]", "_") if name == "" or name == "." or name == ".." then name = DEFAULT_FILE end if name:sub(-5):lower() ~= ".json" then name ..= ".json" end return name end function CM:_path(name) return self._folder .. "/" .. name end function CM:_ensureFolder() if not self._canMakeFolder then return end pcall(function() if not (hasFunction("isfolder") and callGlobal("isfolder", self._folder)) then callGlobal("makefolder", self._folder) end end) end function CM:Save(tbl, fileName) local clean = sanitize(tbl, 0, {}) if not clean then return false end local ok, json = pcall(HttpService.JSONEncode, HttpService, clean) if not ok then return false end local name = self:_normalizeName(fileName) self._memory[name] = json if not self._canWrite then return false end self:_ensureFolder() local okW = pcall(function() callGlobal("writefile", self:_path(name), json) end) return okW end function CM:Load(fileName) local name = self:_normalizeName(fileName) if self._canRead then local ok, contents = pcall(function() local p = self:_path(name) if hasFunction("isfile") and not callGlobal("isfile", p) then return nil end return callGlobal("readfile", p) end) if ok and type(contents) == "string" and contents ~= "" then local okD, dec = pcall(HttpService.JSONDecode, HttpService, contents) if okD and type(dec) == "table" then local okR, rest = pcall(restore, dec, 0) if okR and type(rest) == "table" then self._memory[name] = contents return rest end end end end local cached = self._memory[name] if cached then local okD, dec = pcall(HttpService.JSONDecode, HttpService, cached) if okD then return restore(dec, 0) end end return {} end return CM end)()
 
 local InterceptSolver = (function() local API = {} function API.solve(targetPos, targetVel, originPos, speed) if type(speed) ~= "number" or speed <= 0 then return nil, nil end local speedSq = speed * speed local velSq = targetVel:Dot(targetVel) local D = targetPos - originPos local a = velSq - speedSq local h = D:Dot(targetVel) local c = D:Dot(D) if c < 1e-6 then return targetPos, 0 end local t if math.abs(a) < 1e-6 then if math.abs(h) < 1e-6 or h >= 0 then return nil, nil end t = -c / (2 * h) else local disc = h * h - a * c if disc < 0 then return nil, nil end local root = math.sqrt(disc) local t1 = (-h + root) / a local t2 = (-h - root) / a local best = math.huge if t1 > 0 and t1 < best then best = t1 end if t2 > 0 and t2 < best then best = t2 end if best == math.huge then return nil, nil end t = best end if not t or t ~= t or t <= 0 or t == math.huge then return nil, nil end return targetPos + targetVel * t, t end return API end)()
 
@@ -1372,17 +1468,27 @@ local Lib = {}
 
 function Lib.new(title)
     local s = setmetatable({Tabs = {}, Conns = {}}, Win)
-    local old = PlayerGui:FindFirstChild("GlassUI")
-    if old then pcall(function() old:Destroy() end) end
+    for _, parent in ipairs({UIParent, PlayerGui}) do
+        local old = parent and parent:FindFirstChild("GlassUI")
+        if old then pcall(function() old:Destroy() end) end
+    end
 
-    s.Gui = create("ScreenGui", {
+    setStartupStatus("BUILDING MAIN WINDOW")
+    local guiProperties = {
         Name = "GlassUI",
         ResetOnSpawn = false,
         IgnoreGuiInset = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         DisplayOrder = 2000,
-        Parent = PlayerGui
-    })
+        Parent = UIParent
+    }
+    local guiCreated, guiOrError = pcall(create, "ScreenGui", guiProperties)
+    if not guiCreated and UIParent ~= PlayerGui then
+        guiProperties.Parent = PlayerGui
+        guiCreated, guiOrError = pcall(create, "ScreenGui", guiProperties)
+    end
+    if not guiCreated then error("Unable to create Liberium ScreenGui: " .. tostring(guiOrError)) end
+    s.Gui = guiOrError
     s.Scale = create("UIScale", {Scale = 1, Parent = s.Gui})
 
     local cameraConnection
@@ -1532,7 +1638,7 @@ function Lib.new(title)
         Parent = status
     }, {corner(4), stroke(1, 0.2)})
     label({
-        Text = "MM2  •  v91.71",
+        Text = "MM2  •  v91.72",
         Font = Enum.Font.GothamBold,
         TextSize = 9,
         TextColor3 = Color3.fromRGB(177, 246, 222),
@@ -1601,7 +1707,7 @@ function Lib.new(title)
         Parent = s.Side
     }, {corner(11), stroke(1, 0.68)})
     label({
-        Text = "DELTA  /  ANDROID",
+        Text = "ANDROID  /  TOUCH UI",
         Font = Enum.Font.GothamBold,
         TextSize = 9,
         TextColor3 = THEME.Text,
@@ -1628,6 +1734,7 @@ function Lib.new(title)
         Parent = s.Inner
     }, {create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(15, 18, 34), Color3.fromRGB(7, 18, 29)), Rotation = 35})})
     updateLayout()
+    setStartupStatus("WINDOW CREATED • BUILDING CONTROLS")
 
     -- Header-only drag keeps sliders, dropdowns and page controls from stealing drag input.
     local dragInput, dragStart, dragPosition
@@ -2670,7 +2777,7 @@ local function glideTo(target, speed, mode)
                 -- kept the avatar non-collidable while trying to touch the coin, which could
                 -- leave the feet below the hitbox and make the character hover beside it.
                 restoreCollisionForPickup()
-                local touchFn = firetouchinterest
+                local touchFn = getExecutorFunction("firetouchinterest")
                 local touchParts = {}
                 local function addTouchPart(part)
                     if part and part.Parent and part:IsA("BasePart") then
@@ -2801,7 +2908,7 @@ local function tryDistanceGunPickup(target, session)
         return false, "invalid"
     end
 
-    local touchFn = firetouchinterest
+    local touchFn = getExecutorFunction("firetouchinterest")
     if typeof(touchFn) ~= "function" then return false, "unavailable" end
 
     local root = session.root
@@ -2858,7 +2965,7 @@ local function tryDistanceGunPickup(target, session)
 end
 
 
--- Compact, non-interactive farm monitor designed for Delta on mobile.
+-- Compact, non-interactive farm monitor designed for mobile executors.
 -- It reports local script state only; it does not claim that the server accepted a pickup.
 do
     farmHudGui = Instance.new("ScreenGui")
@@ -2994,7 +3101,10 @@ task.spawn(function()
     end
 end)
 
-roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("LIBERIUM HUB")
+roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false })
+setStartupStatus("CORE READY • CREATING MENU")
+win = Lib.new("LIBERIUM HUB")
+setStartupStatus("MENU READY • BUILDING FEATURE PAGES")
 
 -- LIBERIUM API v92: additive developer facade.
 -- Keeps the v91.18 UI and gameplay systems intact while providing a consistent
@@ -3236,7 +3346,7 @@ label({
     Parent=homeHero
 })
 label({
-    Text="NEON CONTROL CENTER  •  DELTA MOBILE",
+    Text="NEON CONTROL CENTER  •  MOBILE EDITION",
     Font=Enum.Font.GothamSemibold,
     TextSize=9,
     TextColor3=Color3.fromRGB(190,202,233),
@@ -3494,8 +3604,12 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.71 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.72 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
+setStartupStatus("READY • V91.72")
+task.delay(2.5, function()
+    if startupGui then pcall(function() startupGui:Destroy() end); startupGui = nil; startupLabel = nil end
+end)
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
 -- shared target-part selection, no duplicate coin tracking, non-anchored stepped movement,
@@ -3616,3 +3730,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.71: redesigned page hierarchy, navigation rail, touch-friendly controls and responsive neon-glass surfaces.
 -- v91.71 AutoFarm: transparent-but-touchable coin hitboxes are accepted; contact height follows R6/R15 leg geometry,
 --              with broader contact retries and shorter failed-target cooldowns. Delta runtime testing is still required.
+-- v91.72: executor globals resolve through getgenv/getfenv; the main ScreenGui uses gethui with PlayerGui fallback.
+--          A temporary startup-stage label remains visible if UI initialization stops before the hub is ready.
+--          Arceus X and Delta compatibility changes are statically checked; on-device runtime tests are still required.
