@@ -2227,7 +2227,8 @@ local function glideTo(target, speed, mode)
     if mode == "farm" and hidePosition then
         routeDistance = math.max(routeDistance, (hidePosition - root.Position).Magnitude + 4)
     end
-    local timeLimit = math.clamp(routeDistance / speed * 2.0 + 3.0, 4, 22)
+    -- Pulse's movement budget scales with distance instead of cutting long cross-map routes at 22 seconds.
+    local timeLimit = math.clamp(routeDistance / math.max(speed, 1) + 4.0, 4, 60)
     local arrived = false
     local collected = false
     local success, err
