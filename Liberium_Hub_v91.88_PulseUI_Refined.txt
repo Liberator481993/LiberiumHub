@@ -2105,8 +2105,11 @@ function Win:AddTab(name, icon, groupName)
             groupArrow.Text = group.Collapsed and "›" or "⌄"
             tween(groupButton, FAST, {BackgroundTransparency = group.Collapsed and 0.72 or 1})
             for _, member in ipairs(group.Tabs) do
-                local searchAllows = self.SearchQuery ~= "" and member._searchVisible == true
-                member.Btn.Visible = self.SearchQuery ~= "" and searchAllows or (not group.Collapsed)
+                if self.SearchQuery ~= "" then
+                    member.Btn.Visible = member._searchVisible == true
+                else
+                    member.Btn.Visible = not group.Collapsed
+                end
             end
         end)
         self._groupMap[groupName] = group
