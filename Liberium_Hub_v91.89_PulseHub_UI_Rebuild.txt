@@ -2032,7 +2032,7 @@ function Win:SetSidebarCollapsed(collapsed)
     if self.NavFooter then self.NavFooter.Size = compact and UDim2.new(1, 0, 0, 38) or UDim2.new(1, 0, 0, 54) end
     if self.NavFooterTitle then
         self.NavFooterTitle.Visible = not compact
-        if compact then self.NavFooterTitle.Text = "L" else self.NavFooterTitle.Text = "ARCEUS X  /  ANDROID" end
+        if compact then self.NavFooterTitle.Text = "L" else self.NavFooterTitle.Text = "ANDROID  /  EXECUTOR READY" end
     end
     if self.NavFooterSub then self.NavFooterSub.Visible = not compact end
     for _, group in ipairs(self.Groups or {}) do
@@ -2138,8 +2138,8 @@ function Win:AddTab(name, icon, groupName)
             group.Collapsed = not group.Collapsed
             group._layoutToken = (group._layoutToken or 0) + 1
             local layoutToken = group._layoutToken
-            groupArrow.Text = group.Collapsed and "›" or "⌄"
-            tween(groupArrow, NAV_TWEEN, {Rotation = group.Collapsed and -90 or 0})
+            groupArrow.Text = "⌄"
+            tween(groupArrow, NAV_TWEEN, {Rotation = group.Collapsed and 90 or 0})
             tween(groupButton, FAST, {BackgroundTransparency = group.Collapsed and 0.72 or 1})
             for _, member in ipairs(group.Tabs) do
                 local shouldShow = self.SearchQuery ~= "" and member._searchVisible == true or self.SearchQuery == "" and not group.Collapsed
@@ -4248,7 +4248,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.88 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.89 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 setStartupStatus("READY • V91.82")
 task.delay(2.5, function()
@@ -4399,6 +4399,7 @@ end)
 --         viewport-sized mobile canvas, enlarged 60-66px action targets, larger switches/sliders/dropdowns,
 --         roomier subnavigation, stronger card hierarchy, local ambient grid/bloom decoration and clearer branding.
 --         Sidebar resizing and nav-group expansion now use Quint easing with guarded accordion completion callbacks.
+--         Group chevrons rotate smoothly; compact footer branding stays executor-neutral for Arceus X and Delta.
 --         No external images or remote UI assets are required; all gameplay modules and control callbacks are retained.
 
 -- v91.88: removes the unused secTeleport local that exceeded Luau's 200-register limit in the main chunk.
