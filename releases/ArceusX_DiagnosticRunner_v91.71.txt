@@ -1,0 +1,90 @@
+-- LIBERIUM HUB | ARCEUS X DIAGNOSTIC RUNNER
+-- This wrapper reports download, compile and runtime failures visibly.
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local playerGui = player:WaitForChild("PlayerGui")
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "LiberiumArceusDiagnostic"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 32767
+
+local panel = Instance.new("Frame")
+panel.Name = "Panel"
+panel.AnchorPoint = Vector2.new(0.5, 0)
+panel.Position = UDim2.new(0.5, 0, 0, 12)
+panel.Size = UDim2.new(0.92, 0, 0, 82)
+panel.BackgroundColor3 = Color3.fromRGB(12, 15, 27)
+panel.BorderSizePixel = 0
+panel.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = panel
+
+local label = Instance.new("TextLabel")
+label.Name = "Status"
+label.BackgroundTransparency = 1
+label.Position = UDim2.fromOffset(12, 7)
+label.Size = UDim2.new(1, -24, 1, -14)
+label.Font = Enum.Font.GothamSemibold
+label.TextSize = 12
+label.TextWrapped = true
+label.TextXAlignment = Enum.TextXAlignment.Left
+label.TextYAlignment = Enum.TextYAlignment.Center
+label.TextColor3 = Color3.fromRGB(150, 225, 255)
+label.Text = "LIBERIUM CHECK • GUI BOOTSTRAP OK"
+label.Parent = panel
+
+gui.Parent = playerGui
+
+local function show(message, isError)
+    pcall(function()
+        label.Text = "LIBERIUM CHECK\n" .. tostring(message):sub(1, 260)
+        label.TextColor3 = isError and Color3.fromRGB(255, 125, 125) or Color3.fromRGB(150, 225, 255)
+    end)
+end
+
+task.spawn(function()
+    local sourceUrl = "https://raw.githubusercontent.com/Liberator481993/LiberiumHub/refs/heads/dev/arceus-ui-startup-v91-71/Keyless"
+    show("1/3 • Downloading v91.71 source")
+    local fetched, source = pcall(function()
+        return game:HttpGet(sourceUrl)
+    end)
+    if not fetched then
+        show("HTTP ERROR • " .. tostring(source), true)
+        return
+    end
+    if type(source) ~= "string" or #source < 1000 then
+        show("HTTP ERROR • response is empty/too short (" .. tostring(type(source)) .. ")", true)
+        return
+    end
+
+    show("2/3 • Download OK • " .. #source .. " chars • compiling")
+    if type(loadstring) ~= "function" then
+        show("COMPILE ERROR • loadstring is unavailable in this executor", true)
+        return
+    end
+
+    local chunk, compileError = loadstring(source)
+    if type(chunk) ~= "function" then
+        show("COMPILE ERROR • " .. tostring(compileError), true)
+        return
+    end
+
+    show("3/3 • Compile OK • starting hub")
+    local ran, runtimeError = pcall(chunk)
+    if not ran then
+        show("RUNTIME ERROR • " .. tostring(runtimeError), true)
+        return
+    end
+
+    task.wait(2)
+    local mainGui = playerGui:FindFirstChild("GlassUI")
+    if mainGui then
+        show("SCRIPT RETURNED • GlassUI found • Enabled=" .. tostring(mainGui.Enabled), false)
+    else
+        show("SCRIPT RETURNED • but PlayerGui.GlassUI is missing", true)
+    end
+end)
