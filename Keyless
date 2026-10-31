@@ -57,8 +57,9 @@ local Hotkeys, coinTracker, farmHudGui, farmHudLabel
 local coinCollectedConnection
 local farmRemoteConnections = {}
 local farmCoinEventAt, farmCoinEventCount, farmLastCollectedPosition
+local farmTeleportHomeCFrame, farmTeleportLatency, farmTeleportPending
 local farmBagEventFull = {}
-farmCoinEventAt, farmCoinEventCount = 0, 0
+farmCoinEventAt, farmCoinEventCount, farmTeleportLatency = 0, 0, 0.1
 local currentSession, canFarmNow
 local VisualOptimizer, Crosshair, crosshairObj, SessionManager, AestheticsManager, StatsTracker, statsObj, eventLogger, logGui, TargetHUD, targetHUD, Stabilizer
 local MovementUtility, movementObj, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
@@ -1698,6 +1699,7 @@ task.spawn(function()
 end)
 
 local function bindCharacter(char)
+    farmTeleportHomeCFrame = nil
     if currentSession then
         currentSession.destroyed = true
         for _, connection in ipairs(currentSession.connections or {}) do pcall(function() connection:Disconnect() end) end
@@ -2118,7 +2120,8 @@ task.spawn(function()
     end
     local function resetRoundFarmState()
         farmLastCollectedPosition = nil
-        farmCoinEventAt, farmCoinEventCount = 0, 0
+        farmCoinEventAt, farmCoinEventCount, farmTeleportLatency = 0, 0, 0.1
+        farmTeleportHomeCFrame, farmTeleportPending = nil, nil
         table.clear(farmBagEventFull)
         farmBagCache.full, farmBagCache.checkedAt = false, 0
     end
@@ -2132,6 +2135,17 @@ task.spawn(function()
         local character = LocalPlayer.Character
         local root = character and character:FindFirstChild("HumanoidRootPart")
         farmLastCollectedPosition = root and root.Position or farmLastCollectedPosition
+        local pending = farmTeleportPending
+        if pending and root and pending.position
+            and farmCoinEventAt >= pending.startedAt
+            and farmCoinEventAt - pending.startedAt <= 1.5
+            and (root.Position - pending.position).Magnitude <= 8 then
+            local latencySample = farmCoinEventAt - pending.startedAt
+            if latencySample > 0 and latencySample < 0.6 then
+                farmTeleportLatency = math.clamp(farmTeleportLatency * 0.8 + latencySample * 0.2, 0.03, 0.3)
+            end
+            farmTeleportPending = nil
+        end
         if type(kind) == "string" and type(count) == "number"
             and type(maximum) == "number" and maximum > 0 then
             farmBagEventFull[kind] = count >= maximum
@@ -2272,11 +2286,56 @@ local function glideTo(target, speed, mode)
                 part.CanTouch = true
             end
         end
-        -- Pulse-style Teleport begins below the coin's floor, then rises into the real touch band.
+        -- Pulse-style Teleport waits against the last server-confirmed collection time,
+        -- then snaps to the hidden point immediately before the next expected coin contact.
         if mode == "farm" and farmMethod == "Teleport" and hidePosition then
-            root.CFrame = CFrame.new(hidePosition, hidePosition + root.CFrame.LookVector)
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
+            local now = os.clock()
+            if farmTeleportPending and now - farmTeleportPending.startedAt > 1.5 then
+                farmTeleportPending = nil
+            end
+            local previous = farmLastCollectedPosition
+            local eventAt = farmCoinEventAt
+            if previous and eventAt > 0 and (targetPart.Position - previous).Magnitude < 1000 then
+                local tpSpeed = math.clamp(tonumber(CFG.TeleportSpeed) or 25, 10, 26)
+                local arrivalAt = eventAt + (targetPart.Position - previous).Magnitude / tpSpeed
+                    - 0.4 * (farmTeleportLatency or 0.1)
+                if now < arrivalAt - 0.35 then
+                    if not farmTeleportHomeCFrame then
+                        local homeCFrame
+                        pcall(function()
+                            local lobby = Workspace:FindFirstChild("Lobby")
+                            local spawns = lobby and lobby:FindFirstChild("Spawns")
+                            if not spawns then return end
+                            local total, count = Vector3.zero, 0
+                            for _, item in ipairs(spawns:GetDescendants()) do
+                                if item:IsA("BasePart") then total += item.Position; count += 1 end
+                            end
+                            if count > 0 then
+                                homeCFrame = CFrame.new(total / count + Vector3.new(0, 4, 0))
+                            end
+                        end)
+                        farmTeleportHomeCFrame = homeCFrame or startCFrame
+                    end
+                    local home = farmTeleportHomeCFrame
+                    if home and (root.Position - home.Position).Magnitude > 6 then
+                        root.CFrame = home
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                    end
+                    while isRunning and currentSession == session and not session.destroyed
+                        and CFG.AutoFarm and os.clock() < arrivalAt - 0.35
+                        and target.Parent and target:IsDescendantOf(Workspace)
+                        and coinTracker and coinTracker:IsValid(target) do
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+            end
+            if isRunning and CFG.AutoFarm and target.Parent and target:IsDescendantOf(Workspace)
+                and coinTracker and coinTracker:IsValid(target) then
+                root.CFrame = CFrame.new(hidePosition, hidePosition + root.CFrame.LookVector)
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
         end
         local startedAt = os.clock()
         local currentSpeed = 0
@@ -2360,6 +2419,9 @@ local function glideTo(target, speed, mode)
                     if not targetPart or not targetPart.Parent then collected = true break end
                     local contact = targetPart.Position + Vector3.new(0, heightOffset, 0)
                     root.CFrame = CFrame.new(contact, contact + root.CFrame.LookVector)
+                    if mode == "farm" and farmMethod == "Teleport" then
+                        farmTeleportPending = {startedAt = os.clock(), position = targetPart.Position, target = target}
+                    end
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
                     -- Allow the avatar to settle at the contact point before checking pickup state.
