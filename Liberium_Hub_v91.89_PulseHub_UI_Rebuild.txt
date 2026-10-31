@@ -1763,14 +1763,13 @@ function Lib.new(title)
         Name = "GlassUI", ResetOnSpawn = false, IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 2400, Parent = PlayerGui
     })
-    s.Scale = create("UIScale", {Scale = 1, Parent = s.Gui})
-
     s.Main = create("Frame", {
         Name = "Main", AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(860, 620),
         BackgroundColor3 = THEME.Background, BackgroundTransparency = 0,
         ClipsDescendants = true, Parent = s.Gui
     }, {corner(14), stroke(1.2, 0.35)})
+    s.Scale = create("UIScale", {Scale = 1, Parent = s.Main})
     create("UIGradient", {
         Color = ColorSequence.new(Color3.fromRGB(17, 17, 20), Color3.fromRGB(10, 11, 14)),
         Rotation = 28, Parent = s.Main
@@ -1825,7 +1824,7 @@ function Lib.new(title)
         Name = "FoldSidebar", Text = "‹", Font = Enum.Font.GothamBold,
         TextSize = 22, TextColor3 = THEME.SubText,
         AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -5, 0.5, 0),
-        Size = UDim2.fromOffset(25, 28), BackgroundColor3 = THEME.Element,
+        Size = UDim2.fromOffset(34, 34), BackgroundColor3 = THEME.Element,
         BackgroundTransparency = 0.45, BorderSizePixel = 0,
         AutoButtonColor = false, Parent = s.Title
     }, {corner(8)})
@@ -1861,6 +1860,20 @@ function Lib.new(title)
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = s.NavSearch
     })
+    s.NavSearch.Active = true
+    s.SearchIcon.Active = true
+    s.SearchIcon.InputBegan:Connect(function(input)
+        local inputType = input.UserInputType
+        if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
+        if s.SideCollapsed then
+            s:SetSidebarCollapsed(false)
+            task.defer(function()
+                if s.SearchBox and s.SearchBox.Parent then s.SearchBox:CaptureFocus() end
+            end)
+        elseif s.SearchBox and s.SearchBox.Parent then
+            s.SearchBox:CaptureFocus()
+        end
+    end)
     s.NavFooter = create("Frame", {
         Name = "SidebarFooter", Size = UDim2.new(1, 0, 0, 54),
         BackgroundColor3 = THEME.Element, BackgroundTransparency = 0.16,
@@ -1934,8 +1947,8 @@ function Lib.new(title)
         local touch = UserInputService.TouchEnabled
         local portrait = touch and viewport.Y >= viewport.X
         local mobile = touch and viewport.X < 900
-        local availableWidth = math.max(280, viewport.X - (touch and 16 or 40))
-        local availableHeight = math.max(260, viewport.Y - (touch and 72 or 60))
+        local availableWidth = math.max(1, viewport.X - (touch and 16 or 40))
+        local availableHeight = math.max(1, viewport.Y - (touch and 72 or 60))
         -- On touch screens, size the window to the viewport instead of shrinking an oversized desktop canvas.
         -- This keeps switches, dropdowns and action rows at finger-friendly physical pixel sizes.
         local baseWidth = touch and math.min(860, availableWidth) or math.min(860, math.max(640, availableWidth))
@@ -1969,6 +1982,10 @@ function Lib.new(title)
         if dragInput then return end
         local inputType = input.UserInputType
         if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
+        -- The fold control is a button, not a drag handle.
+        if s.FoldButton and input.Position.X >= s.FoldButton.AbsolutePosition.X
+            and input.Position.Y >= s.FoldButton.AbsolutePosition.Y
+            and input.Position.Y <= s.FoldButton.AbsolutePosition.Y + s.FoldButton.AbsoluteSize.Y then return end
         dragInput, dragStart, dragPosition = input, input.Position, s.Main.Position
     end))
     table.insert(s.Conns, UserInputService.InputChanged:Connect(function(input)
@@ -2016,7 +2033,7 @@ function Win:SetSidebarCollapsed(collapsed)
         self.FoldButton.Text = compact and "›" or "‹"
         self.FoldButton.Position = compact and UDim2.new(1, -3, 0, 4) or UDim2.new(1, -5, 0.5, 0)
         self.FoldButton.AnchorPoint = compact and Vector2.new(1, 0) or Vector2.new(1, 0.5)
-        self.FoldButton.Size = compact and UDim2.fromOffset(18, 24) or UDim2.fromOffset(25, 28)
+        self.FoldButton.Size = compact and UDim2.fromOffset(40, 40) or UDim2.fromOffset(34, 34)
     end
     if self.NavHeader then self.NavHeader.Visible = not compact end
     if self.NavSearch then
@@ -2029,7 +2046,10 @@ function Win:SetSidebarCollapsed(collapsed)
         self.SearchIcon.Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(27, 42)
         self.SearchIcon.TextColor3 = compact and THEME.Accent2 or THEME.SubText
     end
-    if self.NavFooter then self.NavFooter.Size = compact and UDim2.new(1, 0, 0, 38) or UDim2.new(1, 0, 0, 54) end
+    if self.NavFooter then
+        self.NavFooter.Visible = not compact
+        self.NavFooter.Size = compact and UDim2.new(1, 0, 0, 38) or UDim2.new(1, 0, 0, 54)
+    end
     if self.NavFooterTitle then
         self.NavFooterTitle.Visible = not compact
         if compact then self.NavFooterTitle.Text = "L" else self.NavFooterTitle.Text = "ANDROID  /  EXECUTOR READY" end
@@ -4247,10 +4267,10 @@ logGui = Instance.new("ScreenGui") logGui.Name = "LiberiumLogs" logGui.ResetOnSp
 eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Color3.fromRGB(140, 100, 255))
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
-uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
+uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, DisplayOrder = 2500, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
 task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.89 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
-setStartupStatus("READY • V91.82")
+setStartupStatus("READY • V91.89")
 task.delay(2.5, function()
     if startupGui then pcall(function() startupGui:Destroy() end); startupGui = nil; startupLabel = nil end
 end)
@@ -4400,6 +4420,8 @@ end)
 --         roomier subnavigation, stronger card hierarchy, local ambient grid/bloom decoration and clearer branding.
 --         Sidebar resizing and nav-group expansion now use Quint easing with guarded accordion completion callbacks.
 --         Group chevrons rotate smoothly; compact footer branding stays executor-neutral for Arceus X and Delta.
+-- v91.89 audit: UIScale is attached to the Main GuiObject; compact sidebar fold/search controls remain touch-accessible;
+--         empty compact footer is hidden; the floating show/hide button renders above the main window; drag excludes fold.
 --         No external images or remote UI assets are required; all gameplay modules and control callbacks are retained.
 
 -- v91.88: removes the unused secTeleport local that exceeded Luau's 200-register limit in the main chunk.
