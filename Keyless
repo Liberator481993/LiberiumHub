@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.75 | VISIBLE DROPDOWNS + HIDDEN STATS
+-- LIBERIUM HUB | v91.76 | DROPDOWN OVERLAY + HIDEABLE STATS
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -769,6 +769,7 @@ StatsTracker = (function()
         options = options or {}
         local self = setmetatable({}, ST)
         self._destroyed = false
+        self._onClose = options.OnClose
         self._startTime = os.clock()
         self._frames = 0
         self._elapsed = 0
@@ -846,12 +847,12 @@ StatsTracker = (function()
         header.Parent = panel
 
         makeLabel(header, "Title", "PERFORMANCE", UDim2.fromOffset(1, 0),
-            UDim2.new(1, -42, 1, 0), COLORS.Text, Enum.Font.GothamBlack, 10)
+            UDim2.new(1, -72, 1, 0), COLORS.Text, Enum.Font.GothamBlack, 10)
 
         local liveDot = Instance.new("Frame")
         liveDot.Name = "LiveDot"
         liveDot.AnchorPoint = Vector2.new(1, 0.5)
-        liveDot.Position = UDim2.new(1, -27, 0.5, 0)
+        liveDot.Position = UDim2.new(1, -47, 0.5, 0)
         liveDot.Size = UDim2.fromOffset(6, 6)
         liveDot.BackgroundColor3 = COLORS.Good
         liveDot.BorderSizePixel = 0
@@ -860,9 +861,34 @@ StatsTracker = (function()
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = liveDot
 
-        makeLabel(header, "LiveText", "LIVE", UDim2.new(1, -23, 0, 0),
-            UDim2.fromOffset(23, 16), COLORS.Good, Enum.Font.GothamBold, 8,
+        makeLabel(header, "LiveText", "LIVE", UDim2.new(1, -43, 0, 0),
+            UDim2.fromOffset(20, 16), COLORS.Good, Enum.Font.GothamBold, 8,
             Enum.TextXAlignment.Right)
+
+        local closeButton = Instance.new("TextButton")
+        closeButton.Name = "CloseStats"
+        closeButton.AnchorPoint = Vector2.new(1, 0.5)
+        closeButton.Position = UDim2.new(1, 0, 0.5, 0)
+        closeButton.Size = UDim2.fromOffset(18, 18)
+        closeButton.BackgroundColor3 = Color3.fromRGB(46, 31, 55)
+        closeButton.BackgroundTransparency = 0.08
+        closeButton.BorderSizePixel = 0
+        closeButton.AutoButtonColor = false
+        closeButton.Text = "×"
+        closeButton.TextColor3 = Color3.fromRGB(255, 145, 173)
+        closeButton.Font = Enum.Font.GothamBold
+        closeButton.TextSize = 15
+        closeButton.ZIndex = 34
+        closeButton.Parent = header
+        local closeCorner = Instance.new("UICorner")
+        closeCorner.CornerRadius = UDim.new(0, 6)
+        closeCorner.Parent = closeButton
+        closeButton.Activated:Connect(function()
+            if type(self._onClose) == "function" then
+                pcall(self._onClose)
+            end
+            self:SetVisible(false)
+        end)
 
         local metrics = Instance.new("Frame")
         metrics.Name = "Metrics"
@@ -3918,7 +3944,7 @@ UIControls.sSess = UIControls.tSet:AddSubTab("Session"); UIControls.secSess = UI
 
 task.defer(function() if CFG.AutoFarm then coinTracker:Start(); UIControls.farmToggle:Set(true, true) end if CFG.AutoPickup and not CFG.AutoFarm then weaponTracker:Start(); UIControls.pickupToggle:Set(true, true) else weaponTracker:Stop() end if CFG.ESP_Outline or CFG.ESP_Fill then UIControls.espOutlineToggle:Set(CFG.ESP_Outline, true) UIControls.espFillToggle:Set(CFG.ESP_Fill, true) roleHUD:Start() end if CFG.ESP_Name or CFG.ESP_Distance then UIControls.espNameToggle:Set(CFG.ESP_Name, true) UIControls.espDistToggle:Set(CFG.ESP_Distance, true) overheadTracker:Start() end if CFG.SkeletonESP then UIControls.skelToggle:Set(true, true) skeletonObj:SetVisible(true) end skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) if CFG.LootESP then UIControls.lootToggle:Set(true, true) lootObj:Start() end if CFG.AntiFling then UIControls.antiFlingToggle:Set(true, true) Stabilizer.Start() end if CFG.OptimizeFPS then UIControls.optToggle:Set(true, true) VisualOptimizer.OptimizeVisuals(true) end if CFG.AntiAFK then UIControls.afkToggle:Set(true, true) SessionManager.StartAntiAFK() end if CFG.WalkSpeed ~= 16 then UIControls.wsSlider:Set(CFG.WalkSpeed, true) movementObj:SetWalkSpeed(CFG.WalkSpeed) end if CFG.JumpPower ~= 50 then UIControls.jpSlider:Set(CFG.JumpPower, true) movementObj:SetJumpPower(CFG.JumpPower) end if CFG.Noclip then UIControls.noclipToggle:Set(true, true) movementObj:SetCollision(false) end if CFG.FOVCircle then UIControls.fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then UIControls.tracerToggle:Set(true, true); startTracerHooks() end UIControls.shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); UIControls.auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
 
-statsObj = StatsTracker.new(PlayerGui, { Position = UDim2.new(0, 10, 0, 180) }) statsObj:SetVisible(CFG.ShowStats)
+statsObj = StatsTracker.new(PlayerGui, { Position = UDim2.new(0, 10, 0, 180), OnClose = function() CFG.ShowStats = false; if UIControls.statsToggle then UIControls.statsToggle:Set(false, true) end end }) statsObj:SetVisible(CFG.ShowStats)
 crosshairObj = Crosshair.new(PlayerGui, { Color = Color3.fromRGB(255, 255, 255), Size = 20 })
 -- Reticle remains hidden until the Crosshair toggle is explicitly enabled.
 crosshairObj:SetVisible(false)
@@ -3932,9 +3958,9 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() UIControls.espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() UIControls.farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() UIControls.autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() UIControls.optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if not visible and Dropdown and Dropdown.CloseAll then Dropdown.CloseAll() end if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.75 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.76 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
-setBootStage("v91.75  •  READY")
+setBootStage("v91.76  •  READY")
 task.delay(1.2, function()
     pcall(function()
         if BOOT_ERROR_CONNECTION then BOOT_ERROR_CONNECTION:Disconnect() BOOT_ERROR_CONNECTION = nil end
@@ -4070,6 +4096,7 @@ end)
 -- v91.71: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
 --         and a safe gethui() / PlayerGui host fallback improve executor and respawn resilience.
 
+-- v91.76: Ping/FPS overlay has a direct close button that also resets the Performance toggle.
 -- v91.75: Dropdown options render in a dedicated top-level ScreenGui, outside page scroll clipping;
 --          viewport-aware placement and opaque touch rows prevent invisible/unclickable farm methods.
 -- v91.75: Ping/FPS overlay defaults OFF, legacy saved configs migrate to OFF, and the Performance toggle
