@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.70 | SAFE STARTUP + HOME STATUS INDICATORS
+-- LIBERIUM HUB | v91.71 | ARCEUS PLAYERGUI STARTUP RECOVERY
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -11,6 +11,7 @@ local TextService = game:GetService("TextService")
 local TeleportService = game:GetService("TeleportService")
 local Stats = game:GetService("Stats")
 local Debris = game:GetService("Debris")
+local LogService = game:GetService("LogService")
 
 -- Delta can execute during the first moments of client startup.
 -- Wait briefly for the local player and PlayerGui instead of indexing nil or yielding forever.
@@ -34,20 +35,63 @@ if not PlayerGui then
     return
 end
 
--- Prefer the executor's hidden GUI host when available (Arceus X / Delta variants),
--- but always fall back to PlayerGui so ordinary client environments still work.
-local UI_PARENT = PlayerGui
+-- Visible bootstrap panel: unlike the previous hidden-host guess, this starts in PlayerGui
+-- before the feature modules load. If a later module errors, the panel keeps the failing stage.
+local BOOT_GUI, BOOT_LABEL, BOOT_ERROR_CONNECTION
+local function setBootStage(message, isError)
+    pcall(function()
+        if BOOT_LABEL and BOOT_LABEL.Parent then
+            BOOT_LABEL.Text = tostring(message)
+            BOOT_LABEL.TextColor3 = isError and Color3.fromRGB(255, 135, 135)
+                or Color3.fromRGB(165, 230, 255)
+        end
+    end)
+end
 pcall(function()
-    local hiddenGuiGetter = gethui
-    if type(hiddenGuiGetter) ~= "function" then
-        local environment = getgenv and getgenv()
-        hiddenGuiGetter = environment and environment.gethui
-    end
-    if type(hiddenGuiGetter) == "function" then
-        local hiddenGui = hiddenGuiGetter()
-        if typeof(hiddenGui) == "Instance" then UI_PARENT = hiddenGui end
-    end
+    BOOT_GUI = Instance.new("ScreenGui")
+    BOOT_GUI.Name = "LiberiumBootStatus"
+    BOOT_GUI.ResetOnSpawn = false
+    BOOT_GUI.IgnoreGuiInset = true
+    BOOT_GUI.DisplayOrder = 32767
+    BOOT_GUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    local panel = Instance.new("Frame")
+    panel.Name = "StatusPanel"
+    panel.AnchorPoint = Vector2.new(0.5, 0)
+    panel.Position = UDim2.new(0.5, 0, 0, 12)
+    panel.Size = UDim2.new(0, 310, 0, 38)
+    panel.BackgroundColor3 = Color3.fromRGB(10, 14, 26)
+    panel.BackgroundTransparency = 0.08
+    panel.BorderSizePixel = 0
+    panel.Parent = BOOT_GUI
+    local round = Instance.new("UICorner")
+    round.CornerRadius = UDim.new(0, 10)
+    round.Parent = panel
+    local outline = Instance.new("UIStroke")
+    outline.Color = Color3.fromRGB(90, 190, 235)
+    outline.Transparency = 0.25
+    outline.Parent = panel
+    BOOT_LABEL = Instance.new("TextLabel")
+    BOOT_LABEL.BackgroundTransparency = 1
+    BOOT_LABEL.Position = UDim2.fromOffset(10, 0)
+    BOOT_LABEL.Size = UDim2.new(1, -20, 1, 0)
+    BOOT_LABEL.Font = Enum.Font.GothamSemibold
+    BOOT_LABEL.TextSize = 11
+    BOOT_LABEL.TextWrapped = true
+    BOOT_LABEL.TextColor3 = Color3.fromRGB(165, 230, 255)
+    BOOT_LABEL.Text = "LIBERIUM v91.71  •  STARTING"
+    BOOT_LABEL.Parent = panel
+    BOOT_GUI.Parent = PlayerGui
 end)
+pcall(function()
+    BOOT_ERROR_CONNECTION = LogService.MessageOut:Connect(function(message, messageType)
+        if messageType == Enum.MessageType.MessageError then
+            setBootStage("LOAD ERROR  •  " .. tostring(message):sub(1, 145), true)
+        end
+    end)
+end)
+
+local UI_PARENT = PlayerGui
+setBootStage("v91.71  •  PlayerGui ready")
 
 local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -125,6 +169,7 @@ getgenv().LiberiumCleanup = function()
     if weaponTracker then pcall(function() weaponTracker:Destroy() end) end
     if win then pcall(function() win:Destroy() end) end
 end
+setBootStage("Core cleanup registered")
 
 local CFG = {
     MaxSpeed = 21, FarmMethod = "Fast", FastSpeed = 24, TeleportSpeed = 25, FarmAvoidMurderer = false,
@@ -1403,7 +1448,7 @@ function Lib.new(title)
         local playerGuiOld = PlayerGui:FindFirstChild("GlassUI")
         if playerGuiOld then playerGuiOld:Destroy() end
     end
-    s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=2000,Parent=UI_PARENT})
+    s.Gui = create("ScreenGui", {Name="GlassUI",Enabled=true,ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=32766,Parent=PlayerGui})
     s.Scale = create("UIScale", {Parent=s.Gui})
     local cameraConnection
     local function upd()
@@ -1452,14 +1497,14 @@ function Lib.new(title)
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.70",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text="MM2  /  LIVE  /  v91.71",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="DELTA  /  ARCEUS X",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.70",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="NEON BUILD  /  v91.71",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -2739,7 +2784,11 @@ task.spawn(function()
     end
 end)
 
-roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("LIBERIUM HUB")
+setBootStage("v91.71  •  building main window")
+roleHUD = RoleHUD.new(function() return roles end)
+overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false })
+win = Lib.new("LIBERIUM HUB")
+setBootStage("v91.71  •  main window created")
 
 -- LIBERIUM API v92: additive developer facade.
 -- Keeps the v91.18 UI and gameplay systems intact while providing a consistent
@@ -3264,8 +3313,15 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.71 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
+setBootStage("v91.71  •  READY")
+task.delay(1.2, function()
+    pcall(function()
+        if BOOT_ERROR_CONNECTION then BOOT_ERROR_CONNECTION:Disconnect() BOOT_ERROR_CONNECTION = nil end
+        if BOOT_GUI then BOOT_GUI:Destroy() BOOT_GUI = nil end
+    end)
+end)
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
 -- shared target-part selection, no duplicate coin tracking, non-anchored stepped movement,
@@ -3354,7 +3410,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- as the collector, showing WAIT MAP / WAIT COINS / OUT OF RANGE / READY instead of a generic ACTIVE.
 -- v91.67: Dropdowns choose above/below placement from the remaining visible ScrollingFrame space,
 -- clamp popup height to that space, and reset the option scroll position when opened.
--- v91.70: Home status cards gain color-coded state dots and narrower text sizing so long diagnostic
+-- v91.71: Home status cards gain color-coded state dots and narrower text sizing so long diagnostic
 -- states remain more readable in the two-column mobile layout.
 -- v91.61: Aura manager tracks the exact character instance and destroys old emitter/light on CharacterRemoving,
 -- aura disable, player removal, and unload; stale respawn tasks remain blocked by the existing state checks.
@@ -3377,20 +3433,23 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- attempts without moving the character. The existing sidebar UI receives a darker neon-glass pass.
 -- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
 
--- v91.70: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
+-- v91.71: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
 -- Static source validation only; in-game execution still requires an on-device Delta test.
 
 
--- v91.70: Pulse-style AutoFarm methods (Under Map / Teleport / Fast) with independent speed controls.
--- v91.70: Restored missing isCoin/hasGroundBelow predicates used by the coin tracker.
--- v91.70: Added floor-aware routing, dense-cluster Teleport target scoring, optional murderer avoidance,
+-- v91.71: Pulse-style AutoFarm methods (Under Map / Teleport / Fast) with independent speed controls.
+-- v91.71: Restored missing isCoin/hasGroundBelow predicates used by the coin tracker.
+-- v91.71: Added floor-aware routing, dense-cluster Teleport target scoring, optional murderer avoidance,
 --         and short failure cooldowns so one missed coin no longer stalls the route for nine seconds.
--- v91.70: Expanded responsive desktop UI and added Pulse-inspired farm controls; existing GlassUI API is preserved.
+-- v91.71: Expanded responsive desktop UI and added Pulse-inspired farm controls; existing GlassUI API is preserved.
 
--- v91.70: Pulse-style Teleport now predicts the next arrival from CoinCollected timestamps,
+-- v91.71: Pulse-style Teleport now predicts the next arrival from CoinCollected timestamps,
 --         carries the previous collected position into dense-cluster selection, and learns event latency.
--- v91.70: Fast / Under Map / Teleport use separate speed ranges; coin scanning covers the active map,
+-- v91.71: Fast / Under Map / Teleport use separate speed ranges; coin scanning covers the active map,
 --         validates TouchInterest/CanTouch/Collected, pauses on a full bag, and progressively backs off
 --         repeated misses (up to 30 seconds after four unsuccessful attempts).
--- v91.70: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
+-- v91.71: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
 --         and a safe gethui() / PlayerGui host fallback improve executor and respawn resilience.
+
+-- v91.71: Main ScreenGui now always uses PlayerGui for Arceus X rendering; gethui is not required.
+-- v91.71: A temporary PlayerGui boot panel reports the last startup stage and captures runtime errors.
