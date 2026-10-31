@@ -67,7 +67,11 @@ task.spawn(function()
         return
     end
 
-    local chunk, compileError = loadstring(source)
+    local compileCallOK, chunk, compileError = pcall(loadstring, source)
+    if not compileCallOK then
+        show("COMPILE ERROR • " .. tostring(chunk), true)
+        return
+    end
     if type(chunk) ~= "function" then
         show("COMPILE ERROR • " .. tostring(compileError), true)
         return
