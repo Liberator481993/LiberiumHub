@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.71 | ARCEUS PLAYERGUI STARTUP RECOVERY
+-- LIBERIUM HUB | v91.74 | ARCEUS UI POLISH + PLAYERGUI STARTUP
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -671,39 +671,293 @@ end)
     return AM
 end)()
 
-StatsTracker = (function() local ST = {} ST.__index = ST local UPDATE_INTERVAL = 1 local COLORS = { Text = Color3.fromRGB(255, 255, 255), Good = Color3.fromRGB(120, 255, 160), Warn = Color3.fromRGB(255, 210, 90), Bad = Color3.fromRGB(255, 100, 100), Muted = Color3.fromRGB(170, 170, 180) } local function readPing() local ok, value = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end) if ok and type(value) == "number" then return value end return nil end local function readMemory() local ok, value = pcall(function() return Stats:GetTotalMemoryUsageMb() end) if ok and type(value) == "number" then return value end return nil end local function formatUptime(seconds) seconds = math.floor(seconds) return string.format("%02d:%02d", math.floor(seconds / 60), seconds % 60) end local function fpsColor(fps) if fps >= 50 then return COLORS.Good end if fps >= 30 then return COLORS.Warn end return COLORS.Bad end local function pingColor(ping) if ping <= 100 then return COLORS.Good end if ping <= 200 then return COLORS.Warn end return COLORS.Bad end local function createRow(parent, order, title) local row = Instance.new("Frame") row.Name = title row.LayoutOrder = order row.Size = UDim2.new(1, 0, 0, 18) row.BackgroundTransparency = 1 row.Parent = parent local label = Instance.new("TextLabel") label.Name = "Title" label.Size = UDim2.new(0.45, 0, 1, 0) label.BackgroundTransparency = 1 label.Text = title label.TextColor3 = COLORS.Muted label.Font = Enum.Font.GothamMedium label.TextSize = 13 label.TextXAlignment = Enum.TextXAlignment.Left label.Parent = row local value = Instance.new("TextLabel") value.Name = "Value" value.AnchorPoint = Vector2.new(1, 0) value.Position = UDim2.new(1, 0, 0, 0) value.Size = UDim2.new(0.55, 0, 1, 0) value.BackgroundTransparency = 1 value.Text = "--" value.TextColor3 = COLORS.Text value.TextTransparency = 0 value.Font = Enum.Font.GothamMedium value.TextSize = 13 value.TextXAlignment = Enum.TextXAlignment.Right value.Parent = row return value end function ST.new(parentGui, options) options = options or {} local self = setmetatable({}, ST) self._destroyed = false
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "LiberiumStatsOverlay"
-    gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.DisplayOrder = 35
-    local staleGui = parentGui:FindFirstChild(gui.Name)
-    if staleGui then staleGui:Destroy() end
-    gui.Parent = parentGui
-    self._gui = gui
-    self._startTime = os.clock() self._frames = 0 self._elapsed = 0 local panel = Instance.new("Frame") panel.Name = "StatsTracker" panel.AnchorPoint = Vector2.new(0, 0) panel.Position = options.Position or UDim2.new(0, 10, 0, 10) panel.Size = UDim2.new(0, 150, 0, 0) panel.AutomaticSize = Enum.AutomaticSize.Y panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28) panel.BackgroundTransparency = 0.35 panel.BorderSizePixel = 0 panel.ZIndex = 30 panel.Parent = gui self._panel = panel local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 10) corner.Parent = panel local stroke = Instance.new("UIStroke") stroke.Color = Color3.fromRGB(255, 255, 255) stroke.Transparency = 0.8 stroke.Thickness = 1 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border stroke.Parent = panel local padding = Instance.new("UIPadding") padding.PaddingTop = UDim.new(0, 8) padding.PaddingBottom = UDim.new(0, 8) padding.PaddingLeft = UDim.new(0, 10) padding.PaddingRight = UDim.new(0, 10) padding.Parent = panel local layout = Instance.new("UIListLayout") layout.SortOrder = Enum.SortOrder.LayoutOrder layout.Padding = UDim.new(0, 3) layout.Parent = panel self._fpsLabel = createRow(panel, 1, "FPS") self._pingLabel = createRow(panel, 2, "Ping") self._uptimeLabel = createRow(panel, 3, "Uptime") self._uptimeLabel.Text = formatUptime(0) self._memoryLabel = createRow(panel, 4, "Memory") self._connection = nil return self end function ST:_onFrame(dt) if self._destroyed then return end self._frames += 1 self._elapsed += dt if self._elapsed < UPDATE_INTERVAL then return end local fps = math.floor(self._frames / self._elapsed + 0.5) self._frames = 0 self._elapsed = 0 pcall(function() self._fpsLabel.Text = tostring(fps) self._fpsLabel.TextColor3 = fpsColor(fps) local ping = readPing() if ping then self._pingLabel.Text = string.format("%d ms", math.floor(ping + 0.5)) self._pingLabel.TextColor3 = pingColor(ping) else self._pingLabel.Text = "N/A" self._pingLabel.TextColor3 = COLORS.Muted end self._uptimeLabel.Text = formatUptime(os.clock() - self._startTime) local memory = readMemory() if memory then self._memoryLabel.Text = string.format("%d MB", math.floor(memory + 0.5)) self._memoryLabel.TextColor3 = COLORS.Text else self._memoryLabel.Text = "N/A" self._memoryLabel.TextColor3 = COLORS.Muted end end) end function ST:SetVisible(visible)
-    if self._destroyed then return end
-    visible = visible == true
-    self._panel.Visible = visible
-    if visible then
-        if not self._connection then
-            self._frames = 0
-            self._elapsed = 0
-            self._connection = RunService.RenderStepped:Connect(function(dt)
-                self:_onFrame(dt)
-            end)
-        end
-    elseif self._connection then
-        self._connection:Disconnect()
-        self._connection = nil
+StatsTracker = (function()
+    local ST = {}
+    ST.__index = ST
+    local UPDATE_INTERVAL = 1
+    local COLORS = {
+        Text = Color3.fromRGB(245, 247, 255),
+        Good = Color3.fromRGB(91, 235, 181),
+        Warn = Color3.fromRGB(255, 195, 91),
+        Bad = Color3.fromRGB(255, 112, 135),
+        Muted = Color3.fromRGB(151, 163, 191),
+        Accent = Color3.fromRGB(157, 112, 255),
+        Accent2 = Color3.fromRGB(77, 218, 255)
+    }
+
+    local function readPing()
+        local ok, value = pcall(function()
+            return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+        end)
+        if ok and type(value) == "number" then return value end
+        return nil
+    end
+
+    local function readMemory()
+        local ok, value = pcall(function()
+            return Stats:GetTotalMemoryUsageMb()
+        end)
+        if ok and type(value) == "number" then return value end
+        return nil
+    end
+
+    local function formatUptime(seconds)
+        seconds = math.max(0, math.floor(seconds))
+        return string.format("%02d:%02d", math.floor(seconds / 60), seconds % 60)
+    end
+
+    local function fpsColor(fps)
+        if fps >= 50 then return COLORS.Good end
+        if fps >= 30 then return COLORS.Warn end
+        return COLORS.Bad
+    end
+
+    local function pingColor(ping)
+        if ping <= 100 then return COLORS.Good end
+        if ping <= 200 then return COLORS.Warn end
+        return COLORS.Bad
+    end
+
+    local function makeLabel(parent, name, text, position, size, color, font, textSize, xAlign)
+        local item = Instance.new("TextLabel")
+        item.Name = name
+        item.BackgroundTransparency = 1
+        item.Position = position
+        item.Size = size
+        item.Text = text
+        item.TextColor3 = color
+        item.Font = font or Enum.Font.GothamMedium
+        item.TextSize = textSize or 11
+        item.TextXAlignment = xAlign or Enum.TextXAlignment.Left
+        item.TextYAlignment = Enum.TextYAlignment.Center
+        item.Parent = parent
+        return item
+    end
+
+    local function makeMetricCard(parent, name, title, position)
+        local card = Instance.new("Frame")
+        card.Name = name .. "Card"
+        card.Position = position
+        card.Size = UDim2.new(0.5, -3, 1, 0)
+        card.BackgroundColor3 = Color3.fromRGB(22, 27, 47)
+        card.BackgroundTransparency = 0.12
+        card.BorderSizePixel = 0
+        card.Parent = parent
+
+        local cardCorner = Instance.new("UICorner")
+        cardCorner.CornerRadius = UDim.new(0, 8)
+        cardCorner.Parent = card
+
+        local cardStroke = Instance.new("UIStroke")
+        cardStroke.Color = Color3.fromRGB(102, 116, 163)
+        cardStroke.Thickness = 1
+        cardStroke.Transparency = 0.72
+        cardStroke.Parent = card
+
+        makeLabel(card, "MetricTitle", title, UDim2.fromOffset(8, 3),
+            UDim2.new(1, -16, 0, 12), COLORS.Muted, Enum.Font.GothamBold, 9)
+
+        local value = makeLabel(card, "MetricValue", "--", UDim2.fromOffset(8, 14),
+            UDim2.new(1, -16, 1, -16), COLORS.Text, Enum.Font.GothamBlack, 18)
+        value.TextTruncate = Enum.TextTruncate.AtEnd
+        return value
+    end
+
+    function ST.new(parentGui, options)
+        options = options or {}
+        local self = setmetatable({}, ST)
+        self._destroyed = false
+        self._startTime = os.clock()
         self._frames = 0
         self._elapsed = 0
+
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "LiberiumStatsOverlay"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = false
+        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        gui.DisplayOrder = 35
+
+        local staleGui = parentGui:FindFirstChild(gui.Name)
+        if staleGui then staleGui:Destroy() end
+        gui.Parent = parentGui
+        self._gui = gui
+
+        local panel = Instance.new("Frame")
+        panel.Name = "StatsTracker"
+        panel.Position = options.Position or UDim2.new(0, 10, 0, 180)
+        panel.Size = UDim2.fromOffset(190, 116)
+        panel.BackgroundColor3 = Color3.fromRGB(9, 12, 25)
+        panel.BackgroundTransparency = 0.07
+        panel.BorderSizePixel = 0
+        panel.ZIndex = 30
+        panel.Parent = gui
+        self._panel = panel
+
+        local panelCorner = Instance.new("UICorner")
+        panelCorner.CornerRadius = UDim.new(0, 12)
+        panelCorner.Parent = panel
+
+        local panelStroke = Instance.new("UIStroke")
+        panelStroke.Color = COLORS.Accent
+        panelStroke.Thickness = 1
+        panelStroke.Transparency = 0.42
+        panelStroke.Parent = panel
+
+        local panelGradient = Instance.new("UIGradient")
+        panelGradient.Color = ColorSequence.new(
+            Color3.fromRGB(22, 22, 43),
+            Color3.fromRGB(8, 16, 30)
+        )
+        panelGradient.Rotation = 90
+        panelGradient.Parent = panel
+
+        local accentLine = Instance.new("Frame")
+        accentLine.Name = "AccentLine"
+        accentLine.Position = UDim2.fromOffset(12, 0)
+        accentLine.Size = UDim2.new(1, -24, 0, 2)
+        accentLine.BackgroundColor3 = COLORS.Accent2
+        accentLine.BorderSizePixel = 0
+        accentLine.ZIndex = 32
+        accentLine.Parent = panel
+        local accentGradient = Instance.new("UIGradient")
+        accentGradient.Color = ColorSequence.new(COLORS.Accent, COLORS.Accent2)
+        accentGradient.Parent = accentLine
+
+        local padding = Instance.new("UIPadding")
+        padding.PaddingTop = UDim.new(0, 8)
+        padding.PaddingBottom = UDim.new(0, 8)
+        padding.PaddingLeft = UDim.new(0, 9)
+        padding.PaddingRight = UDim.new(0, 9)
+        padding.Parent = panel
+
+        local layout = Instance.new("UIListLayout")
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 5)
+        layout.Parent = panel
+
+        local header = Instance.new("Frame")
+        header.Name = "Header"
+        header.LayoutOrder = 1
+        header.Size = UDim2.new(1, 0, 0, 16)
+        header.BackgroundTransparency = 1
+        header.Parent = panel
+
+        makeLabel(header, "Title", "PERFORMANCE", UDim2.fromOffset(1, 0),
+            UDim2.new(1, -42, 1, 0), COLORS.Text, Enum.Font.GothamBlack, 10)
+
+        local liveDot = Instance.new("Frame")
+        liveDot.Name = "LiveDot"
+        liveDot.AnchorPoint = Vector2.new(1, 0.5)
+        liveDot.Position = UDim2.new(1, -27, 0.5, 0)
+        liveDot.Size = UDim2.fromOffset(6, 6)
+        liveDot.BackgroundColor3 = COLORS.Good
+        liveDot.BorderSizePixel = 0
+        liveDot.Parent = header
+        local dotCorner = Instance.new("UICorner")
+        dotCorner.CornerRadius = UDim.new(1, 0)
+        dotCorner.Parent = liveDot
+
+        makeLabel(header, "LiveText", "LIVE", UDim2.new(1, -23, 0, 0),
+            UDim2.fromOffset(23, 16), COLORS.Good, Enum.Font.GothamBold, 8,
+            Enum.TextXAlignment.Right)
+
+        local metrics = Instance.new("Frame")
+        metrics.Name = "Metrics"
+        metrics.LayoutOrder = 2
+        metrics.Size = UDim2.new(1, 0, 0, 43)
+        metrics.BackgroundTransparency = 1
+        metrics.Parent = panel
+
+        self._fpsLabel = makeMetricCard(metrics, "FPS", "FPS", UDim2.fromOffset(0, 0))
+        local pingValue = makeMetricCard(metrics, "Ping", "PING", UDim2.new(0.5, 3, 0, 0))
+        self._pingLabel = pingValue
+
+        local footer = Instance.new("Frame")
+        footer.Name = "Footer"
+        footer.LayoutOrder = 3
+        footer.Size = UDim2.new(1, 0, 0, 14)
+        footer.BackgroundTransparency = 1
+        footer.Parent = panel
+
+        self._uptimeLabel = makeLabel(footer, "Uptime", "UP 00:00",
+            UDim2.fromOffset(1, 0), UDim2.new(0.5, -2, 1, 0),
+            COLORS.Muted, Enum.Font.GothamSemibold, 9)
+        self._memoryLabel = makeLabel(footer, "Memory", "MEM --",
+            UDim2.new(0.5, 2, 0, 0), UDim2.new(0.5, -3, 1, 0),
+            COLORS.Muted, Enum.Font.GothamSemibold, 9, Enum.TextXAlignment.Right)
+
+        self._connection = nil
+        return self
     end
-end function ST:Destroy() if self._destroyed then return end self._destroyed = true if self._connection then self._connection:Disconnect() self._connection = nil end pcall(function() self._panel:Destroy() end)
-    if self._gui then pcall(function() self._gui:Destroy() end); self._gui = nil end
-end
-return ST
+
+    function ST:_onFrame(dt)
+        if self._destroyed then return end
+        self._frames = self._frames + 1
+        self._elapsed = self._elapsed + dt
+        if self._elapsed < UPDATE_INTERVAL then return end
+
+        local fps = math.floor(self._frames / math.max(self._elapsed, 0.001) + 0.5)
+        self._frames = 0
+        self._elapsed = 0
+
+        pcall(function()
+            self._fpsLabel.Text = tostring(fps)
+            self._fpsLabel.TextColor3 = fpsColor(fps)
+
+            local ping = readPing()
+            if ping then
+                self._pingLabel.Text = string.format("%d ms", math.floor(ping + 0.5))
+                self._pingLabel.TextColor3 = pingColor(ping)
+            else
+                self._pingLabel.Text = "N/A"
+                self._pingLabel.TextColor3 = COLORS.Muted
+            end
+
+            self._uptimeLabel.Text = "UP " .. formatUptime(os.clock() - self._startTime)
+            local memory = readMemory()
+            if memory then
+                self._memoryLabel.Text = string.format("MEM %d MB", math.floor(memory + 0.5))
+            else
+                self._memoryLabel.Text = "MEM N/A"
+            end
+        end)
+    end
+
+    function ST:SetVisible(visible)
+        if self._destroyed then return end
+        visible = visible == true
+        self._panel.Visible = visible
+        if visible then
+            if not self._connection then
+                self._frames = 0
+                self._elapsed = 0
+                self._connection = RunService.RenderStepped:Connect(function(dt)
+                    self:_onFrame(dt)
+                end)
+            end
+        elseif self._connection then
+            self._connection:Disconnect()
+            self._connection = nil
+            self._frames = 0
+            self._elapsed = 0
+        end
+    end
+
+    function ST:Destroy()
+        if self._destroyed then return end
+        self._destroyed = true
+        if self._connection then
+            pcall(function() self._connection:Disconnect() end)
+            self._connection = nil
+        end
+        if self._gui then
+            pcall(function() self._gui:Destroy() end)
+            self._gui = nil
+        end
+    end
+
+    return ST
 end)()
 
 EventLogger = (function() local EL = {} EL.__index = EL local DISPLAY_TIME = 5 local FADE_TIME = 0.5 local MAX_MESSAGES = 30 local ROW_HEIGHT = 22 local FADE_INFO = TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In) function EL.new(parentGui) local self = setmetatable({}, EL) self._order = 0 self._connections = {} self._playerConnections = {} self._characterConnections = {} self._destroyed = false local scroll = Instance.new("ScrollingFrame") scroll.Name = "EventLog" scroll.AnchorPoint = Vector2.new(0, 0) scroll.Position = UDim2.new(0, 10, 0, 10) scroll.Size = UDim2.new(0, 260, 0, 160) scroll.BackgroundTransparency = 1 scroll.BorderSizePixel = 0 scroll.ScrollBarThickness = 3 scroll.ScrollBarImageColor3 = Color3.fromRGB(150, 50, 255) scroll.CanvasSize = UDim2.new(0, 0, 0, 0) scroll.AutomaticCanvasSize = Enum.AutomaticSize.None scroll.ZIndex = 20 scroll.Parent = parentGui local layout = Instance.new("UIListLayout") layout.SortOrder = Enum.SortOrder.LayoutOrder layout.Padding = UDim.new(0, 3) layout.Parent = scroll self._scroll = scroll self._layout = layout table.insert(self._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() local contentHeight = layout.AbsoluteContentSize.Y scroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight) scroll.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - scroll.AbsoluteSize.Y)) end)) self:_start() return self end function EL:Log(text, color) if self._destroyed then return end local ok, err = pcall(function() local rows = {} for _, child in ipairs(self._scroll:GetChildren()) do if child:IsA("TextLabel") then table.insert(rows, child) end end if #rows >= MAX_MESSAGES then table.sort(rows, function(a, b) return a.LayoutOrder < b.LayoutOrder end) rows[1]:Destroy() end self._order += 1 local label = Instance.new("TextLabel") label.Name = "Entry" label.LayoutOrder = self._order label.Size = UDim2.new(1, -6, 0, ROW_HEIGHT) label.BackgroundColor3 = Color3.fromRGB(15, 15, 20) label.BackgroundTransparency = 0.35 label.BorderSizePixel = 0 label.Text = text label.TextColor3 = color or Color3.fromRGB(255, 255, 255) label.TextTransparency = 0 label.TextStrokeTransparency = 0.8 label.Font = Enum.Font.GothamMedium label.TextSize = 14 label.TextXAlignment = Enum.TextXAlignment.Left label.TextTruncate = Enum.TextTruncate.AtEnd label.ZIndex = 21 local pad = Instance.new("UIPadding") pad.PaddingLeft = UDim.new(0, 8) pad.Parent = label local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 4) corner.Parent = label label.Parent = self._scroll task.delay(DISPLAY_TIME, function() if self._destroyed or not label.Parent then return end pcall(function() local tween = TweenService:Create(label, FADE_INFO, { TextTransparency = 1, TextStrokeTransparency = 1, BackgroundTransparency = 1 }) tween.Completed:Once(function() pcall(function() label:Destroy() end) end) tween:Play() end) end) end) if not ok then warn("[EventLogger] Log failed:", err) end end function EL:_watchCharacter(player, character) local humanoid = character:WaitForChild("Humanoid", 10) if not humanoid or self._destroyed or player.Character ~= character then return end local previous = self._characterConnections[player]
@@ -734,7 +988,42 @@ EventLogger = (function() local EL = {} EL.__index = EL local DISPLAY_TIME = 5 l
     for _, conn in ipairs(list) do pcall(function() conn:Disconnect() end) end
 end function EL:_start() for _, player in ipairs(Players:GetPlayers()) do self:_watchPlayer(player) end table.insert(self._connections, Players.PlayerAdded:Connect(function(player) self:_watchPlayer(player) end)) table.insert(self._connections, Players.PlayerRemoving:Connect(function(player) self:Log(("%s left the game"):format(player.Name), Color3.fromRGB(180, 180, 190)) self:_unwatchPlayer(player) end)) end function EL:Destroy() self._destroyed = true for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end for player in pairs(self._playerConnections) do self:_unwatchPlayer(player) end pcall(function() self._scroll:Destroy() end) end return EL end)()
 
-Dropdown = (function() local D = {} D.__index = D local Theme = { Surface = THEME.Surface, SurfaceHover = THEME.Element, Accent = THEME.Accent, Stroke = THEME.Stroke, Text = THEME.Text, SubText = THEME.SubText, Font = Enum.Font.GothamMedium, TextSize = 13 } local OP = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) function D.new(parent, name, opts, def, cb) local s = setmetatable({}, D) s.Name=name s.Callback=cb s.Value=nil s.IsOpen=false s._opts={} s._btns={} s._selIdx=nil s._targetHeight=0 s._displayHeight=0 s._openAbove=false s._tween=nil s._destroyed=false s.Frame = create("Frame", {Name="DD_"..name, Size=UDim2.new(1,0,0,44), BackgroundTransparency=1, Parent=parent}) s.Label = create("TextLabel", {Name="Label", Size=UDim2.new(0.42,-8,1,0), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, TextSize=11, TextColor3=Theme.Text, TextXAlignment=Enum.TextXAlignment.Left, Text=name, Parent=s.Frame}) s.Header = create("TextButton", {Name="Header", AnchorPoint=Vector2.new(1,0), Position=UDim2.fromScale(1,0), Size=UDim2.new(0.58,0,1,0), BackgroundColor3=THEME.Element, BackgroundTransparency=0.12, BorderSizePixel=0, AutoButtonColor=false, Text="Select...", TextColor3=Theme.Text, TextTransparency=0, Font=Theme.Font, TextSize=Theme.TextSize, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=15, Parent=s.Frame}) create("UICorner", {CornerRadius=UDim.new(0,9),Parent=s.Header}) create("UIPadding", {PaddingLeft=UDim.new(0,11),PaddingRight=UDim.new(0,25),Parent=s.Header}) s._stroke = create("UIStroke",{Color=Theme.Stroke,Thickness=1,Transparency=0.58,Parent=s.Header}) s.Chevron = create("TextLabel", {Name="Chevron",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-9,0.5,0),Size=UDim2.fromOffset(14,18),BackgroundTransparency=1,Text="⌄",Font=Enum.Font.GothamBold,TextSize=16,TextColor3=Theme.Accent2,ZIndex=16,Parent=s.Header}) s.List = create("Frame", {Name="List", Position=UDim2.new(0,0,1,4), Size=UDim2.new(1,0,0,0), BackgroundColor3=THEME.Surface, BackgroundTransparency=0.025, BorderSizePixel=0, ClipsDescendants=true, Visible=false, ZIndex=20, Parent=s.Frame}) create("UICorner", {CornerRadius=UDim.new(0,9),Parent=s.List}) create("UIStroke",{Color=Theme.Stroke,Thickness=1,Transparency=0.4,Parent=s.List}) s.Scroll = create("ScrollingFrame", {Name="Scroll", Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent2, CanvasSize=UDim2.new(), ZIndex=22, Parent=s.List}) create("UIListLayout", {SortOrder=Enum.SortOrder.LayoutOrder, Parent=s.Scroll}) create("UIPadding", {PaddingTop=UDim.new(0,4),PaddingBottom=UDim.new(0,4),Parent=s.Scroll}) s.Header.Activated:Connect(function() if s.IsOpen then s:Close() else s:Open() end end) s:SetOptions(opts or {}) if def ~= nil then s:Set(def, true) end return s end function D:_enforceStyle() self.List.ZIndex = 20 self.List.BackgroundColor3 = THEME.Surface self.List.BackgroundTransparency = 0.025 for _, inst in ipairs(self.List:GetDescendants()) do if inst:IsA("UIGradient") then inst:Destroy() end end self.Scroll.ZIndex = 22 for _, child in ipairs(self.Scroll:GetChildren()) do if child:IsA("TextButton") then child.ZIndex = 23 child.TextColor3 = Theme.Text child.TextTransparency = 0 end end end function D:_select(idx) self._selIdx=idx self.Value=self._opts[idx] self.Header.Text=tostring(self.Value) self.Header.TextColor3=Theme.Text for optionIndex, button in pairs(self._btns) do local selected=optionIndex==idx button.BackgroundColor3=selected and Theme.Accent or Theme.SurfaceHover button.BackgroundTransparency=selected and 0.32 or 1 end end function D:_fire(val) if typeof(self.Callback)~="function" then return end task.spawn(function() local ok, err = pcall(self.Callback, val) if not ok then warn("Dropdown err:", err) end end) end function D:Set(val, sil) local idx = table.find(self._opts, val) if not idx then return false end self:_select(idx) if not sil then self:_fire(self.Value) end return true end function D:SetOptions(opts, keep) if self.IsOpen then self:Close() end for _, b in self._btns do b:Destroy() end table.clear(self._btns) self._opts = table.clone(opts or {}) for i, o in self._opts do local b = create("TextButton", {Name="O_"..i, LayoutOrder=i, Size=UDim2.new(1,0,0,42), BackgroundColor3=Theme.SurfaceHover, BackgroundTransparency=1, Text=tostring(o), TextColor3=Theme.Text, TextTransparency=0, Font=Theme.Font, TextSize=15, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=15, Parent=self.Scroll}) create("UICorner", {CornerRadius=UDim.new(0,5),Parent=b}) create("UIPadding", {PaddingLeft=UDim.new(0,10),Parent=b}) b.MouseEnter:Connect(function() if self.Value ~= o then b.BackgroundTransparency=0.4 end end) b.MouseLeave:Connect(function() if self.Value ~= o then b.BackgroundTransparency=1 end end) b.Activated:Connect(function() self:_select(i) self:Close() self:_fire(self.Value) end) self._btns[i] = b end self._selIdx = (keep~=false and self.Value~=nil) and table.find(self._opts, self.Value) or nil if not self._selIdx then self.Value=nil; self.Header.Text="Select..." end if self.Value then self.Header.Text = tostring(self.Value) end local contentHeight = #self._opts * 42 + 8 self.Scroll.CanvasSize = UDim2.fromOffset(0, contentHeight) self._targetHeight = math.min(contentHeight, UserInputService.TouchEnabled and 236 or 220)
+Dropdown = (function() local D = {} D.__index = D local Theme = { Surface = THEME.Surface, SurfaceHover = THEME.Element, Accent = THEME.Accent, Stroke = THEME.Stroke, Text = THEME.Text, SubText = THEME.SubText, Font = Enum.Font.GothamMedium, TextSize = 13 } local OP = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) function D.new(parent, name, opts, def, cb) local s = setmetatable({}, D) s.Name=name s.Callback=cb s.Value=nil s.IsOpen=false s._opts={} s._btns={} s._selIdx=nil s._targetHeight=0 s._displayHeight=0 s._openAbove=false s._tween=nil s._destroyed=false s.Frame = create("Frame", {Name="DD_"..name, Size=UDim2.new(1,0,0,44), BackgroundTransparency=1, Parent=parent}) s.Label = create("TextLabel", {Name="Label", Size=UDim2.new(0.34,-8,1,0), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, TextSize=11, TextColor3=Theme.Text, TextXAlignment=Enum.TextXAlignment.Left, Text=name, Parent=s.Frame}) s.Header = create("TextButton", {Name="Header", AnchorPoint=Vector2.new(1,0), Position=UDim2.fromScale(1,0), Size=UDim2.new(0.66,0,1,0), BackgroundColor3=THEME.Element, BackgroundTransparency=0.12, BorderSizePixel=0, AutoButtonColor=false, Text="Select...", TextColor3=Theme.Text, TextTransparency=0, Font=Theme.Font, TextSize=Theme.TextSize, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=15, Parent=s.Frame}) create("UICorner", {CornerRadius=UDim.new(0,9),Parent=s.Header}) create("UIPadding", {PaddingLeft=UDim.new(0,11),PaddingRight=UDim.new(0,25),Parent=s.Header}) s._stroke = create("UIStroke",{Color=Theme.Stroke,Thickness=1,Transparency=0.58,Parent=s.Header}) s.Chevron = create("TextLabel", {Name="Chevron",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-9,0.5,0),Size=UDim2.fromOffset(14,18),BackgroundTransparency=1,Text="⌄",Font=Enum.Font.GothamBold,TextSize=16,TextColor3=Theme.Accent2,ZIndex=16,Parent=s.Header}) s.List = create("Frame", {Name="List", Position=UDim2.new(0,0,1,4), Size=UDim2.new(1,0,0,0), BackgroundColor3=THEME.Surface, BackgroundTransparency=0.025, BorderSizePixel=0, ClipsDescendants=true, Visible=false, ZIndex=20, Parent=s.Frame}) create("UICorner", {CornerRadius=UDim.new(0,9),Parent=s.List}) create("UIStroke",{Color=Theme.Stroke,Thickness=1,Transparency=0.4,Parent=s.List}) s.Scroll = create("ScrollingFrame", {Name="Scroll", Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent2, CanvasSize=UDim2.new(), ZIndex=22, Parent=s.List}) create("UIListLayout", {SortOrder=Enum.SortOrder.LayoutOrder, Parent=s.Scroll}) create("UIPadding", {PaddingTop=UDim.new(0,4),PaddingBottom=UDim.new(0,4),Parent=s.Scroll}) s.Header.Activated:Connect(function() if s.IsOpen then s:Close() else s:Open() end end) s:SetOptions(opts or {}) if def ~= nil then s:Set(def, true) end return s end function D:_enforceStyle() self.List.ZIndex = 20 self.List.BackgroundColor3 = THEME.Surface self.List.BackgroundTransparency = 0.025 for _, inst in ipairs(self.List:GetDescendants()) do if inst:IsA("UIGradient") then inst:Destroy() end end self.Scroll.ZIndex = 22 for _, child in ipairs(self.Scroll:GetChildren()) do if child:IsA("TextButton") then child.ZIndex = 23 child.TextColor3 = Theme.Text child.TextTransparency = 0 end end end function D:_select(idx)
+    self._selIdx = idx
+    self.Value = self._opts[idx]
+    self.Header.Text = tostring(self.Value)
+    self.Header.TextColor3 = Theme.Text
+    for optionIndex, button in pairs(self._btns) do
+        local selected = optionIndex == idx
+        button.BackgroundColor3 = selected and Theme.Accent or THEME.Element
+        button.BackgroundTransparency = selected and 0.12 or 0.16
+        button.TextColor3 = selected and THEME.Text or Color3.fromRGB(220, 226, 244)
+        button.Text = (selected and "✓  " or "   ") .. tostring(self._opts[optionIndex])
+        local edge = button:FindFirstChildOfClass("UIStroke")
+        if edge then
+            edge.Color = selected and Theme.Accent2 or Theme.Stroke
+            edge.Transparency = selected and 0.28 or 0.72
+        end
+    end
+end function D:_fire(val) if typeof(self.Callback)~="function" then return end task.spawn(function() local ok, err = pcall(self.Callback, val) if not ok then warn("Dropdown err:", err) end end) end function D:Set(val, sil) local idx = table.find(self._opts, val) if not idx then return false end self:_select(idx) if not sil then self:_fire(self.Value) end return true end function D:SetOptions(opts, keep) if self.IsOpen then self:Close() end for _, b in self._btns do b:Destroy() end table.clear(self._btns) self._opts = table.clone(opts or {}) for i, o in self._opts do local b = create("TextButton", {
+        Name = "O_" .. i,
+        LayoutOrder = i,
+        Size = UDim2.new(1, -2, 0, 50),
+        BackgroundColor3 = THEME.Element,
+        BackgroundTransparency = 0.16,
+        Text = "   " .. tostring(o),
+        TextColor3 = Color3.fromRGB(220, 226, 244),
+        TextTransparency = 0,
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        AutoButtonColor = false,
+        ZIndex = 23,
+        Parent = self.Scroll
+    })
+    create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = b})
+    create("UIStroke", {Color = Theme.Stroke, Thickness = 1, Transparency = 0.72, Parent = b})
+    create("UIPadding", {PaddingLeft = UDim.new(0, 10), Parent = b}) b.MouseEnter:Connect(function() if self.Value ~= o then b.BackgroundTransparency=0.4 end end) b.MouseLeave:Connect(function() if self.Value ~= o then b.BackgroundTransparency=1 end end) b.Activated:Connect(function() self:_select(i) self:Close() self:_fire(self.Value) end) self._btns[i] = b end self._selIdx = (keep~=false and self.Value~=nil) and table.find(self._opts, self.Value) or nil if not self._selIdx then self.Value=nil; self.Header.Text="Select..." end if self.Value then self.Header.Text = tostring(self.Value) end local contentHeight = #self._opts * 50 + 8 self.Scroll.CanvasSize = UDim2.fromOffset(0, contentHeight) self._targetHeight = math.min(contentHeight, UserInputService.TouchEnabled and 252 or 236)
     if self.IsOpen then self:Close() end if self._selIdx then self:_select(self._selIdx) end end function D:Open() if self.IsOpen or self._destroyed then return end if self._tween then pcall(function() self._tween:Cancel() end); self._tween = nil end self.IsOpen = true self:_enforceStyle()
     if self.Chevron then self.Chevron.Text = "⌃" end
 
@@ -3328,9 +3617,9 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() UIControls.espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() UIControls.farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() UIControls.autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() UIControls.optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.71 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.74 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
-setBootStage("v91.71  •  READY")
+setBootStage("v91.74  •  READY")
 task.delay(1.2, function()
     pcall(function()
         if BOOT_ERROR_CONNECTION then BOOT_ERROR_CONNECTION:Disconnect() BOOT_ERROR_CONNECTION = nil end
