@@ -54,6 +54,8 @@ blur.Size = 10 blur.Enabled = true
 
 local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleHUD, win, characterAddedConnection
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
+local coinCollectedConnection, farmCoinEventAt, farmCoinEventCount, farmLastCollectedPosition
+farmCoinEventAt, farmCoinEventCount = 0, 0
 local currentSession, canFarmNow
 local VisualOptimizer, Crosshair, crosshairObj, SessionManager, AestheticsManager, StatsTracker, statsObj, eventLogger, logGui, TargetHUD, targetHUD, Stabilizer
 local MovementUtility, movementObj, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
@@ -73,6 +75,7 @@ getgenv().LiberiumCleanup = function()
         for _, connection in ipairs(currentSession.connections or {}) do pcall(function() connection:Disconnect() end) end
         currentSession = nil
     end
+    if coinCollectedConnection then pcall(function() coinCollectedConnection:Disconnect() end) coinCollectedConnection = nil end
     if coinTracker then pcall(function() coinTracker:Destroy() end) end
     if farmHudGui then pcall(function() farmHudGui:Destroy() end) farmHudGui = nil farmHudLabel = nil end
     if blur then pcall(function() blur:Destroy() end) end
@@ -1952,7 +1955,7 @@ coinTracker = (function()
         return getCachedGround(obj, part)
     end
 
-    function API:GetClosest(origin, maxDist, method, murdererPosition)
+    function API:GetClosest(origin, maxDist, method, murdererPosition, lastCollectedPosition)
         if not running or not origin then return nil, nil end
         if getActiveCoinContainer() ~= boundContainer then bindContainer() end
         if not boundContainer then return nil, nil end
@@ -2010,8 +2013,16 @@ coinTracker = (function()
                         end
                     end
                 end
-                score = candidate.distance * 0.2
-                    + math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
+                if lastCollectedPosition and (position - lastCollectedPosition).Magnitude < 180 then
+                    score = (position - lastCollectedPosition).Magnitude
+                        + candidate.distance * 0.12
+                        + math.min(nearest, 300) * 0.65
+                        + math.min(second, 300) * 0.65
+                        + math.min(third, 300) * 0.65
+                else
+                    score = candidate.distance * 0.2
+                        + math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
+                end
             end
 
             if murdererPosition then
@@ -2081,6 +2092,31 @@ coinTracker = (function()
     return API
 end)()
 
+-- PulseHub's collector listens for the game's local CoinCollected confirmation.
+-- The event is used as a secondary success signal and to continue Teleport mode's coin cluster.
+task.spawn(function()
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 20)
+    local gameplay = remotes and remotes:WaitForChild("Gameplay", 20)
+    if not gameplay or not isRunning then return end
+    local event = gameplay:FindFirstChild("CoinCollected")
+    if not event or not event:IsA("RemoteEvent") then return end
+    coinCollectedConnection = event.OnClientEvent:Connect(function(kind, count, maximum)
+        if not isRunning then return end
+        farmCoinEventAt = os.clock()
+        farmCoinEventCount += 1
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        farmLastCollectedPosition = root and root.Position or farmLastCollectedPosition
+        if type(count) == "number" and type(maximum) == "number" and maximum > 0 and count >= maximum then
+            farmBagCache.full = true
+            farmBagCache.checkedAt = farmCoinEventAt
+        elseif type(count) == "number" and type(maximum) == "number" then
+            farmBagCache.full = false
+            farmBagCache.checkedAt = farmCoinEventAt
+        end
+    end)
+end)
+
 local farmBagCache = {checkedAt = 0, full = false, bag = nil}
 local function isCoinBagFull()
     local now = os.clock()
@@ -2092,7 +2128,7 @@ local function isCoinBagFull()
     local game = main and main:FindFirstChild("Game")
     local bag = game and game:FindFirstChild("CoinBags")
     farmBagCache.bag = bag
-    if not bag then return false end
+    if not bag or not bag.Visible then return false end
 
     for _, item in ipairs(bag:GetDescendants()) do
         if item.Name == "Full" and item:IsA("GuiObject")
@@ -2130,6 +2166,8 @@ local function glideTo(target, speed, mode)
         speed = math.clamp(tonumber(speed) or 62, 25, 80)
     end
 
+    local farmEventBaseline = mode == "farm" and farmCoinEventCount or 0
+    local farmRouteStartedAt = os.clock()
     local oldAnchored = root.Anchored
     local oldVelocity = root.AssemblyLinearVelocity
     local oldAngularVelocity = root.AssemblyAngularVelocity
@@ -2166,6 +2204,13 @@ local function glideTo(target, speed, mode)
     local function targetWasCollected(part, wasTouchEnabled, wasTransparency)
         if not target or not target.Parent or not target:IsDescendantOf(Workspace) then return true end
         if target:GetAttribute("Collected") == true then return true end
+        if mode == "farm" and farmCoinEventCount > farmEventBaseline
+            and farmCoinEventAt >= farmRouteStartedAt
+            and os.clock() - farmCoinEventAt <= 2
+            and farmLastCollectedPosition and part and part.Parent
+            and (farmLastCollectedPosition - part.Position).Magnitude <= 14 then
+            return true
+        end
         if part and part.Parent then
             if wasTouchEnabled and not part.CanTouch then return true end
             if wasTransparency < 0.98 and part.Transparency >= 0.98 then return true end
@@ -2500,7 +2545,8 @@ task.spawn(function()
                 if root and root.Parent and session and not session.destroyed then
                     local murdererRoot = CFG.FarmAvoidMurderer and select(1, getClosestMurderer(root.Position)) or nil
                     local method = CFG.FarmMethod or "Fast"
-                    local target = coinTracker:GetClosest(root.Position, 220, method, murdererRoot and murdererRoot.Position or nil)
+                    local target = coinTracker:GetClosest(root.Position, 220, method,
+                        murdererRoot and murdererRoot.Position or nil, farmLastCollectedPosition)
                     if target then
                         updateFarmHUD("AutoFarm • " .. method .. " route", THEME.Good, true)
                         local routeSpeed = method == "Under Map" and CFG.MaxSpeed
