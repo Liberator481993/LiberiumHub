@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.69 | SAFE STARTUP + HOME STATUS INDICATORS
+-- LIBERIUM HUB | v91.70 | SAFE STARTUP + HOME STATUS INDICATORS
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -101,7 +101,8 @@ getgenv().LiberiumCleanup = function()
 end
 
 local CFG = {
-    MaxSpeed = 62, AutoFarm = false, AutoFling = false,
+    MaxSpeed = 21, FarmMethod = "Fast", FastSpeed = 24, TeleportSpeed = 25, FarmAvoidMurderer = false,
+    AutoFarm = false, AutoFling = false,
     ESP_Outline = false, ESP_Fill = false, ESP_Name = false, ESP_Distance = false, LootESP = false,
     AntiFling = true, PredictionStyle = "Classic", Prediction = false, ProjSpeed = 100,
     OptimizeFPS = false, Crosshair = false, AntiAFK = false, ShowStats = true,
@@ -1008,16 +1009,91 @@ weaponTracker = (function()
         return nil
     end
 
-    function API:GetClosest(origin, maxDist)
-        if not running then return nil, nil end
-        local drop, part = findDroppedGun()
-        if not drop or not part then return nil, nil end
+    function API:GetGround(obj, part)
+        if not running or not obj or not obj.Parent then return nil end
+        part = part or getTouchPart(obj)
+        if not part or not part.Parent then return nil end
+        return getCachedGround(obj, part)
+    end
+
+    function API:GetClosest(origin, maxDist, method, murdererPosition)
+        if not running or not origin then return nil, nil end
+        if getActiveCoinContainer() ~= boundContainer then bindContainer() end
+        if not boundContainer then return nil, nil end
+
+        method = method or CFG.FarmMethod or "Fast"
         local now = os.clock()
-        if (skipped[drop] or 0) > now then return nil, nil end
-        local offset = part.Position - origin
-        local distance = offset.Magnitude
-        if maxDist and distance > maxDist then return nil, distance end
-        return drop, distance
+        local candidates = {}
+        for i = #coins, 1, -1 do
+            local obj = coins[i]
+            if not obj or not obj.Parent or not obj:IsDescendantOf(boundContainer) or not isCoin(obj) then
+                table.remove(coins, i)
+                if obj then skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil end
+            elseif (skipped[obj] or 0) <= now and now - (observedAt[obj] or now) >= 0.18 then
+                local part = getTouchPart(obj)
+                if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
+                    local directDistance = (part.Position - origin).Magnitude
+                    if not maxDist or directDistance <= maxDist then
+                        local ground = getCachedGround(obj, part)
+                        local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
+                        if ground and floorDelta <= 21 and math.abs(part.Position.Y - origin.Y) <= 24 then
+                            table.insert(candidates, {
+                                object = obj, part = part, ground = ground,
+                                distance = directDistance, score = directDistance
+                            })
+                        else
+                            skipped[obj] = now + 1.0
+                        end
+                    end
+                else
+                    table.remove(coins, i)
+                    skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil
+                end
+            end
+        end
+        if #candidates == 0 then return nil, nil end
+
+        local best, bestScore
+        for _, candidate in ipairs(candidates) do
+            local position = candidate.part.Position
+            local score = candidate.distance
+            if method == "Under Map" then
+                local hidden = Vector3.new(position.X, candidate.ground.Position.Y - 3.8, position.Z)
+                score = (hidden - origin).Magnitude + math.max(0, position.Y - hidden.Y) * 1.2
+            elseif method == "Teleport" then
+                local nearest, second, third = math.huge, math.huge, math.huge
+                for _, other in ipairs(candidates) do
+                    if other ~= candidate then
+                        local distance = (other.part.Position - position).Magnitude
+                        if distance < nearest then
+                            nearest, second, third = distance, nearest, second
+                        elseif distance < second then
+                            second, third = distance, second
+                        elseif distance < third then
+                            third = distance
+                        end
+                    end
+                end
+                score = candidate.distance * 0.2
+                    + math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
+            end
+
+            if murdererPosition then
+                local threatDistance = (position - murdererPosition).Magnitude
+                if threatDistance < 24 then
+                    score += CFG.FarmAvoidMurderer and 1000000 or 300
+                elseif threatDistance < 48 then
+                    score += (48 - threatDistance) * 2
+                end
+            end
+            candidate.score = score
+            if not bestScore or score < bestScore then best, bestScore = candidate, score end
+        end
+
+        if not best or (CFG.FarmAvoidMurderer and murdererPosition and bestScore >= 1000000) then
+            return nil, nil
+        end
+        return best.object, best.distance
     end
 
     function API:GetStatus(origin, maxDist)
@@ -1383,9 +1459,9 @@ function Lib.new(title)
             local mobile = UserInputService.TouchEnabled and cam.ViewportSize.X < 700
             local portrait = cam.ViewportSize.Y >= cam.ViewportSize.X
             local compactPortrait = mobile and portrait
-            local baseWidth = compactPortrait and 480 or 620
-            local baseHeight = compactPortrait and 620 or 460
-            local sideWidth = compactPortrait and 128 or 158
+            local baseWidth = compactPortrait and 480 or 760
+            local baseHeight = compactPortrait and 620 or 550
+            local sideWidth = compactPortrait and 128 or 184
             s.MobileLayout = mobile
             s.PortraitLayout = compactPortrait
             s.SideWidth = sideWidth
@@ -1411,7 +1487,7 @@ function Lib.new(title)
     end
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
-    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
+    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(760,550),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
     create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(31,22,56)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(10,14,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(8,25,38))}),Rotation=32,Parent=s.Main})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.105,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
     s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(16,18,32),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(56,35,91)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,30,52)),ColorSequenceKeypoint.new(1,Color3.fromRGB(14,48,61))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
@@ -1421,14 +1497,14 @@ function Lib.new(title)
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.69",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text="MM2  /  LIVE  /  v91.70",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
-    label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.69",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="DELTA  /  ARCEUS X",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
+    label({Text="NEON BUILD  /  v91.70",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -1599,8 +1675,9 @@ for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 CFG.ConfigSchemaVersion = 2
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
+local CONFIG_DEFAULTS = {MaxSpeed=21, FarmMethod="Fast", FastSpeed=24, TeleportSpeed=25, FarmAvoidMurderer=false, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
+    FarmMethod = {"Under Map", "Teleport", "Fast"},
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
     FOVColor = {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"},
     SkeletonColor = {"White", "Purple", "Red", "Green", "Yellow", "Cyan"},
@@ -1622,7 +1699,9 @@ local function normalizeConfig()
     for key, choices in pairs(ENUM_CONFIG_VALUES) do
         if not table.find(choices, CFG[key]) then CFG[key] = CONFIG_DEFAULTS[key] end
     end
-    CFG.MaxSpeed = math.clamp(CFG.MaxSpeed, 25, 80)
+    CFG.MaxSpeed = math.clamp(CFG.MaxSpeed, 8, 22)
+    CFG.FastSpeed = math.clamp(CFG.FastSpeed, 8, 24)
+    CFG.TeleportSpeed = math.clamp(CFG.TeleportSpeed, 10, 26)
     CFG.ProjSpeed = math.clamp(CFG.ProjSpeed, 50, 500)
     CFG.WalkSpeed = math.clamp(CFG.WalkSpeed, 16, 200)
     CFG.JumpPower = math.clamp(CFG.JumpPower, 50, 500)
@@ -1635,7 +1714,8 @@ CFG.Crosshair = false
 -- Poll role data only while a feature actually needs it; farming alone must not issue a server query every second.
 task.spawn(function()
     while task.wait(1) and isRunning do
-        if CFG.AutoFling or CFG.Prediction or CFG.ESP_Outline or CFG.ESP_Fill or CFG.ESP_Name or CFG.ESP_Distance then
+        if CFG.AutoFling or CFG.Prediction or CFG.ESP_Outline or CFG.ESP_Fill or CFG.ESP_Name or CFG.ESP_Distance
+            or (CFG.AutoFarm and CFG.FarmAvoidMurderer) then
             pcall(function()
                 local getData = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
                 if getData and getData:IsA("RemoteFunction") then
@@ -1754,6 +1834,40 @@ local function hasCoinAncestor(inst)
     end
     return false
 end
+
+
+-- MM2 round coins are BaseParts with a TouchInterest/TouchTransmitter.
+-- Keep the predicate strict so coin containers, map props and decorative loot are never farm targets.
+local function isCoin(inst)
+    if not inst or not inst:IsA("BasePart") or not inst.Parent then return false end
+    local name = string.lower(inst.Name)
+    if not name:find("coin", 1, true) and inst:GetAttribute("CoinID") == nil then return false end
+    if inst:GetAttribute("Collected") == true or not inst.CanTouch then return false end
+    local touch = inst:FindFirstChild("TouchInterest")
+        or inst:FindFirstChildWhichIsA("TouchTransmitter", true)
+    return touch ~= nil
+end
+
+-- Return the floor raycast below a coin, excluding the avatar and coin holder.
+-- coinTracker caches this result so the farm does not raycast every frame.
+local function hasGroundBelow(obj, part)
+    if not part or not part.Parent then return nil end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.IgnoreWater = true
+    pcall(function() params.RespectCanCollide = true end)
+    local ignored = {}
+    if LocalPlayer.Character then table.insert(ignored, LocalPlayer.Character) end
+    if obj then table.insert(ignored, obj) end
+    local container = getActiveCoinContainer()
+    if container then table.insert(ignored, container) end
+    params.FilterDescendantsInstances = ignored
+    local ok, result = pcall(function()
+        return Workspace:Raycast(part.Position + Vector3.new(0, 0.75, 0), Vector3.new(0, -60, 0), params)
+    end)
+    return ok and result or nil
+end
+
 
 coinTracker = (function()
     local API = {}
@@ -1995,7 +2109,18 @@ local function glideTo(target, speed, mode)
     if not targetPart then return false end
     if mode == "farm" and (not coinTracker or not coinTracker:IsValid(target)
         or math.abs(targetPart.Position.Y - root.Position.Y) > 24) then return false end
-    speed = math.clamp(tonumber(speed) or 62, 25, 80)
+    local farmMethod = mode == "farm" and CFG.FarmMethod or "Fast"
+    if mode == "farm" then
+        if farmMethod == "Under Map" then
+            speed = math.clamp(tonumber(CFG.MaxSpeed) or 21, 8, 22)
+        elseif farmMethod == "Teleport" then
+            speed = math.clamp(tonumber(CFG.TeleportSpeed) or 25, 10, 26)
+        else
+            speed = math.clamp(tonumber(CFG.FastSpeed) or 24, 8, 24)
+        end
+    else
+        speed = math.clamp(tonumber(speed) or 62, 25, 80)
+    end
 
     local oldAnchored = root.Anchored
     local oldVelocity = root.AssemblyLinearVelocity
@@ -2011,8 +2136,14 @@ local function glideTo(target, speed, mode)
     local hipHeight = tonumber(humanoid.HipHeight) or 2
     -- Place the avatar's feet through the collectible's vertical band instead of stopping above it.
     local rootOffset = math.clamp(hipHeight + root.Size.Y * 0.5 - targetPart.Size.Y * 0.25, 2.2, 3.6)
-    local distanceAtStart = (targetPart.Position + Vector3.new(0, rootOffset, 0) - root.Position).Magnitude
-    local timeLimit = math.clamp(distanceAtStart / speed * 2.0 + 2.5, 4, 22)
+    local farmGround = mode == "farm" and coinTracker and coinTracker:GetGround(target, targetPart) or nil
+    local hidePosition = farmGround and Vector3.new(targetPart.Position.X, farmGround.Position.Y - 3.8, targetPart.Position.Z) or nil
+    local routeStage = mode == "farm" and farmMethod == "Under Map" and hidePosition and "hide" or "contact"
+    local routeDistance = (targetPart.Position + Vector3.new(0, rootOffset, 0) - root.Position).Magnitude
+    if mode == "farm" and hidePosition then
+        routeDistance = math.max(routeDistance, (hidePosition - root.Position).Magnitude + 4)
+    end
+    local timeLimit = math.clamp(routeDistance / speed * 2.0 + 3.0, 4, 22)
     local arrived = false
     local collected = false
     local success, err
@@ -2026,6 +2157,7 @@ local function glideTo(target, speed, mode)
     end
     local function targetWasCollected(part, wasTouchEnabled, wasTransparency)
         if not target or not target.Parent or not target:IsDescendantOf(Workspace) then return true end
+        if target:GetAttribute("Collected") == true then return true end
         if part and part.Parent then
             if wasTouchEnabled and not part.CanTouch then return true end
             if wasTransparency < 0.98 and part.Transparency >= 0.98 then return true end
@@ -2048,6 +2180,12 @@ local function glideTo(target, speed, mode)
                 part.CanTouch = true
             end
         end
+        -- Pulse-style Teleport begins below the coin's floor, then rises into the real touch band.
+        if mode == "farm" and farmMethod == "Teleport" and hidePosition then
+            root.CFrame = CFrame.new(hidePosition, hidePosition + root.CFrame.LookVector)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
         local startedAt = os.clock()
         local currentSpeed = 0
         local lastFarmTargetCheck = 0
@@ -2066,10 +2204,24 @@ local function glideTo(target, speed, mode)
             end
 
             local contactPosition = targetPart.Position + Vector3.new(0, rootOffset, 0)
-            local delta = contactPosition - root.Position
+            local destination = contactPosition
+            if routeStage == "hide" then
+                local ground = coinTracker and coinTracker:GetGround(target, targetPart) or farmGround
+                if ground then
+                    destination = Vector3.new(targetPart.Position.X, ground.Position.Y - 3.8, targetPart.Position.Z)
+                else
+                    routeStage = "contact"
+                end
+            end
+            local delta = destination - root.Position
             local distance = delta.Magnitude
-            if mode == "farm" and math.abs(delta.Y) > 24 then break end
+            if mode == "farm" and math.abs(delta.Y) > 60 then break end
             if distance <= 0.8 then
+                if routeStage == "hide" then
+                    routeStage = "contact"
+                    currentSpeed = 0
+                    continue
+                end
                 arrived = true
                 -- Restore floor collisions before the collection attempt. The previous version
                 -- kept the avatar non-collidable while trying to touch the coin, which could
@@ -2156,6 +2308,11 @@ local function glideTo(target, speed, mode)
             end
         end
     end)
+
+    if mode == "farm" and targetWasCollected(targetPart, originalTargetCanTouch, originalTargetTransparency) then
+        collected = true
+        arrived = true
+    end
 
     -- On an interrupted farm route, return smoothly to the exact starting position
     -- before restoring collisions; never leave the avatar suspended over an unsupported gap.
@@ -2322,16 +2479,22 @@ task.spawn(function()
             local session = currentSession
             local root = session and session.root
             if root and root.Parent and session and not session.destroyed then
-                local target = coinTracker:GetClosest(root.Position, 220)
+                local murdererRoot = CFG.FarmAvoidMurderer and select(1, getClosestMurderer(root.Position)) or nil
+                local method = CFG.FarmMethod or "Fast"
+                local target = coinTracker:GetClosest(root.Position, 220, method, murdererRoot and murdererRoot.Position or nil)
                 if target then
-                    updateFarmHUD("AutoFarm • moving to coin", THEME.Good, true)
-                    local okMove = glideTo(target, CFG.MaxSpeed, "farm")
-                    -- Even unreachable coins get a temporary cooldown so the next coin can be attempted.
+                    updateFarmHUD("AutoFarm • " .. method .. " route", THEME.Good, true)
+                    local routeSpeed = method == "Under Map" and CFG.MaxSpeed
+                        or method == "Teleport" and CFG.TeleportSpeed or CFG.FastSpeed
+                    local okMove = glideTo(target, routeSpeed, "farm")
+                    -- Retry a missed touch quickly; only repeated misses should cost several seconds.
                     local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
-                    coinTracker:Skip(target, stillPresent and (okMove and 5.0 or 9.0) or 0.35)
-                    task.wait(okMove and 0.08 or 0.15)
+                    coinTracker:Skip(target, stillPresent and (okMove and 0.25 or 1.15) or 0.2)
+                    task.wait(okMove and 0.06 or 0.12)
                 else
-                    updateFarmHUD("AutoFarm • no coin detected", Color3.fromRGB(255, 195, 90), true)
+                    local message = CFG.FarmAvoidMurderer and murdererRoot
+                        and "AutoFarm • avoiding murderer" or "AutoFarm • no coin detected"
+                    updateFarmHUD(message, Color3.fromRGB(255, 195, 90), true)
                     task.wait(0.2)
                 end
             else
@@ -2806,7 +2969,26 @@ task.spawn(function()
     end
 end)
 
-local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start(); if CFG.AutoPickup then weaponTracker:Stop() end else coinTracker:Stop(); if CFG.AutoPickup then weaponTracker:Start() end end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
+local tFarm = win:AddTab("Farm", "💰")
+local sFarm = tFarm:AddSubTab("Coins")
+local secF = sFarm:AddSection("PULSE FARM ENGINE")
+local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v)
+    CFG.AutoFarm = v
+    if v then
+        coinTracker:Start()
+        if CFG.AutoPickup then weaponTracker:Stop() end
+    else
+        coinTracker:Stop()
+        if CFG.AutoPickup then weaponTracker:Start() end
+    end
+end)
+local farmMethodDropdown = secF:AddDropdown("Farm Method", {"Under Map", "Teleport", "Fast"}, CFG.FarmMethod, function(v)
+    if v == "Under Map" or v == "Teleport" or v == "Fast" then CFG.FarmMethod = v end
+end)
+local speedSlider = secF:AddSlider("Under Map Speed", 8, 22, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
+local fastSpeedSlider = secF:AddSlider("Fast Speed", 8, 24, CFG.FastSpeed, function(v) CFG.FastSpeed = v end)
+local teleportSpeedSlider = secF:AddSlider("Teleport Speed", 10, 26, CFG.TeleportSpeed, function(v) CFG.TeleportSpeed = v end)
+local avoidMurdererToggle = secF:AddToggle("Avoid Murderer", CFG.FarmAvoidMurderer, function(v) CFG.FarmAvoidMurderer = v end)
 local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Gun Pickup"); local pickupToggle = secPick:AddToggle("Auto Pickup Guns", CFG.AutoPickup, function(v) CFG.AutoPickup = v if v and not CFG.AutoFarm then weaponTracker:Start() else weaponTracker:Stop() end end); local pickupRangeSlider = secPick:AddSlider("Pickup Distance", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
 
 local tVis = win:AddTab("Visuals", "👁"); local sVis = tVis:AddSubTab("ESP"); local secV = sVis:AddSection("Players"); local espOutlineToggle = secV:AddToggle("ESP Outline", CFG.ESP_Outline, function(v) CFG.ESP_Outline = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espFillToggle = secV:AddToggle("ESP Fill", CFG.ESP_Fill, function(v) CFG.ESP_Fill = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espNameToggle = secV:AddToggle("ESP Name", CFG.ESP_Name, function(v) CFG.ESP_Name = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end); local espDistToggle = secV:AddToggle("ESP Distance", CFG.ESP_Distance, function(v) CFG.ESP_Distance = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end)
@@ -2843,7 +3025,12 @@ secCfg:AddButton("Load Settings", function()
     if CFG.AutoFarm then coinTracker:Start() else coinTracker:Stop() end
     if CFG.AutoPickup and not CFG.AutoFarm then weaponTracker:Start() else weaponTracker:Stop() end
 
-    farmToggle:Set(CFG.AutoFarm, true); speedSlider:Set(CFG.MaxSpeed, true)
+    farmToggle:Set(CFG.AutoFarm, true)
+    farmMethodDropdown:Set(CFG.FarmMethod, true)
+    speedSlider:Set(CFG.MaxSpeed, true)
+    fastSpeedSlider:Set(CFG.FastSpeed, true)
+    teleportSpeedSlider:Set(CFG.TeleportSpeed, true)
+    avoidMurdererToggle:Set(CFG.FarmAvoidMurderer, true)
     pickupToggle:Set(CFG.AutoPickup, true); pickupRangeSlider:Set(CFG.PickupRange, true)
     espOutlineToggle:Set(CFG.ESP_Outline, true); espFillToggle:Set(CFG.ESP_Fill, true)
     espNameToggle:Set(CFG.ESP_Name, true); espDistToggle:Set(CFG.ESP_Distance, true)
@@ -2894,7 +3081,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.69 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -2984,7 +3171,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- as the collector, showing WAIT MAP / WAIT COINS / OUT OF RANGE / READY instead of a generic ACTIVE.
 -- v91.67: Dropdowns choose above/below placement from the remaining visible ScrollingFrame space,
 -- clamp popup height to that space, and reset the option scroll position when opened.
--- v91.69: Home status cards gain color-coded state dots and narrower text sizing so long diagnostic
+-- v91.70: Home status cards gain color-coded state dots and narrower text sizing so long diagnostic
 -- states remain more readable in the two-column mobile layout.
 -- v91.61: Aura manager tracks the exact character instance and destroys old emitter/light on CharacterRemoving,
 -- aura disable, player removal, and unload; stale respawn tasks remain blocked by the existing state checks.
@@ -3007,5 +3194,12 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- attempts without moving the character. The existing sidebar UI receives a darker neon-glass pass.
 -- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
 
--- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
+-- v91.70: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
 -- Static source validation only; in-game execution still requires an on-device Delta test.
+
+
+-- v91.70: Pulse-style AutoFarm methods (Under Map / Teleport / Fast) with independent speed controls.
+-- v91.70: Restored missing isCoin/hasGroundBelow predicates used by the coin tracker.
+-- v91.70: Added floor-aware routing, dense-cluster Teleport target scoring, optional murderer avoidance,
+--         and short failure cooldowns so one missed coin no longer stalls the route for nine seconds.
+-- v91.70: Expanded responsive desktop UI and added Pulse-inspired farm controls; existing GlassUI API is preserved.
