@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.70 | AUTOFARM COIN DETECTION REPAIR
+-- LIBERIUM HUB | v91.71 | NEON GLASS UI + AUTOFARM CONTACT REPAIR
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -34,7 +34,7 @@ if not PlayerGui then
     return
 end
 
-local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
+local THEME = { Background = Color3.fromRGB(7, 10, 18), Element = Color3.fromRGB(17, 22, 36), Accent = Color3.fromRGB(151, 111, 255), Accent2 = Color3.fromRGB(77, 220, 246), Text = Color3.fromRGB(241, 245, 255), SubText = Color3.fromRGB(143, 157, 184), Stroke = Color3.fromRGB(93, 110, 151), Surface = Color3.fromRGB(10, 15, 27), Good = Color3.fromRGB(93, 232, 177) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local function create(c, p, ch) local i = Instance.new(c) for k, v in pairs(p or {}) do i[k]=v end for _, x in ipairs(ch or {}) do x.Parent=i end return i end
@@ -1369,68 +1369,267 @@ end function SV:SetColor(color) if self._destroyed or typeof(color) ~= "Color3" 
 local Win, Tab, Sub, Sec = {}, {}, {}, {}
 Win.__index, Tab.__index, Sub.__index, Sec.__index = Win, Tab, Sub, Sec
 local Lib = {}
+
 function Lib.new(title)
-    local s = setmetatable({Tabs={}, Conns={}}, Win)
-    local old = PlayerGui:FindFirstChild("GlassUI") if old then old:Destroy() end
-    s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=2000,Parent=PlayerGui})
-    s.Scale = create("UIScale", {Parent=s.Gui})
+    local s = setmetatable({Tabs = {}, Conns = {}}, Win)
+    local old = PlayerGui:FindFirstChild("GlassUI")
+    if old then pcall(function() old:Destroy() end) end
+
+    s.Gui = create("ScreenGui", {
+        Name = "GlassUI",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder = 2000,
+        Parent = PlayerGui
+    })
+    s.Scale = create("UIScale", {Scale = 1, Parent = s.Gui})
+
     local cameraConnection
-    local function upd()
-        local cam = workspace.CurrentCamera
-        if cam then
-            -- Portrait-first layout on touch devices: preserve readable controls instead of
-            -- shrinking the desktop panel until every tap target becomes tiny.
-            local mobile = UserInputService.TouchEnabled and cam.ViewportSize.X < 700
-            local portrait = cam.ViewportSize.Y >= cam.ViewportSize.X
-            local compactPortrait = mobile and portrait
-            local baseWidth = compactPortrait and 480 or 620
-            local baseHeight = compactPortrait and 620 or 460
-            local sideWidth = compactPortrait and 128 or 158
-            s.MobileLayout = mobile
-            s.PortraitLayout = compactPortrait
-            s.SideWidth = sideWidth
-            local verticalMargin = UserInputService.TouchEnabled and 52 or 18
-            local availableWidth = math.max(1, cam.ViewportSize.X - 12)
-            local availableHeight = math.max(1, cam.ViewportSize.Y - verticalMargin)
-            local fitScale = math.min(availableWidth / baseWidth, availableHeight / baseHeight)
-            s.Scale.Scale = math.clamp(fitScale, 0.35, 1)
-            if s.Main then s.Main.Size = UDim2.fromOffset(baseWidth, baseHeight) end
-            if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -54) end
-            if s.Content then
-                s.Content.Position = UDim2.fromOffset(sideWidth, 54)
-                s.Content.Size = UDim2.new(1, -sideWidth, 1, -54)
-            end
+    local function updateLayout()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local viewport = camera.ViewportSize
+        local mobile = UserInputService.TouchEnabled and viewport.X < 760
+        local portrait = mobile and viewport.Y >= viewport.X
+        local baseWidth = portrait and 500 or (mobile and 640 or 660)
+        local baseHeight = portrait and 640 or (mobile and 470 or 500)
+        local sideWidth = portrait and 122 or (mobile and 150 or 166)
+        local verticalMargin = UserInputService.TouchEnabled and 64 or 26
+        local availableWidth = math.max(1, viewport.X - 12)
+        local availableHeight = math.max(1, viewport.Y - verticalMargin)
+        local fitScale = math.min(availableWidth / baseWidth, availableHeight / baseHeight)
+        s.Scale.Scale = math.clamp(fitScale, 0.42, 1)
+        s.MobileLayout = mobile
+        s.PortraitLayout = portrait
+        s.SideWidth = sideWidth
+        if s.Main then s.Main.Size = UDim2.fromOffset(baseWidth, baseHeight) end
+        if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -60) end
+        if s.Content then
+            s.Content.Position = UDim2.fromOffset(sideWidth, 60)
+            s.Content.Size = UDim2.new(1, -sideWidth, 1, -60)
         end
     end
+
     local function bindCamera()
-        if cameraConnection then cameraConnection:Disconnect() cameraConnection = nil end
-        local cam = workspace.CurrentCamera
-        if cam then cameraConnection = cam:GetPropertyChangedSignal("ViewportSize"):Connect(upd) end
+        if cameraConnection then
+            pcall(function() cameraConnection:Disconnect() end)
+            cameraConnection = nil
+        end
+        local camera = workspace.CurrentCamera
+        if camera then
+            cameraConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayout)
+        end
         s.CameraConnection = cameraConnection
-        upd()
+        updateLayout()
     end
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
-    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
-    create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(31,22,56)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(10,14,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(8,25,38))}),Rotation=32,Parent=s.Main})
-    s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.105,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
-    s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(16,18,32),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(56,35,91)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,30,52)),ColorSequenceKeypoint.new(1,Color3.fromRGB(14,48,61))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
-    local logo = create("Frame", {Name="BrandMark",Position=UDim2.fromOffset(13,8),Size=UDim2.fromOffset(31,31),BackgroundColor3=THEME.Accent,Parent=s.Title}, {corner(9),stroke(1,0.34),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=35})})
-    label({Text="L",Font=Enum.Font.GothamBlack,TextSize=20,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromScale(0,0),Size=UDim2.fromScale(1,1),Parent=logo})
-    label({Text="LIBERIUM",Font=Enum.Font.GothamBlack,TextSize=17,TextColor3=THEME.Text,Position=UDim2.fromOffset(53,5),Size=UDim2.new(0,160,0,24),Parent=s.Title})
-    label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
-    local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
-    create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.70",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
-    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
-    s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
-    label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
-    create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
-    s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
-    label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON BUILD  /  v91.70",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
-    s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
-    upd()
+
+    s.Main = create("Frame", {
+        Name = "Main",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(660, 500),
+        BackgroundColor3 = THEME.Background,
+        BackgroundTransparency = 0.025,
+        ClipsDescendants = true,
+        Parent = s.Gui
+    }, {corner(20), stroke(1.35, 0.16)})
+    create("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 22, 46)),
+            ColorSequenceKeypoint.new(0.48, Color3.fromRGB(9, 14, 27)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 25, 34))
+        }),
+        Rotation = 32,
+        Parent = s.Main
+    })
+    s.Inner = create("Frame", {
+        Name = "Inner",
+        Position = UDim2.fromOffset(5, 5),
+        Size = UDim2.new(1, -10, 1, -10),
+        BackgroundColor3 = THEME.Background,
+        BackgroundTransparency = 0.08,
+        ClipsDescendants = true,
+        Parent = s.Main
+    }, {corner(16), stroke(1, 0.72)})
+
+    -- Fixed brand bar: a quiet identity row with a live runtime indicator.
+    s.Title = create("Frame", {
+        Name = "TopBar",
+        Size = UDim2.new(1, 0, 0, 60),
+        BackgroundColor3 = Color3.fromRGB(15, 18, 31),
+        BackgroundTransparency = 0.02,
+        Active = true,
+        Parent = s.Inner
+    }, {
+        create("UIGradient", {
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(39, 29, 65)),
+                ColorSequenceKeypoint.new(0.55, Color3.fromRGB(18, 25, 42)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(13, 38, 47))
+            }),
+            Rotation = 0
+        }),
+        create("Frame", {
+            Name = "AccentLine",
+            Position = UDim2.new(0, 0, 1, -2),
+            Size = UDim2.new(1, 0, 0, 2),
+            BackgroundColor3 = THEME.Accent,
+            BorderSizePixel = 0
+        }, {create("UIGradient", {Color = ColorSequence.new(THEME.Accent, THEME.Accent2)})})
+    })
+    local logo = create("Frame", {
+        Name = "BrandMark",
+        Position = UDim2.fromOffset(15, 12),
+        Size = UDim2.fromOffset(36, 36),
+        BackgroundColor3 = THEME.Accent,
+        Parent = s.Title
+    }, {corner(11), stroke(1, 0.26), create("UIGradient", {Color = ColorSequence.new(THEME.Accent, THEME.Accent2), Rotation = 35})})
+    label({
+        Text = "L",
+        Font = Enum.Font.GothamBlack,
+        TextSize = 23,
+        TextColor3 = Color3.new(1, 1, 1),
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Position = UDim2.fromScale(0, 0),
+        Size = UDim2.fromScale(1, 1),
+        Parent = logo
+    })
+    label({
+        Text = "LIBERIUM",
+        Font = Enum.Font.GothamBlack,
+        TextSize = 18,
+        TextColor3 = THEME.Text,
+        Position = UDim2.fromOffset(61, 8),
+        Size = UDim2.new(0, 180, 0, 24),
+        Parent = s.Title
+    })
+    label({
+        Text = title or "MM2  /  NEON CONTROL CENTER",
+        Font = Enum.Font.GothamMedium,
+        TextSize = 9,
+        TextColor3 = THEME.SubText,
+        Position = UDim2.fromOffset(62, 33),
+        Size = UDim2.new(1, -220, 0, 15),
+        Parent = s.Title
+    })
+    local status = create("Frame", {
+        Name = "StatusPill",
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -14, 0.5, 0),
+        Size = UDim2.fromOffset(126, 29),
+        BackgroundColor3 = Color3.fromRGB(16, 42, 44),
+        BackgroundTransparency = 0.08,
+        Parent = s.Title
+    }, {corner(14), stroke(1, 0.42), create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(19, 52, 53), Color3.fromRGB(22, 30, 45)), Rotation = 90})})
+    create("Frame", {
+        Position = UDim2.fromOffset(10, 11),
+        Size = UDim2.fromOffset(7, 7),
+        BackgroundColor3 = THEME.Good,
+        BorderSizePixel = 0,
+        Parent = status
+    }, {corner(4), stroke(1, 0.2)})
+    label({
+        Text = "MM2  •  v91.71",
+        Font = Enum.Font.GothamBold,
+        TextSize = 9,
+        TextColor3 = Color3.fromRGB(177, 246, 222),
+        Position = UDim2.fromOffset(24, 0),
+        Size = UDim2.new(1, -29, 1, 0),
+        Parent = status
+    })
+
+    -- Navigation rail is independent from the page scroller.
+    s.Side = create("ScrollingFrame", {
+        Name = "Navigation",
+        Position = UDim2.fromOffset(0, 60),
+        Size = UDim2.new(0, 166, 1, -60),
+        BackgroundColor3 = THEME.Surface,
+        BackgroundTransparency = 0.015,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = THEME.Accent2,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        Parent = s.Inner
+    }, {
+        pad(9),
+        create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(16, 20, 36), Color3.fromRGB(9, 15, 27)), Rotation = 90}),
+        create("UIListLayout", {Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder})
+    })
+    s.NavHeader = create("Frame", {
+        Name = "NavHeader",
+        Size = UDim2.new(1, 0, 0, 39),
+        BackgroundTransparency = 1,
+        LayoutOrder = -10,
+        Parent = s.Side
+    })
+    label({
+        Text = "WORKSPACE",
+        Font = Enum.Font.GothamBlack,
+        TextSize = 9,
+        TextColor3 = THEME.SubText,
+        Position = UDim2.fromOffset(5, 3),
+        Size = UDim2.new(1, -10, 0, 14),
+        Parent = s.NavHeader
+    })
+    label({
+        Text = "FEATURE NAVIGATION",
+        Font = Enum.Font.GothamMedium,
+        TextSize = 8,
+        TextColor3 = Color3.fromRGB(103, 123, 151),
+        Position = UDim2.fromOffset(5, 18),
+        Size = UDim2.new(1, -10, 0, 12),
+        Parent = s.NavHeader
+    })
+    create("Frame", {
+        Position = UDim2.new(0, 4, 1, -2),
+        Size = UDim2.new(1, -8, 0, 1),
+        BackgroundColor3 = THEME.Stroke,
+        BackgroundTransparency = 0.55,
+        BorderSizePixel = 0,
+        Parent = s.NavHeader
+    }, {create("UIGradient", {Color = ColorSequence.new(THEME.Accent, THEME.Accent2), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.08), NumberSequenceKeypoint.new(1, 0.75)})})})
+    s.NavFooter = create("Frame", {
+        Name = "NavFooter",
+        Size = UDim2.new(1, 0, 0, 43),
+        BackgroundColor3 = THEME.Element,
+        BackgroundTransparency = 0.34,
+        LayoutOrder = 9999,
+        Parent = s.Side
+    }, {corner(11), stroke(1, 0.68)})
+    label({
+        Text = "DELTA  /  ANDROID",
+        Font = Enum.Font.GothamBold,
+        TextSize = 9,
+        TextColor3 = THEME.Text,
+        Position = UDim2.fromOffset(9, 6),
+        Size = UDim2.new(1, -18, 0, 13),
+        Parent = s.NavFooter
+    })
+    label({
+        Text = "NEON GLASS  •  READY",
+        Font = Enum.Font.GothamMedium,
+        TextSize = 8,
+        TextColor3 = THEME.Accent2,
+        Position = UDim2.fromOffset(9, 22),
+        Size = UDim2.new(1, -18, 0, 12),
+        Parent = s.NavFooter
+    })
+    s.Content = create("Frame", {
+        Name = "Content",
+        Position = UDim2.fromOffset(166, 60),
+        Size = UDim2.new(1, -166, 1, -60),
+        BackgroundColor3 = THEME.Background,
+        BackgroundTransparency = 0.44,
+        ClipsDescendants = true,
+        Parent = s.Inner
+    }, {create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(15, 18, 34), Color3.fromRGB(7, 18, 29)), Rotation = 35})})
+    updateLayout()
+
+    -- Header-only drag keeps sliders, dropdowns and page controls from stealing drag input.
     local dragInput, dragStart, dragPosition
     table.insert(s.Conns, s.Title.InputBegan:Connect(function(input)
         if dragInput then return end
@@ -1440,53 +1639,177 @@ function Lib.new(title)
     end))
     table.insert(s.Conns, UserInputService.InputChanged:Connect(function(input)
         if not dragInput then return end
-        local isTouchDrag = input == dragInput
-        local isMouseDrag = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
-        if not (isTouchDrag or isMouseDrag) then return end
-        local delta = (input.Position - dragStart) / s.Scale.Scale
+        local touchMove = input == dragInput
+        local mouseMove = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
+        if not (touchMove or mouseMove) then return end
+        local delta = (input.Position - dragStart) / math.max(s.Scale.Scale, 0.01)
         s.Main.Position = UDim2.new(dragPosition.X.Scale, dragPosition.X.Offset + delta.X, dragPosition.Y.Scale, dragPosition.Y.Offset + delta.Y)
     end))
     table.insert(s.Conns, UserInputService.InputEnded:Connect(function(input)
         if not dragInput then return end
-        local isTouchEnd = input == dragInput
-        local isMouseEnd = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
-        if isTouchEnd or isMouseEnd then dragInput, dragStart, dragPosition = nil, nil, nil end
+        local touchEnd = input == dragInput
+        local mouseEnd = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
+        if touchEnd or mouseEnd then dragInput, dragStart, dragPosition = nil, nil, nil end
     end))
     return s
 end
-function Win:_Select(t)
-    if self.Active==t then return end
-    self.Active=t
-    for _, v in ipairs(self.Tabs) do
-        local active = v==t
-        tween(v.Btn, FAST, {BackgroundTransparency=active and 0.69 or 1})
-        tween(v.Lbl, FAST, {TextColor3=active and THEME.Text or THEME.SubText})
-        tween(v.Icon, FAST, {TextColor3=active and THEME.Accent2 or THEME.SubText})
-        if v.BtnStroke then v.BtnStroke.Transparency = active and 0.48 or 0.94 end
-        v.ActiveMark.Visible = active
-        if not active then v.Cont.Visible=false v.Cont.BackgroundTransparency=1 end
+
+function Win:_Select(tab)
+    if self.Active == tab then return end
+    self.Active = tab
+    for _, item in ipairs(self.Tabs) do
+        local active = item == tab
+        tween(item.Btn, FAST, {BackgroundTransparency = active and 0.68 or 1})
+        tween(item.Lbl, FAST, {TextColor3 = active and THEME.Text or THEME.SubText})
+        tween(item.Icon, FAST, {TextColor3 = active and THEME.Accent2 or THEME.SubText})
+        if item.IconBack then tween(item.IconBack, FAST, {BackgroundTransparency = active and 0.08 or 0.58}) end
+        if item.BtnStroke then item.BtnStroke.Transparency = active and 0.42 or 0.94 end
+        item.ActiveMark.Visible = active
+        if not active then
+            item.Cont.Visible = false
+            item.Cont.BackgroundTransparency = 1
+        end
     end
-    t.Cont.Position=UDim2.fromOffset(0,7) t.Cont.Visible=true
-    tween(t.Cont,SLOW,{BackgroundTransparency=1,Position=UDim2.fromOffset(0,0)})
+    tab.Cont.Position = UDim2.fromOffset(0, 5)
+    tab.Cont.Visible = true
+    tween(tab.Cont, SLOW, {BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 0)})
 end
+
 function Win:AddTab(name, icon)
-    local t = setmetatable({Win=self,Name=name,Subs={}}, Tab)
-    t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,43),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Text="",AutoButtonColor=false,Parent=self.Side}, {corner(10),stroke(1,0.94),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(76,52,126),Color3.fromRGB(28,66,82)),Rotation=0,Transparency=NumberSequence.new(0.56)})})
-    t.BtnStroke = t.Btn:FindFirstChildOfClass("UIStroke")
-    t.ActiveMark = create("Frame", {Name="ActiveMark",Position=UDim2.fromOffset(0,8),Size=UDim2.fromOffset(4,27),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(3),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    t.Icon = label({Text=icon or "•",TextSize=15,TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromOffset(8,0),Size=UDim2.new(0,22,1,0),Parent=t.Btn})
-    t.Lbl = label({Text=name,TextColor3=THEME.SubText,Position=UDim2.fromOffset(38,0),Size=UDim2.new(1,-44,1,0),Parent=t.Btn})
-    t.Btn.LayoutOrder = #self.Tabs + 1
-    t.Btn.MouseEnter:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=0.88}) end end)
-    t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
-    t.Btn.Activated:Connect(function() self:_Select(t) end)
-    t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
-    t.SubBar = create("ScrollingFrame", {Size=UDim2.new(1,0,0,40),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,ScrollingDirection=Enum.ScrollingDirection.X,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
-    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,44),Size=UDim2.new(1,0,1,-44),BackgroundTransparency=1,Parent=t.Cont})
-    table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
+    local tab = setmetatable({Win = self, Name = name, Subs = {}}, Tab)
+    tab.Btn = create("TextButton", {
+        Name = "Nav_" .. tostring(name),
+        Size = UDim2.new(1, 0, 0, 47),
+        BackgroundColor3 = THEME.Accent,
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+        Parent = self.Side
+    }, {corner(12), stroke(1, 0.94), create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(69, 50, 118), Color3.fromRGB(28, 72, 82)), Rotation = 0, Transparency = NumberSequence.new(0.42)})})
+    tab.BtnStroke = tab.Btn:FindFirstChildOfClass("UIStroke")
+    tab.ActiveMark = create("Frame", {
+        Name = "ActiveMark",
+        Position = UDim2.fromOffset(0, 9),
+        Size = UDim2.fromOffset(3, 29),
+        BackgroundColor3 = THEME.Accent2,
+        BorderSizePixel = 0,
+        Visible = false,
+        Parent = tab.Btn
+    }, {corner(2), create("UIGradient", {Color = ColorSequence.new(THEME.Accent2, THEME.Accent), Rotation = 90})})
+    tab.IconBack = create("Frame", {
+        Position = UDim2.fromOffset(8, 9),
+        Size = UDim2.fromOffset(29, 29),
+        BackgroundColor3 = THEME.Accent,
+        BackgroundTransparency = 0.58,
+        Parent = tab.Btn
+    }, {corner(9), stroke(1, 0.86)})
+    tab.Icon = label({
+        Text = icon or "•",
+        TextSize = 15,
+        TextColor3 = THEME.SubText,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Position = UDim2.fromScale(0, 0),
+        Size = UDim2.fromScale(1, 1),
+        Parent = tab.IconBack
+    })
+    tab.Lbl = label({
+        Text = name,
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 12,
+        TextColor3 = THEME.SubText,
+        Position = UDim2.fromOffset(44, 0),
+        Size = UDim2.new(1, -50, 1, 0),
+        Parent = tab.Btn
+    })
+    tab.Btn.LayoutOrder = #self.Tabs + 1
+    tab.Btn.MouseEnter:Connect(function()
+        if self.Active ~= tab then tween(tab.Btn, FAST, {BackgroundTransparency = 0.88}) end
+    end)
+    tab.Btn.MouseLeave:Connect(function()
+        if self.Active ~= tab then tween(tab.Btn, FAST, {BackgroundTransparency = 1}) end
+    end)
+    tab.Btn.Activated:Connect(function() self:_Select(tab) end)
+
+    tab.Cont = create("Frame", {
+        Name = "Page_" .. tostring(name),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Visible = false,
+        Parent = self.Content
+    })
+    tab.PageHeader = create("Frame", {
+        Name = "PageHeader",
+        Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.new(1, 0, 0, 49),
+        BackgroundTransparency = 1,
+        Parent = tab.Cont
+    })
+    tab.PageTitle = label({
+        Text = string.upper(tostring(name)),
+        Font = Enum.Font.GothamBlack,
+        TextSize = 17,
+        TextColor3 = THEME.Text,
+        Position = UDim2.fromOffset(12, 5),
+        Size = UDim2.new(1, -120, 0, 23),
+        Parent = tab.PageHeader
+    })
+    tab.PageSubtitle = label({
+        Text = "LIBERIUM  /  CONTROL MODULES",
+        Font = Enum.Font.GothamMedium,
+        TextSize = 8,
+        TextColor3 = THEME.SubText,
+        Position = UDim2.fromOffset(13, 29),
+        Size = UDim2.new(1, -120, 0, 12),
+        Parent = tab.PageHeader
+    })
+    tab.PageState = create("Frame", {
+        Name = "PageState",
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -12, 0.5, 0),
+        Size = UDim2.fromOffset(74, 23),
+        BackgroundColor3 = THEME.Element,
+        BackgroundTransparency = 0.22,
+        Parent = tab.PageHeader
+    }, {corner(12), stroke(1, 0.72)})
+    label({
+        Text = "MODULE",
+        Font = Enum.Font.GothamBold,
+        TextSize = 8,
+        TextColor3 = THEME.Accent2,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Position = UDim2.fromScale(0, 0),
+        Size = UDim2.fromScale(1, 1),
+        Parent = tab.PageState
+    })
+    tab.SubBar = create("ScrollingFrame", {
+        Name = "SubNavigation",
+        Position = UDim2.fromOffset(0, 49),
+        Size = UDim2.new(1, 0, 0, 39),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = THEME.Accent2,
+        ScrollingDirection = Enum.ScrollingDirection.X,
+        AutomaticCanvasSize = Enum.AutomaticSize.X,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        Parent = tab.Cont
+    }, {pad(4), create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder})})
+    tab.PageHolder = create("Frame", {
+        Position = UDim2.fromOffset(0, 91),
+        Size = UDim2.new(1, 0, 1, -91),
+        BackgroundTransparency = 1,
+        Parent = tab.Cont
+    })
+    table.insert(self.Tabs, tab)
+    if #self.Tabs == 1 then self:_Select(tab) end
+    return tab
 end
+
 function Win:Destroy()
-    if self.CameraConnection then pcall(function() self.CameraConnection:Disconnect() end) self.CameraConnection = nil end
+    if self.CameraConnection then
+        pcall(function() self.CameraConnection:Disconnect() end)
+        self.CameraConnection = nil
+    end
     for _, connection in ipairs(self.Conns or {}) do
         pcall(function() connection:Disconnect() end)
     end
@@ -1497,108 +1820,319 @@ function Win:Destroy()
     end
 end
 
-function Tab:_SelectSub(s) if self.ActiveSub==s then return end self.ActiveSub=s for _, v in ipairs(self.Subs) do local a = v==s tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.96,TextColor3=a and THEME.Text or THEME.SubText}) if v.Mark then v.Mark.Visible=a end if v.BtnStroke then v.BtnStroke.Transparency=a and 0.48 or 0.96 end if not a then v.Page.Visible=false end end s.Page.Visible=true if s.Scroll then s.Scroll.CanvasPosition=Vector2.zero end end
+function Tab:_SelectSub(sub)
+    if self.ActiveSub == sub then return end
+    self.ActiveSub = sub
+    for _, item in ipairs(self.Subs) do
+        local active = item == sub
+        tween(item.Btn, FAST, {
+            BackgroundTransparency = active and 0.72 or 0.97,
+            TextColor3 = active and THEME.Text or THEME.SubText
+        })
+        if item.Mark then item.Mark.Visible = active end
+        if item.BtnStroke then item.BtnStroke.Transparency = active and 0.42 or 0.96 end
+        if not active then item.Page.Visible = false end
+    end
+    sub.Page.Visible = true
+    if sub.Scroll then sub.Scroll.CanvasPosition = Vector2.zero end
+end
+
 function Tab:AddSubTab(name)
-    local s = setmetatable({Tab=self,Name=name}, Sub)
-    s.Btn = create("TextButton", {Text=name,Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.SubText,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.96,AutoButtonColor=false,AutomaticSize=Enum.AutomaticSize.X,Size=UDim2.new(0,0,1,0),Parent=self.SubBar}, {corner(9),stroke(1,0.95),create("UIPadding", {PaddingLeft=UDim.new(0,14),PaddingRight=UDim.new(0,14)})})
-    s.BtnStroke = s.Btn:FindFirstChildOfClass("UIStroke")
-    s.Mark = create("Frame", {Name="ActiveMark",AnchorPoint=Vector2.new(0.5,1),Position=UDim2.new(0.5,0,1,-2),Size=UDim2.new(1,-22,0,2),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=s.Btn}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2)})})
-    s.Page = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.PageHolder})
-    s.Scroll = create("ScrollingFrame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ScrollBarThickness=3,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Page}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,8)})})
-    s.Btn.Activated:Connect(function() self:_SelectSub(s) end) table.insert(self.Subs, s) if #self.Subs==1 then self:_SelectSub(s) end return s
+    local sub = setmetatable({Tab = self, Name = name}, Sub)
+    sub.Btn = create("TextButton", {
+        Name = "Sub_" .. tostring(name),
+        Text = name,
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
+        TextColor3 = THEME.SubText,
+        BackgroundColor3 = THEME.Accent,
+        BackgroundTransparency = 0.97,
+        AutoButtonColor = false,
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.new(0, 0, 1, 0),
+        Parent = self.SubBar
+    }, {corner(10), stroke(1, 0.96), create("UIPadding", {PaddingLeft = UDim.new(0, 13), PaddingRight = UDim.new(0, 13)})})
+    sub.BtnStroke = sub.Btn:FindFirstChildOfClass("UIStroke")
+    sub.Mark = create("Frame", {
+        Name = "ActiveMark",
+        AnchorPoint = Vector2.new(0.5, 1),
+        Position = UDim2.new(0.5, 0, 1, -2),
+        Size = UDim2.new(1, -22, 0, 2),
+        BackgroundColor3 = THEME.Accent2,
+        BorderSizePixel = 0,
+        Visible = false,
+        Parent = sub.Btn
+    }, {corner(2), create("UIGradient", {Color = ColorSequence.new(THEME.Accent, THEME.Accent2)})})
+    sub.Page = create("Frame", {
+        Name = "SubPage_" .. tostring(name),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Visible = false,
+        Parent = self.PageHolder
+    })
+    sub.Scroll = create("ScrollingFrame", {
+        Name = "SectionScroll",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = THEME.Accent2,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        Parent = sub.Page
+    }, {pad(9), create("UIListLayout", {Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder})})
+    sub.Btn.Activated:Connect(function() self:_SelectSub(sub) end)
+    table.insert(self.Subs, sub)
+    if #self.Subs == 1 then self:_SelectSub(sub) end
+    return sub
 end
+
 function Sub:AddSection(name)
-    local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
-    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
-    local heading = create("Frame", {Size=UDim2.new(1,0,0,23),BackgroundTransparency=1,Parent=s.Frame})
-    create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
-    create("Frame", {Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-10,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.68,BorderSizePixel=0,Parent=heading})
-    return s
+    local section = setmetatable({Sub = self, Win = self.Tab.Win}, Sec)
+    section.Frame = create("Frame", {
+        Name = "Section_" .. tostring(name),
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundColor3 = THEME.Element,
+        BackgroundTransparency = 0.08,
+        Parent = self.Scroll
+    }, {
+        corner(15),
+        stroke(1, 0.56),
+        create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(24, 27, 46), Color3.fromRGB(12, 19, 33)), Rotation = 90}),
+        pad(13),
+        create("UIListLayout", {Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder})
+    })
+    local heading = create("Frame", {Size = UDim2.new(1, 0, 0, 25), BackgroundTransparency = 1, Parent = section.Frame})
+    create("Frame", {
+        Position = UDim2.fromOffset(0, 3),
+        Size = UDim2.fromOffset(3, 17),
+        BackgroundColor3 = THEME.Accent2,
+        BorderSizePixel = 0,
+        Parent = heading
+    }, {corner(2), create("UIGradient", {Color = ColorSequence.new(THEME.Accent2, THEME.Accent), Rotation = 90})})
+    label({
+        Text = string.upper(tostring(name)),
+        Font = Enum.Font.GothamBlack,
+        TextSize = 10,
+        TextColor3 = THEME.Text,
+        Position = UDim2.fromOffset(11, 1),
+        Size = UDim2.new(1, -14, 0, 17),
+        Parent = heading
+    })
+    create("Frame", {
+        Position = UDim2.new(0, 11, 1, -1),
+        Size = UDim2.new(1, -11, 0, 1),
+        BackgroundColor3 = THEME.Stroke,
+        BackgroundTransparency = 0.74,
+        BorderSizePixel = 0,
+        Parent = heading
+    }, {create("UIGradient", {Color = ColorSequence.new(THEME.Accent, THEME.Accent2), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 0.82)})})})
+    return section
 end
-function Sec:AddToggle(name, def, cb)
-    local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(24,29,48),Color3.fromRGB(17,21,36)),Rotation=0})})
-    local rail = create("Frame", {Position=UDim2.fromOffset(0,10),Size=UDim2.fromOffset(3,32),BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72,BorderSizePixel=0,Parent=r}, {corner(2)})
-    label({Text=name,Position=UDim2.fromOffset(12,0),Size=UDim2.new(1,-82,1,0),Font=Enum.Font.GothamSemibold,TextSize=12,Parent=r})
-    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(42,23),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61),Parent=r}, {corner(12),stroke(1,st and 0.48 or 0.84),create("UIGradient", {Color=ColorSequence.new(st and Color3.fromRGB(119,83,204) or Color3.fromRGB(54,61,80),st and Color3.fromRGB(49,166,191) or Color3.fromRGB(31,37,54)),Rotation=0})})
-    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(16,16),BackgroundColor3=Color3.fromRGB(245,248,255),Parent=t}, {corner(8),stroke(1,0.58)})
-    hover(r,r,0.28,0.13)
-    local obj = {}
-    function obj:Set(v, silent)
-        st = v and true or false
-        tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61)})
-        tween(k,FAST,{Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0)})
-        tween(rail,FAST,{BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72})
-        if not silent and cb then task.spawn(cb,st) end
+
+function Sec:AddToggle(name, def, callback)
+    local state = def == true
+    local row = create("TextButton", {
+        Size = UDim2.new(1, 0, 0, 56),
+        Text = "",
+        AutoButtonColor = false,
+        BackgroundColor3 = THEME.Element,
+        BackgroundTransparency = 0.18,
+        Parent = self.Frame
+    }, {corner(12), stroke(1, 0.82), create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(25, 30, 49), Color3.fromRGB(15, 21, 36)), Rotation = 0})})
+    local rail = create("Frame", {
+        Position = UDim2.fromOffset(0, 10),
+        Size = UDim2.fromOffset(3, 36),
+        BackgroundColor3 = state and THEME.Accent2 or THEME.Stroke,
+        BackgroundTransparency = state and 0.05 or 0.78,
+        BorderSizePixel = 0,
+        Parent = row
+    }, {corner(2)})
+    label({
+        Text = name,
+        Position = UDim2.fromOffset(13, 0),
+        Size = UDim2.new(1, -132, 1, 0),
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 12,
+        TextColor3 = THEME.Text,
+        Parent = row
+    })
+    local stateLabel = label({
+        Text = state and "ON" or "OFF",
+        Position = UDim2.new(1, -91, 0, 0),
+        Size = UDim2.fromOffset(32, 56),
+        Font = Enum.Font.GothamBold,
+        TextSize = 8,
+        TextColor3 = state and THEME.Accent2 or THEME.SubText,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Parent = row
+    })
+    local track = create("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -12, 0.5, 0),
+        Size = UDim2.fromOffset(42, 24),
+        BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(38, 44, 61),
+        Parent = row
+    }, {corner(13), stroke(1, state and 0.42 or 0.84), create("UIGradient", {Color = ColorSequence.new(state and Color3.fromRGB(133, 93, 223) or Color3.fromRGB(54, 62, 82), state and Color3.fromRGB(47, 173, 193) or Color3.fromRGB(29, 36, 53), Rotation = 0})})
+    local knob = create("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5),
+        Position = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
+        Size = UDim2.fromOffset(17, 17),
+        BackgroundColor3 = Color3.fromRGB(246, 248, 255),
+        Parent = track
+    }, {corner(9), stroke(1, 0.55)})
+    row.MouseEnter:Connect(function() tween(row, FAST, {BackgroundTransparency = 0.08}) end)
+    row.MouseLeave:Connect(function() tween(row, FAST, {BackgroundTransparency = 0.18}) end)
+
+    local object = {}
+    function object:Set(value, silent)
+        state = value == true
+        tween(track, FAST, {BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(38, 44, 61)})
+        tween(knob, FAST, {Position = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)})
+        tween(rail, FAST, {BackgroundColor3 = state and THEME.Accent2 or THEME.Stroke, BackgroundTransparency = state and 0.05 or 0.78})
+        tween(stateLabel, FAST, {TextColor3 = state and THEME.Accent2 or THEME.SubText})
+        stateLabel.Text = state and "ON" or "OFF"
+        if not silent and callback then task.spawn(callback, state) end
     end
-    r.Activated:Connect(function() obj:Set(not st) end)
-    return obj
+    row.Activated:Connect(function() object:Set(not state) end)
+    return object
 end
-function Sec:AddSlider(name, mn, mx, def, cb, inc)
-    inc = inc or 1
-    local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,30,51),Color3.fromRGB(15,20,35)),Rotation=0})})
-    label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=12})
-    local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,11,1,-29),Size=UDim2.new(1,-22,0,18),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
-    local alpha0=(val-mn)/(mx-mn)
-    local f = create("Frame", {Size=UDim2.fromScale(alpha0,1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(9),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})
-    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=UDim2.fromOffset(15,15),BackgroundColor3=Color3.fromRGB(246,249,255),Parent=t}, {corner(8),stroke(1,0.42)})
-    hover(r,r,0.3,0.16)
-    local obj = {}
-    function obj:Set(v, silent)
-        v=tonumber(v) or val
-        v=math.clamp(math.floor(v/inc+0.5)*inc,mn,mx)
-        val=v
-        local alpha=(v-mn)/(mx-mn)
-        vl.Text=tostring(math.round(v*1000)/1000)
-        tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale(alpha,1)})
-        tween(knob,TweenInfo.new(0.08),{Position=UDim2.fromScale(alpha,0.5)})
-        if not silent and cb then task.spawn(cb,v) end
+
+function Sec:AddSlider(name, minimum, maximum, default, callback, increment)
+    increment = increment or 1
+    local range = math.max(0.0001, maximum - minimum)
+    local value = math.clamp(default or minimum, minimum, maximum)
+    local row = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 72),
+        BackgroundColor3 = THEME.Element,
+        BackgroundTransparency = 0.2,
+        Parent = self.Frame
+    }, {corner(12), stroke(1, 0.84), create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(25, 30, 50), Color3.fromRGB(15, 20, 35)), Rotation = 0})})
+    label({
+        Text = name,
+        Position = UDim2.fromOffset(12, 7),
+        Size = UDim2.new(1, -88, 0, 18),
+        Parent = row,
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 12
+    })
+    local valueLabel = label({
+        Text = tostring(value),
+        TextColor3 = THEME.Accent2,
+        Font = Enum.Font.GothamBold,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        Position = UDim2.new(1, -75, 0, 7),
+        Size = UDim2.fromOffset(62, 18),
+        Parent = row
+    })
+    local track = create("TextButton", {
+        Position = UDim2.new(0, 11, 1, -34),
+        Size = UDim2.new(1, -22, 0, 25),
+        Text = "",
+        AutoButtonColor = false,
+        BackgroundColor3 = Color3.fromRGB(35, 43, 62),
+        Parent = row
+    }, {corner(12), stroke(1, 0.87)})
+    local alpha = math.clamp((value - minimum) / range, 0, 1)
+    local fill = create("Frame", {
+        Position = UDim2.new(0, 0, 0.5, -3),
+        Size = UDim2.new(alpha, 0, 0, 6),
+        BackgroundColor3 = THEME.Accent,
+        Parent = track
+    }, {corner(5), create("UIGradient", {Color = ColorSequence.new(THEME.Accent, THEME.Accent2), Rotation = 0})})
+    local knob = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(alpha, 0.5),
+        Size = UDim2.fromOffset(17, 17),
+        BackgroundColor3 = Color3.fromRGB(247, 249, 255),
+        Parent = track
+    }, {corner(9), stroke(1, 0.38)})
+    row.MouseEnter:Connect(function() tween(row, FAST, {BackgroundTransparency = 0.12}) end)
+    row.MouseLeave:Connect(function() tween(row, FAST, {BackgroundTransparency = 0.2}) end)
+
+    local object = {}
+    function object:Set(newValue, silent)
+        newValue = tonumber(newValue) or value
+        newValue = math.clamp(math.floor(newValue / increment + 0.5) * increment, minimum, maximum)
+        value = newValue
+        local nextAlpha = math.clamp((newValue - minimum) / range, 0, 1)
+        valueLabel.Text = tostring(math.round(newValue * 1000) / 1000)
+        tween(fill, TweenInfo.new(0.08), {Size = UDim2.new(nextAlpha, 0, 0, 6)})
+        tween(knob, TweenInfo.new(0.08), {Position = UDim2.fromScale(nextAlpha, 0.5)})
+        if not silent and callback then task.spawn(callback, newValue) end
     end
-    local activeInput=nil
-    local function fromX(x)
-        local width=t.AbsoluteSize.X
-        if width<=0 then return end
-        local alpha=math.clamp((x-t.AbsolutePosition.X)/width,0,1)
-        obj:Set(mn+(mx-mn)*alpha)
+
+    local activeInput
+    local function setFromX(x)
+        local width = track.AbsoluteSize.X
+        if width <= 0 then return end
+        local nextAlpha = math.clamp((x - track.AbsolutePosition.X) / width, 0, 1)
+        object:Set(minimum + range * nextAlpha)
     end
-    t.InputBegan:Connect(function(input)
+    track.InputBegan:Connect(function(input)
         if activeInput then return end
-        local inputType=input.UserInputType
-        if inputType~=Enum.UserInputType.MouseButton1 and inputType~=Enum.UserInputType.Touch then return end
-        activeInput=input
-        fromX(input.Position.X)
+        local inputType = input.UserInputType
+        if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
+        activeInput = input
+        setFromX(input.Position.X)
     end)
-    table.insert(self.Win.Conns,UserInputService.InputChanged:Connect(function(input)
+    table.insert(self.Win.Conns, UserInputService.InputChanged:Connect(function(input)
         if not activeInput then return end
-        local touchMove=input==activeInput
-        local mouseMove=activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseMovement
-        if touchMove or mouseMove then fromX(input.Position.X) end
+        local touchMove = input == activeInput
+        local mouseMove = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
+        if touchMove or mouseMove then setFromX(input.Position.X) end
     end))
-    table.insert(self.Win.Conns,UserInputService.InputEnded:Connect(function(input)
+    table.insert(self.Win.Conns, UserInputService.InputEnded:Connect(function(input)
         if not activeInput then return end
-        local touchEnd=input==activeInput
-        local mouseEnd=activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseButton1
-        if touchEnd or mouseEnd then activeInput=nil end
+        local touchEnd = input == activeInput
+        local mouseEnd = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
+        if touchEnd or mouseEnd then activeInput = nil end
     end))
-    return obj
+    return object
 end
-function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Frame}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(87,59,143),Color3.fromRGB(36,72,91)),Rotation=0})})
-    hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
-    b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
+
+function Sec:AddButton(name, callback)
+    local button = create("TextButton", {
+        Text = name,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = THEME.Text,
+        BackgroundColor3 = THEME.Accent,
+        BackgroundTransparency = 0.68,
+        Size = UDim2.new(1, 0, 0, 48),
+        Parent = self.Frame
+    }, {corner(12), stroke(1, 0.54), create("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(91, 63, 156), Color3.fromRGB(34, 104, 119)), Rotation = 0})})
+    local arrow = label({
+        Text = "›",
+        Font = Enum.Font.GothamBold,
+        TextSize = 22,
+        TextColor3 = THEME.Accent2,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        Position = UDim2.new(1, -34, 0, 0),
+        Size = UDim2.fromOffset(22, 48),
+        Parent = button
+    })
+    button.MouseEnter:Connect(function() tween(button, FAST, {BackgroundTransparency = 0.5}) end)
+    button.MouseLeave:Connect(function() tween(button, FAST, {BackgroundTransparency = 0.68}) end)
+    button.Activated:Connect(function()
+        tween(arrow, FAST, {TextColor3 = THEME.Text})
+        task.delay(0.14, function() if arrow and arrow.Parent then tween(arrow, FAST, {TextColor3 = THEME.Accent2}) end end)
+        if callback then task.spawn(callback) end
+    end)
+    return button
 end
-function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
+
+function Sec:AddDropdown(name, options, default, callback)
+    return Dropdown.new(self.Frame, name, options, default, callback)
+end
 
 local Config = ConfigManager.new() local SavedData = Config:Load("settings")
 local savedSchemaVersion = tonumber(SavedData.ConfigSchemaVersion) or 0
 for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 -- Migrate only old schemas: a user-selected 100-stud range in a new config must remain 100.
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
-CFG.ConfigSchemaVersion = 2
--- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
+CFG.ConfigSchemaVersion = 2-- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
 local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
@@ -1762,9 +2296,8 @@ local function hasCoinAncestor(inst)
     return false
 end
 
--- MM2 round coins are pickup objects (commonly named Coin_Server) inside the
--- active map's CoinContainer. Require an actual touch hitbox so lobby templates
--- and decorative coin meshes are not added to the farm target list.
+-- MM2 round coins must belong to the active CoinContainer and expose a real touch collider.
+-- Transparency is deliberately not used as a validity test: invisible colliders can still collect coins.
 local function isCoin(inst)
     if not inst or not inst.Parent then return false end
     if not (inst:IsA("BasePart") or inst:IsA("Model")) then return false end
@@ -1781,7 +2314,6 @@ local function isCoin(inst)
         and hitbox.Parent ~= nil
         and hitbox.CanTouch
         and hitbox.Size.Magnitude > 0
-        and hitbox.Transparency < 0.98
 end
 
 -- Look for a solid floor beneath the pickup. Excluding the entire CoinContainer
@@ -1953,7 +2485,7 @@ coinTracker = (function()
         if not running or not obj or not obj.Parent or not obj:IsDescendantOf(Workspace) then return false end
         if not boundContainer or not obj:IsDescendantOf(boundContainer) or not isCoin(obj) then return false end
         local part = getTouchPart(obj)
-        return part ~= nil and part.Parent ~= nil and part.CanTouch and part.Transparency < 0.98
+        return part ~= nil and part.Parent ~= nil and part.CanTouch and part.Size.Magnitude > 0
     end
 
     function API:GetClosest(origin, maxDist)
@@ -1975,7 +2507,7 @@ coinTracker = (function()
                 end
             elseif (skipped[obj] or 0) <= now and now - (observedAt[obj] or now) >= 0.18 then
                 local part = getTouchPart(obj)
-                if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
+                if part and part.Parent and part.CanTouch and part.Size.Magnitude > 0 then
                     local pos = part.Position
                     local offset = pos - origin
                     local ground = getCachedGround(obj, part)
@@ -2009,7 +2541,7 @@ coinTracker = (function()
         for _, obj in ipairs(coins) do
             if obj and obj.Parent and obj:IsDescendantOf(boundContainer) and isCoin(obj) then
                 local part = getTouchPart(obj)
-                if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
+                if part and part.Parent and part.CanTouch and part.Size.Magnitude > 0 then
                     local ground = getCachedGround(obj, part)
                     local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
                     local verticalDelta = math.abs(part.Position.Y - origin.Y)
@@ -2063,9 +2595,17 @@ local function glideTo(target, speed, mode)
             touchState[part] = part.CanTouch
         end
     end
-    local hipHeight = tonumber(humanoid.HipHeight) or 2
-    -- Place the avatar's feet through the collectible's vertical band instead of stopping above it.
-    local rootOffset = math.clamp(hipHeight + root.Size.Y * 0.5 - targetPart.Size.Y * 0.25, 2.2, 3.6)
+    local contactPart = character:FindFirstChild("LeftFoot")
+        or character:FindFirstChild("RightFoot")
+        or character:FindFirstChild("Left Leg")
+        or character:FindFirstChild("Right Leg")
+        or character:FindFirstChild("LowerTorso")
+        or character:FindFirstChild("Torso")
+    local bodyOffset = contactPart and (contactPart.Position.Y - root.Position.Y) or -2.4
+    local bodyHalfHeight = contactPart and contactPart.Size.Y * 0.5 or 0.5
+    -- Align the lower edge of the real foot/leg volume with the coin hitbox top,
+    -- leaving a small overlap so R6 and R15 both make reliable contact.
+    local rootOffset = math.clamp(targetPart.Size.Y * 0.5 - bodyOffset + bodyHalfHeight - 0.14, 1.8, 4.5)
     local distanceAtStart = (targetPart.Position + Vector3.new(0, rootOffset, 0) - root.Position).Magnitude
     local timeLimit = math.clamp(distanceAtStart / speed * 2.0 + 2.5, 4, 22)
     local arrived = false
@@ -2079,17 +2619,17 @@ local function glideTo(target, speed, mode)
             pcall(function() if part and part.Parent then part.CanTouch = true end end)
         end
     end
-    local function targetWasCollected(part, wasTouchEnabled, wasTransparency)
+    local function targetWasCollected(part, wasTouchEnabled)
         if not target or not target.Parent or not target:IsDescendantOf(Workspace) then return true end
-        if part and part.Parent then
-            if wasTouchEnabled and not part.CanTouch then return true end
-            if wasTransparency < 0.98 and part.Transparency >= 0.98 then return true end
+        if mode == "farm" then
+            local activeContainer = getActiveCoinContainer()
+            if not activeContainer or not target:IsDescendantOf(activeContainer) or not isCoin(target) then return true end
         end
+        if part and part.Parent and wasTouchEnabled and not part.CanTouch then return true end
         return false
     end
     local originalTargetCanTouch = targetPart.CanTouch
-    local originalTargetTransparency = targetPart.Transparency
-    glideInProgress = true
+        glideInProgress = true
     success, err = pcall(function()
         -- Delta-safe smooth step movement: no anchoring; only temporary collision changes.
         root.Anchored = false
@@ -2117,14 +2657,14 @@ local function glideTo(target, speed, mode)
                     lastFarmTargetCheck = os.clock()
                     if not coinTracker or not coinTracker:IsValid(target) then break end
                 end
-                if not targetPart.CanTouch or targetPart.Transparency >= 0.98 then break end
+                if not targetPart.CanTouch or targetPart.Size.Magnitude <= 0 then break end
             end
 
             local contactPosition = targetPart.Position + Vector3.new(0, rootOffset, 0)
             local delta = contactPosition - root.Position
             local distance = delta.Magnitude
             if mode == "farm" and math.abs(delta.Y) > 24 then break end
-            if distance <= 0.8 then
+            if distance <= 1.0
                 arrived = true
                 -- Restore floor collisions before the collection attempt. The previous version
                 -- kept the avatar non-collidable while trying to touch the coin, which could
@@ -2143,6 +2683,7 @@ local function glideTo(target, speed, mode)
                     -- Keep the farm contact set small to avoid repeated touch events for every body part.
                     addTouchPart(character:FindFirstChild("LeftFoot") or character:FindFirstChild("Left Leg"))
                     addTouchPart(character:FindFirstChild("RightFoot") or character:FindFirstChild("Right Leg"))
+                    addTouchPart(character:FindFirstChild("LowerTorso") or character:FindFirstChild("Torso"))
                 else
                     addTouchPart(character:FindFirstChild("Head"))
                     addTouchPart(character:FindFirstChild("UpperTorso"))
@@ -2156,10 +2697,16 @@ local function glideTo(target, speed, mode)
                 local heightOffsets = mode == "farm"
                     -- Small contact-height retries cover R6/R15 rig and hitbox differences
                     -- without the large vertical hopping that made earlier farming look jerky.
-                    and { rootOffset, math.clamp(rootOffset - 0.18, 2.0, 3.8), math.clamp(rootOffset + 0.18, 2.0, 3.8) }
+                    and {
+                        rootOffset,
+                        math.clamp(rootOffset - 0.16, 1.8, 4.5),
+                        math.clamp(rootOffset + 0.16, 1.8, 4.5),
+                        math.clamp(rootOffset - 0.32, 1.8, 4.5),
+                        math.clamp(rootOffset + 0.32, 1.8, 4.5)
+                    }
                     or { rootOffset, math.max(2.0, rootOffset - 0.2), math.max(1.8, rootOffset - 0.45) }
                 for _, heightOffset in ipairs(heightOffsets) do
-                    if targetWasCollected(targetPart, originalTargetCanTouch, originalTargetTransparency) then collected = true break end
+                    if targetWasCollected(targetPart, originalTargetCanTouch) then collected = true break end
                     targetPart = getTouchPart(target)
                     if not targetPart or not targetPart.Parent then collected = true break end
                     local contact = targetPart.Position + Vector3.new(0, heightOffset, 0)
@@ -2169,7 +2716,7 @@ local function glideTo(target, speed, mode)
                     -- Allow the avatar to settle at the contact point before checking pickup state.
                     RunService.Heartbeat:Wait()
                     if typeof(touchFn) == "function" then
-                        local maxAttempts = mode == "farm" and 2 or 3
+                        local maxAttempts = mode == "farm" and 3 or 3
                         for attempt = 1, maxAttempts do
                             for _, bodyPart in ipairs(touchParts) do
                                 pcall(function() touchFn(bodyPart, targetPart, 0) end)
@@ -2180,13 +2727,13 @@ local function glideTo(target, speed, mode)
                                 pcall(function() touchFn(bodyPart, targetPart, 1) end)
                                 pcall(function() touchFn(targetPart, bodyPart, 1) end)
                             end
-                            if targetWasCollected(targetPart, originalTargetCanTouch, originalTargetTransparency) then collected = true break end
+                            if targetWasCollected(targetPart, originalTargetCanTouch) then collected = true break end
                             if attempt < maxAttempts then task.wait(0.05) end
                         end
                     else
                         task.wait(mode == "farm" and 0.1 or 0.18)
                     end
-                    if targetWasCollected(targetPart, originalTargetCanTouch, originalTargetTransparency) then collected = true break end
+                    if targetWasCollected(targetPart, originalTargetCanTouch) then collected = true break end
                     if mode ~= "farm" then task.wait(0.08) end
                 end
                 -- Never leave the player parked inside the same uncollectable hitbox.
@@ -2383,7 +2930,7 @@ task.spawn(function()
                     local okMove = glideTo(target, CFG.MaxSpeed, "farm")
                     -- Even unreachable coins get a temporary cooldown so the next coin can be attempted.
                     local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
-                    coinTracker:Skip(target, stillPresent and (okMove and 5.0 or 9.0) or 0.35)
+                    coinTracker:Skip(target, stillPresent and (okMove and 1.5 or 2.5) or 0.25)
                     task.wait(okMove and 0.08 or 0.15)
                 else
                     updateFarmHUD("AutoFarm • no coin detected", Color3.fromRGB(255, 195, 90), true)
@@ -2949,7 +3496,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.71 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -3065,5 +3612,9 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
 -- Static source validation only; in-game execution still requires an on-device Delta test.
 
--- v91.70: restores the missing isCoin/hasGroundBelow helpers and validates real Coin_Server touch hitboxes.
+-- v91.71: restores the missing isCoin/hasGroundBelow helpers and validates real Coin_Server touch hitboxes.
 --          Farm movement now prioritizes the actual TouchTransmitter part over decorative model geometry.
+
+-- v91.71: redesigned page hierarchy, navigation rail, touch-friendly controls and responsive neon-glass surfaces.
+-- v91.71 AutoFarm: transparent-but-touchable coin hitboxes are accepted; contact height follows R6/R15 leg geometry,
+--              with broader contact retries and shorter failed-target cooldowns. Delta runtime testing is still required.
