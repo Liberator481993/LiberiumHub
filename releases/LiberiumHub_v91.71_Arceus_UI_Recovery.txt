@@ -104,8 +104,22 @@ local function pad(p) return create("UIPadding", {PaddingTop=UDim.new(0,p),Paddi
 local function label(p) p.BackgroundTransparency=1 p.Font=p.Font or Enum.Font.GothamMedium p.TextSize=p.TextSize or 13 p.TextColor3=p.TextColor3 or THEME.Text p.TextXAlignment=p.TextXAlignment or Enum.TextXAlignment.Left return create("TextLabel", p) end
 local function hover(b, t, id, ov) b.MouseEnter:Connect(function() tween(t,FAST,{BackgroundTransparency=ov}) end) b.MouseLeave:Connect(function() tween(t,FAST,{BackgroundTransparency=id}) end) end
 
+-- Executors expose different environment APIs; do not abort UI startup when getgenv is absent.
+local function resolveExecutorEnvironment()
+    local ok, environment = pcall(function()
+        if type(getgenv) == "function" then return getgenv() end
+        return _G
+    end)
+    if ok and type(environment) == "table" then return environment end
+    return {}
+end
+local GEN_ENV = resolveExecutorEnvironment()
+
 -- Stop the previous hub before acquiring shared Lighting effects.
-if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().LiberiumCleanup = nil end
+if type(GEN_ENV.LiberiumCleanup) == "function" then
+    pcall(GEN_ENV.LiberiumCleanup)
+    GEN_ENV.LiberiumCleanup = nil
+end
 
 local blur = Lighting:FindFirstChild("LiberiumBlur")
 if not blur then blur = Instance.new("BlurEffect", Lighting) blur.Name = "LiberiumBlur" end
@@ -129,7 +143,7 @@ local colorFromName
 
 local staleRoleFolder = Workspace:FindFirstChild("LibHUD") if staleRoleFolder then pcall(function() staleRoleFolder:Destroy() end) end
 local isRunning = true
-getgenv().LiberiumCleanup = function()
+GEN_ENV.LiberiumCleanup = function()
     isRunning = false
     if characterAddedConnection then pcall(function() characterAddedConnection:Disconnect() end) characterAddedConnection = nil end
     if Hotkeys then pcall(function() Hotkeys.Destroy() end) end
