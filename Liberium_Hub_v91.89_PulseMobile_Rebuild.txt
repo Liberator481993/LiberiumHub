@@ -828,7 +828,7 @@ Dropdown = (function()
         self.Label = label({
             Text = self.Name,
             Font = Enum.Font.GothamSemibold,
-            TextSize = 11,
+            TextSize = UserInputService.TouchEnabled and 13 or 11,
             TextColor3 = THEME.Text,
             Position = UDim2.fromOffset(1, 0),
             Size = UDim2.new(0.42, -7, 1, 0),
@@ -845,7 +845,7 @@ Dropdown = (function()
             AutoButtonColor = false,
             Text = "Choose...",
             TextColor3 = THEME.Text,
-            TextSize = 10,
+            TextSize = UserInputService.TouchEnabled and 12 or 10,
             TextTruncate = Enum.TextTruncate.AtEnd,
             TextXAlignment = Enum.TextXAlignment.Left,
             Font = Enum.Font.GothamSemibold,
@@ -950,7 +950,7 @@ Dropdown = (function()
                     AutoButtonColor = false,
                     Text = tostring(option),
                     TextColor3 = THEME.SubText,
-                    TextSize = 10,
+                    TextSize = UserInputService.TouchEnabled and 12 or 10,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     TextTruncate = Enum.TextTruncate.AtEnd,
                     Font = Enum.Font.GothamMedium,
@@ -2684,7 +2684,7 @@ function Sec:AddToggle(name, def, callback)
         Position = UDim2.fromOffset(13, 0),
         Size = UDim2.new(1, -112, 1, 0),
         Font = Enum.Font.GothamSemibold,
-        TextSize = 11,
+        TextSize = self.Win.MobileLayout and 13 or 11,
         TextColor3 = THEME.Text,
         TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = row
@@ -2702,7 +2702,7 @@ function Sec:AddToggle(name, def, callback)
     local stateLabel = label({
         Text = state and "ON" or "OFF",
         Font = Enum.Font.GothamBold,
-        TextSize = 8,
+        TextSize = self.Win.MobileLayout and 9 or 8,
         TextColor3 = state and THEME.Accent2 or THEME.SubText,
         TextXAlignment = Enum.TextXAlignment.Center,
         Size = UDim2.fromScale(1, 1),
@@ -2807,7 +2807,7 @@ function Sec:AddSlider(name, minimum, maximum, default, callback, increment)
         Position = UDim2.fromOffset(12, 7),
         Size = UDim2.new(1, -92, 0, 18),
         Font = Enum.Font.GothamSemibold,
-        TextSize = 11,
+        TextSize = self.Win.MobileLayout and 13 or 11,
         TextColor3 = THEME.Text,
         Parent = row
     })
@@ -2823,7 +2823,7 @@ function Sec:AddSlider(name, minimum, maximum, default, callback, increment)
     local valueLabel = label({
         Text = tostring(value),
         Font = Enum.Font.GothamBold,
-        TextSize = 10,
+        TextSize = self.Win.MobileLayout and 11 or 10,
         TextColor3 = THEME.Accent2,
         TextXAlignment = Enum.TextXAlignment.Center,
         Size = UDim2.fromScale(1, 1),
@@ -2867,7 +2867,7 @@ function Sec:AddSlider(name, minimum, maximum, default, callback, increment)
             tween(fill, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(nextAlpha, 0, 0, self.Win.MobileLayout and 8 or 7)})
             tween(knob, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.fromScale(nextAlpha, 0.5)})
         else
-            fill.Size = UDim2.new(nextAlpha, 0, 0, 7)
+            fill.Size = UDim2.new(nextAlpha, 0, 0, self.Win.MobileLayout and 8 or 7)
             knob.Position = UDim2.fromScale(nextAlpha, 0.5)
         end
     end
@@ -2921,7 +2921,7 @@ function Sec:AddButton(name, callback)
         Name = "Action_" .. tostring(name),
         Text = "",
         Font = Enum.Font.GothamBold,
-        TextSize = 11,
+        TextSize = self.Win.MobileLayout and 13 or 11,
         TextColor3 = THEME.Text,
         BackgroundColor3 = THEME.AccentSoft,
         BackgroundTransparency = 0.08,
@@ -2953,7 +2953,7 @@ function Sec:AddButton(name, callback)
         Position = UDim2.fromOffset(13, 0),
         Size = UDim2.new(1, -48, 1, 0),
         Font = Enum.Font.GothamSemibold,
-        TextSize = 11,
+        TextSize = self.Win.MobileLayout and 13 or 11,
         TextColor3 = THEME.Text,
         Parent = button
     })
