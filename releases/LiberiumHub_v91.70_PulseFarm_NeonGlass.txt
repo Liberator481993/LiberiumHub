@@ -2246,7 +2246,7 @@ local function glideTo(target, speed, mode)
             and farmCoinEventAt >= farmRouteStartedAt
             and os.clock() - farmCoinEventAt <= 2
             and farmLastCollectedPosition and part and part.Parent
-            and (farmLastCollectedPosition - part.Position).Magnitude <= 14 then
+            and (farmLastCollectedPosition - part.Position).Magnitude <= 8 then
             return true
         end
         if part and part.Parent then
@@ -2583,7 +2583,8 @@ task.spawn(function()
                 if root and root.Parent and session and not session.destroyed then
                     local murdererRoot = CFG.FarmAvoidMurderer and select(1, getClosestMurderer(root.Position)) or nil
                     local method = CFG.FarmMethod or "Fast"
-                    local target = coinTracker:GetClosest(root.Position, 220, method,
+                    -- Pulse selects from the whole active map rather than imposing a short pickup radius.
+                    local target = coinTracker:GetClosest(root.Position, nil, method,
                         murdererRoot and murdererRoot.Position or nil, farmLastCollectedPosition)
                     if target then
                         updateFarmHUD("AutoFarm • " .. method .. " route", THEME.Good, true)
@@ -3019,7 +3020,7 @@ task.spawn(function()
                 if not session or session.destroyed or not session.root or not session.root.Parent then
                     setHomeValue(homeFarmValue,"WAITING",waitColor)
                 else
-                    local farmStatus = coinTracker:GetStatus(session.root.Position,220)
+                    local farmStatus = coinTracker:GetStatus(session.root.Position,nil)
                     local farmColor = farmStatus == "READY" and good
                         or farmStatus == "OUT OF RANGE" and waitColor
                         or farmStatus == "WAIT MAP" and waitColor
