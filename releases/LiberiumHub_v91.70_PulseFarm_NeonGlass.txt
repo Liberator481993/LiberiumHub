@@ -2023,15 +2023,12 @@ coinTracker = (function()
                         end
                     end
                 end
-                if lastCollectedPosition and (position - lastCollectedPosition).Magnitude < 180 then
+                if lastCollectedPosition and (position - lastCollectedPosition).Magnitude < 1000 then
+                    -- Continue the previous collected cluster; fall back to the densest cluster on a cold start.
                     score = (position - lastCollectedPosition).Magnitude
-                        + candidate.distance * 0.12
-                        + math.min(nearest, 300) * 0.65
-                        + math.min(second, 300) * 0.65
-                        + math.min(third, 300) * 0.65
+                        + 0.25 * (math.min(nearest, 120) + math.min(second, 120))
                 else
-                    score = candidate.distance * 0.2
-                        + math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
+                    score = math.min(nearest, 300) + math.min(second, 300) + math.min(third, 300)
                 end
             end
 
