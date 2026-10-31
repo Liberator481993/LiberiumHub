@@ -1801,6 +1801,7 @@ coinTracker = (function()
     local coins = {}
     local observedAt = setmetatable({}, { __mode = "k" })
     local skipped = setmetatable({}, { __mode = "k" })
+    local failures = setmetatable({}, { __mode = "k" })
     local groundCache = setmetatable({}, { __mode = "k" })
     local GROUND_CACHE_TIME = 0.6
     local GROUND_CACHE_MOVE = 1.5
@@ -1820,6 +1821,7 @@ coinTracker = (function()
     local function clearTargets()
         table.clear(coins)
         table.clear(skipped)
+        table.clear(failures)
         table.clear(observedAt)
         table.clear(groundCache)
     end
@@ -1829,6 +1831,7 @@ coinTracker = (function()
         if index then table.remove(coins, index) end
         if inst then
             skipped[inst] = nil
+            failures[inst] = nil
             observedAt[inst] = nil
             groundCache[inst] = nil
         end
@@ -1961,7 +1964,7 @@ coinTracker = (function()
             local obj = coins[i]
             if not obj or not obj.Parent or not obj:IsDescendantOf(boundContainer) or not isCoin(obj) then
                 table.remove(coins, i)
-                if obj then skipped[obj], observedAt[obj], groundCache[obj] = nil, nil, nil end
+                if obj then skipped[obj], failures[obj], observedAt[obj], groundCache[obj] = nil, nil, nil, nil end
             elseif (skipped[obj] or 0) <= now and now - (observedAt[obj] or now) >= 0.18 then
                 local part = getTouchPart(obj)
                 if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
@@ -2055,9 +2058,21 @@ coinTracker = (function()
         return "READY"
     end
 
-    function API:Skip(obj, seconds)
+    function API:Skip(obj, seconds, confirmed)
         if not running or not obj then return end
-        skipped[obj] = os.clock() + math.clamp(tonumber(seconds) or 2, 0.25, 15)
+        local duration = math.clamp(tonumber(seconds) or 1, 0.2, 30)
+        if confirmed then
+            failures[obj] = nil
+        else
+            local attempts = (failures[obj] or 0) + 1
+            failures[obj] = attempts
+            if attempts >= 4 then
+                duration = 18
+            else
+                duration = math.max(duration, 0.6 * (2 ^ (attempts - 1)))
+            end
+        end
+        skipped[obj] = os.clock() + duration
     end
 
     function API:Destroy()
@@ -2065,6 +2080,29 @@ coinTracker = (function()
     end
     return API
 end)()
+
+local farmBagCache = {checkedAt = 0, full = false, bag = nil}
+local function isCoinBagFull()
+    local now = os.clock()
+    if now - farmBagCache.checkedAt < 0.45 then return farmBagCache.full end
+    farmBagCache.checkedAt = now
+    farmBagCache.full = false
+
+    local main = PlayerGui and PlayerGui:FindFirstChild("MainGUI")
+    local game = main and main:FindFirstChild("Game")
+    local bag = game and game:FindFirstChild("CoinBags")
+    farmBagCache.bag = bag
+    if not bag then return false end
+
+    for _, item in ipairs(bag:GetDescendants()) do
+        if item.Name == "Full" and item:IsA("GuiObject")
+            and not item:FindFirstAncestorWhichIsA("LuaSourceContainer") and item.Visible then
+            farmBagCache.full = true
+            break
+        end
+    end
+    return farmBagCache.full
+end
 
 local glideInProgress = false
 local function glideTo(target, speed, mode)
@@ -2452,35 +2490,37 @@ end
 task.spawn(function()
     while isRunning do
         if CFG.AutoFarm and canFarmNow then
-            updateFarmHUD("AutoFarm • searching for coins", THEME.Accent2, true)
-            local session = currentSession
-            local root = session and session.root
-            if root and root.Parent and session and not session.destroyed then
-                local murdererRoot = CFG.FarmAvoidMurderer and select(1, getClosestMurderer(root.Position)) or nil
-                local method = CFG.FarmMethod or "Fast"
-                local target = coinTracker:GetClosest(root.Position, 220, method, murdererRoot and murdererRoot.Position or nil)
-                if target then
-                    updateFarmHUD("AutoFarm • " .. method .. " route", THEME.Good, true)
-                    local routeSpeed = method == "Under Map" and CFG.MaxSpeed
-                        or method == "Teleport" and CFG.TeleportSpeed or CFG.FastSpeed
-                    local okMove = glideTo(target, routeSpeed, "farm")
-                    -- Retry a missed touch quickly; only repeated misses should cost several seconds.
-                    local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
-                    coinTracker:Skip(target, stillPresent and (okMove and 0.25 or 1.15) or 0.2)
-                    task.wait(okMove and 0.06 or 0.12)
-                else
-                    local message = CFG.FarmAvoidMurderer and murdererRoot
-                        and "AutoFarm • avoiding murderer" or "AutoFarm • no coin detected"
-                    updateFarmHUD(message, Color3.fromRGB(255, 195, 90), true)
-                    task.wait(0.2)
-                end
-            else
-                updateFarmHUD("AutoFarm • waiting for character", Color3.fromRGB(255, 195, 90), true)
+            if isCoinBagFull() then
+                updateFarmHUD("AutoFarm • coin bag full", Color3.fromRGB(255, 195, 90), true)
                 task.wait(0.35)
+            else
+                updateFarmHUD("AutoFarm • searching for coins", THEME.Accent2, true)
+                local session = currentSession
+                local root = session and session.root
+                if root and root.Parent and session and not session.destroyed then
+                    local murdererRoot = CFG.FarmAvoidMurderer and select(1, getClosestMurderer(root.Position)) or nil
+                    local method = CFG.FarmMethod or "Fast"
+                    local target = coinTracker:GetClosest(root.Position, 220, method, murdererRoot and murdererRoot.Position or nil)
+                    if target then
+                        updateFarmHUD("AutoFarm • " .. method .. " route", THEME.Good, true)
+                        local routeSpeed = method == "Under Map" and CFG.MaxSpeed
+                            or method == "Teleport" and CFG.TeleportSpeed or CFG.FastSpeed
+                        local okMove = glideTo(target, routeSpeed, "farm")
+                        local stillPresent = target and target.Parent and target:IsDescendantOf(Workspace)
+                        coinTracker:Skip(target, stillPresent and (okMove and 0.25 or 1.15) or 0.2, okMove or not stillPresent)
+                        task.wait(okMove and 0.06 or 0.12)
+                    else
+                        local message = CFG.FarmAvoidMurderer and murdererRoot
+                            and "AutoFarm • avoiding murderer" or "AutoFarm • no coin detected"
+                        updateFarmHUD(message, Color3.fromRGB(255, 195, 90), true)
+                        task.wait(0.2)
+                    end
+                else
+                    updateFarmHUD("AutoFarm • waiting for character", Color3.fromRGB(255, 195, 90), true)
+                    task.wait(0.35)
+                end
             end
         else
-            -- AutoPickup owns the HUD while it is enabled; avoid competing status writes
-            -- from the idle AutoFarm loop.
             if CFG.AutoFarm then
                 updateFarmHUD("AutoFarm • waiting for character", Color3.fromRGB(255, 195, 90), true)
             elseif not CFG.AutoPickup then
