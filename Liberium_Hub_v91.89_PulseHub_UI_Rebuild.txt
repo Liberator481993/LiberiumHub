@@ -1905,16 +1905,26 @@ function Lib.new(title)
         Name = "AmbientDecor", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
         BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 1, Parent = s.Content
     })
-    create("Frame", {
+    s.BloomA = create("Frame", {
         Name = "AccentBloomA", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 30, 0, -90),
         Size = UDim2.fromOffset(250, 250), BackgroundColor3 = THEME.Accent, BackgroundTransparency = 0.94,
         BorderSizePixel = 0, ZIndex = 1, Parent = s.Ambient
     }, {corner(125), create("UIGradient", {Rotation = 45, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1)})})})
-    create("Frame", {
+    s.BloomB = create("Frame", {
         Name = "AccentBloomB", Position = UDim2.new(0, -115, 1, -190),
         Size = UDim2.fromOffset(230, 230), BackgroundColor3 = THEME.Accent2, BackgroundTransparency = 0.965,
         BorderSizePixel = 0, ZIndex = 1, Parent = s.Ambient
     }, {corner(115), create("UIGradient", {Rotation = 135, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.18), NumberSequenceKeypoint.new(1, 1)})})})
+    local glowPulse = TweenInfo.new(7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+    local glowTweenA = TweenService:Create(s.BloomA, glowPulse, {
+        Position = UDim2.new(1, -12, 0, -54), BackgroundTransparency = 0.91
+    })
+    local glowTweenB = TweenService:Create(s.BloomB, glowPulse, {
+        Position = UDim2.new(0, -74, 1, -224), BackgroundTransparency = 0.95
+    })
+    glowTweenA:Play()
+    glowTweenB:Play()
+    s.AmbientTweens = {glowTweenA, glowTweenB}
     for index = 0, 12 do
         create("Frame", {Name = "GridV" .. tostring(index), Position = UDim2.new(index / 12, 0, 0, 0),
             Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = THEME.Stroke, BackgroundTransparency = 0.91,
@@ -4422,6 +4432,7 @@ end)
 --         Group chevrons rotate smoothly; compact footer branding stays executor-neutral for Arceus X and Delta.
 -- v91.89 audit: UIScale is attached to the Main GuiObject; compact sidebar fold/search controls remain touch-accessible;
 --         empty compact footer is hidden; the floating show/hide button renders above the main window; drag excludes fold.
+--         Procedural corner glows now drift slowly with reversible Sine tweens; background stays asset-free.
 --         No external images or remote UI assets are required; all gameplay modules and control callbacks are retained.
 
 -- v91.88: removes the unused secTeleport local that exceeded Luau's 200-register limit in the main chunk.
