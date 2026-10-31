@@ -54,7 +54,9 @@ blur.Size = 10 blur.Enabled = true
 
 local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleHUD, win, characterAddedConnection
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
-local coinCollectedConnection, farmCoinEventAt, farmCoinEventCount, farmLastCollectedPosition
+local coinCollectedConnection, farmRemoteConnections = {}
+local farmCoinEventAt, farmCoinEventCount, farmLastCollectedPosition
+local farmBagEventFull = {}
 farmCoinEventAt, farmCoinEventCount = 0, 0
 local currentSession, canFarmNow
 local VisualOptimizer, Crosshair, crosshairObj, SessionManager, AestheticsManager, StatsTracker, statsObj, eventLogger, logGui, TargetHUD, targetHUD, Stabilizer
@@ -75,7 +77,11 @@ getgenv().LiberiumCleanup = function()
         for _, connection in ipairs(currentSession.connections or {}) do pcall(function() connection:Disconnect() end) end
         currentSession = nil
     end
-    if coinCollectedConnection then pcall(function() coinCollectedConnection:Disconnect() end) coinCollectedConnection = nil end
+    for _, connection in ipairs(farmRemoteConnections) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(farmRemoteConnections)
+    coinCollectedConnection = nil
     if coinTracker then pcall(function() coinTracker:Destroy() end) end
     if farmHudGui then pcall(function() farmHudGui:Destroy() end) farmHudGui = nil farmHudLabel = nil end
     if blur then pcall(function() blur:Destroy() end) end
@@ -2104,12 +2110,14 @@ task.spawn(function()
         local remote = gameplay:FindFirstChild(name)
         if remote and remote:IsA("RemoteEvent") then
             local connection = remote.OnClientEvent:Connect(callback)
+            table.insert(farmRemoteConnections, connection)
             if name == "CoinCollected" then coinCollectedConnection = connection end
         end
     end
     local function resetRoundFarmState()
         farmLastCollectedPosition = nil
         farmCoinEventAt, farmCoinEventCount = 0, 0
+        table.clear(farmBagEventFull)
         farmBagCache.full, farmBagCache.checkedAt = false, 0
     end
     listen("RoundStart", resetRoundFarmState)
@@ -2122,11 +2130,15 @@ task.spawn(function()
         local character = LocalPlayer.Character
         local root = character and character:FindFirstChild("HumanoidRootPart")
         farmLastCollectedPosition = root and root.Position or farmLastCollectedPosition
-        if type(count) == "number" and type(maximum) == "number" and maximum > 0 and count >= maximum then
-            farmBagCache.full = true
-            farmBagCache.checkedAt = farmCoinEventAt
-        elseif type(count) == "number" and type(maximum) == "number" then
-            farmBagCache.full = false
+        if type(kind) == "string" and type(count) == "number"
+            and type(maximum) == "number" and maximum > 0 then
+            farmBagEventFull[kind] = count >= maximum
+            local anyType, allTypesFull = false, true
+            for _, full in pairs(farmBagEventFull) do
+                anyType = true
+                if not full then allTypesFull = false end
+            end
+            farmBagCache.full = anyType and allTypesFull
             farmBagCache.checkedAt = farmCoinEventAt
         end
     end)
