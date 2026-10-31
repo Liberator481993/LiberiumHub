@@ -1,0 +1,191 @@
+-- LIBERIUM v91.72 | ARCEUS X DIAGNOSTIC RUNNER
+-- Displays loader, compile and runtime errors on-screen so the executor console is not required.
+
+local SCRIPT_URL = "https://raw.githubusercontent.com/Liberator481993/LiberiumHub/refs/heads/work/v91.72-arceusx-compat-20261031/LiberiumHub_v91.72.txt"
+
+local Players = game:GetService("Players")
+local LogService = game:GetService("LogService")
+
+local function sharedEnvironment()
+    if type(getgenv) == "function" then
+        local ok, result = pcall(getgenv)
+        if ok and type(result) == "table" then return result end
+    end
+    return _G
+end
+
+local env = sharedEnvironment()
+local function executorFunction(name, alias)
+    local value = env[name]
+    if type(value) == "function" then return value end
+    if alias then
+        value = env[alias]
+        if type(value) == "function" then return value end
+    end
+    local ok, fallback = pcall(function()
+        local current = getfenv()
+        return current[name] or (alias and current[alias])
+    end)
+    if ok and type(fallback) == "function" then return fallback end
+    return nil
+end
+
+local function traceback(err)
+    local message = tostring(err)
+    if debug and type(debug.traceback) == "function" then
+        local ok, traced = pcall(debug.traceback, message, 2)
+        if ok then return tostring(traced) end
+    end
+    return message
+end
+
+local screen, bodyLabel
+local function show(message, isError)
+    local ok = pcall(function()
+        if not screen or not screen.Parent then
+            local parent
+            local getGui = executorFunction("gethui", "get_hidden_gui")
+            if getGui then
+                local got, value = pcall(getGui)
+                if got and typeof(value) == "Instance" then parent = value end
+            end
+            if not parent then
+                local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+                local playerGui = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 15)
+                parent = playerGui
+            end
+            assert(parent, "Could not resolve gethui() or PlayerGui")
+
+            screen = Instance.new("ScreenGui")
+            screen.Name = "LiberiumArceusDiagnostics"
+            screen.ResetOnSpawn = false
+            screen.IgnoreGuiInset = true
+            screen.DisplayOrder = 30000
+            screen.Parent = parent
+
+            local panel = Instance.new("Frame")
+            panel.Name = "Panel"
+            panel.AnchorPoint = Vector2.new(0.5, 0)
+            panel.Position = UDim2.new(0.5, 0, 0, 45)
+            panel.Size = UDim2.new(0.92, 0, 0, 170)
+            panel.BackgroundColor3 = Color3.fromRGB(13, 16, 28)
+            panel.BorderSizePixel = 0
+            panel.Parent = screen
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 12)
+            corner.Parent = panel
+            local outline = Instance.new("UIStroke")
+            outline.Color = Color3.fromRGB(151, 111, 255)
+            outline.Thickness = 1.2
+            outline.Parent = panel
+
+            local title = Instance.new("TextLabel")
+            title.BackgroundTransparency = 1
+            title.Position = UDim2.fromOffset(12, 7)
+            title.Size = UDim2.new(1, -24, 0, 20)
+            title.Font = Enum.Font.GothamBold
+            title.TextSize = 12
+            title.TextXAlignment = Enum.TextXAlignment.Left
+            title.TextColor3 = Color3.fromRGB(190, 220, 255)
+            title.Text = "LIBERIUM • ARCEUS X DIAGNOSTICS"
+            title.Parent = panel
+
+            local scroll = Instance.new("ScrollingFrame")
+            scroll.Name = "Output"
+            scroll.Position = UDim2.fromOffset(10, 32)
+            scroll.Size = UDim2.new(1, -20, 1, -42)
+            scroll.BackgroundColor3 = Color3.fromRGB(22, 26, 41)
+            scroll.BackgroundTransparency = 0.15
+            scroll.BorderSizePixel = 0
+            scroll.ScrollBarThickness = 4
+            scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            scroll.CanvasSize = UDim2.new()
+            scroll.Parent = panel
+            local scrollCorner = Instance.new("UICorner")
+            scrollCorner.CornerRadius = UDim.new(0, 8)
+            scrollCorner.Parent = scroll
+
+            bodyLabel = Instance.new("TextLabel")
+            bodyLabel.Name = "OutputText"
+            bodyLabel.BackgroundTransparency = 1
+            bodyLabel.Position = UDim2.fromOffset(8, 7)
+            bodyLabel.Size = UDim2.new(1, -16, 0, 0)
+            bodyLabel.AutomaticSize = Enum.AutomaticSize.Y
+            bodyLabel.Font = Enum.Font.Code
+            bodyLabel.TextSize = 10
+            bodyLabel.TextWrapped = true
+            bodyLabel.TextXAlignment = Enum.TextXAlignment.Left
+            bodyLabel.TextYAlignment = Enum.TextYAlignment.Top
+            bodyLabel.TextColor3 = Color3.fromRGB(224, 231, 247)
+            bodyLabel.Parent = scroll
+            local padding = Instance.new("UIPadding")
+            padding.PaddingBottom = UDim.new(0, 8)
+            padding.Parent = bodyLabel
+        end
+        bodyLabel.Text = tostring(message)
+        local panel = screen:FindFirstChild("Panel")
+        local outline = panel and panel:FindFirstChildOfClass("UIStroke")
+        if outline then
+            outline.Color = isError and Color3.fromRGB(255, 85, 105) or Color3.fromRGB(75, 220, 190)
+        end
+    end)
+    if not ok then
+        warn("[Liberium diagnostic UI] " .. tostring(message))
+        warn("[Liberium diagnostic UI failure] " .. tostring(message))
+    end
+end
+
+local apiNames = {
+    {"getgenv", type(getgenv) == "function"},
+    {"gethui", executorFunction("gethui", "get_hidden_gui") ~= nil},
+    {"getfenv", type(getfenv) == "function"},
+    {"firetouchinterest", executorFunction("firetouchinterest") ~= nil},
+    {"loadstring", type(loadstring) == "function"},
+}
+local report = {}
+for _, item in ipairs(apiNames) do
+    table.insert(report, item[1] .. "=" .. (item[2] and "YES" or "NO"))
+end
+show("DIAGNOSTIC RUNNER STARTED\n" .. table.concat(report, "  |  ") .. "\nDownloading v91.72...", false)
+
+local messageConnection
+pcall(function()
+    messageConnection = LogService.MessageOut:Connect(function(message, messageType)
+        if messageType == Enum.MessageType.MessageError then
+            show("RUNTIME ERROR\n" .. tostring(message), true)
+        end
+    end)
+end)
+
+local downloaded, source = pcall(function()
+    return game:HttpGet(SCRIPT_URL)
+end)
+if not downloaded then
+    show("DOWNLOAD ERROR\n" .. traceback(source), true)
+    return
+end
+if type(source) ~= "string" or #source < 1000 then
+    show("DOWNLOAD ERROR\nThe URL returned an empty or unexpectedly short response.", true)
+    return
+end
+
+local compileOK, chunkOrError = pcall(loadstring, source)
+if not compileOK or type(chunkOrError) ~= "function" then
+    show("COMPILE ERROR\n" .. traceback(chunkOrError), true)
+    return
+end
+
+show("SOURCE DOWNLOADED (" .. #source .. " chars)\nCOMPILE OK\nStarting v91.72...", false)
+
+task.spawn(function()
+    local runOK, runError = xpcall(chunkOrError, traceback)
+    if not runOK then
+        show("LIBERIUM STARTUP ERROR\n" .. tostring(runError), true)
+    else
+        show("TOP-LEVEL STARTUP FINISHED\nIf the main menu is still missing, send this result. Check for a later RUNTIME ERROR above.", false)
+        task.delay(10, function()
+            if messageConnection then pcall(function() messageConnection:Disconnect() end) end
+            if screen and screen.Parent then pcall(function() screen:Destroy() end) end
+        end)
+    end
+end)
