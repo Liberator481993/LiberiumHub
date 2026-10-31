@@ -3386,3 +3386,11 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.70: Added floor-aware routing, dense-cluster Teleport target scoring, optional murderer avoidance,
 --         and short failure cooldowns so one missed coin no longer stalls the route for nine seconds.
 -- v91.70: Expanded responsive desktop UI and added Pulse-inspired farm controls; existing GlassUI API is preserved.
+
+-- v91.70: Pulse-style Teleport now predicts the next arrival from CoinCollected timestamps,
+--         carries the previous collected position into dense-cluster selection, and learns event latency.
+-- v91.70: Fast / Under Map / Teleport use separate speed ranges; coin scanning covers the active map,
+--         validates TouchInterest/CanTouch/Collected, pauses on a full bag, and progressively backs off
+--         repeated misses (up to 30 seconds after four unsuccessful attempts).
+-- v91.70: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
+--         and a safe gethui() / PlayerGui host fallback improve executor and respawn resilience.
