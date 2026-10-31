@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.78 | DELTA + ARCEUS X DUAL EXECUTOR
+-- LIBERIUM HUB | v91.79 | DELTA + ARCEUS X DUAL EXECUTOR
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -79,7 +79,7 @@ pcall(function()
     BOOT_LABEL.TextSize = 11
     BOOT_LABEL.TextWrapped = true
     BOOT_LABEL.TextColor3 = Color3.fromRGB(165, 230, 255)
-    BOOT_LABEL.Text = "LIBERIUM v91.78  •  STARTING"
+    BOOT_LABEL.Text = "LIBERIUM v91.79  •  STARTING"
     BOOT_LABEL.Parent = panel
     BOOT_GUI.Parent = PlayerGui
 end)
@@ -161,7 +161,7 @@ else
 end
 
 local UI_PARENT = PlayerGui
-setBootStage("v91.78  •  " .. tostring(GEN_ENV.LiberiumExecutorLabel) .. " • PlayerGui ready")
+setBootStage("v91.79  •  " .. tostring(GEN_ENV.LiberiumExecutorLabel) .. " • PlayerGui ready")
 
 GEN_ENV.LiberiumFireTouchInterest = resolveExecutorFunction("firetouchinterest")
 GEN_ENV.LiberiumTouchAvailable = type(GEN_ENV.LiberiumFireTouchInterest) == "function"
@@ -416,48 +416,92 @@ local ConfigManager = (function() local DEFAULT_FOLDER = "DashboardConfig" local
 local InterceptSolver = (function() local API = {} function API.solve(targetPos, targetVel, originPos, speed) if type(speed) ~= "number" or speed <= 0 then return nil, nil end local speedSq = speed * speed local velSq = targetVel:Dot(targetVel) local D = targetPos - originPos local a = velSq - speedSq local h = D:Dot(targetVel) local c = D:Dot(D) if c < 1e-6 then return targetPos, 0 end local t if math.abs(a) < 1e-6 then if math.abs(h) < 1e-6 or h >= 0 then return nil, nil end t = -c / (2 * h) else local disc = h * h - a * c if disc < 0 then return nil, nil end local root = math.sqrt(disc) local t1 = (-h + root) / a local t2 = (-h - root) / a local best = math.huge if t1 > 0 and t1 < best then best = t1 end if t2 > 0 and t2 < best then best = t2 end if best == math.huge then return nil, nil end t = best end if not t or t ~= t or t <= 0 or t == math.huge then return nil, nil end return targetPos + targetVel * t, t end return API end)()
 
 local RoleHUD = (function()
-    local API = {}; API.__index = API
+    local API = {}
+    API.__index = API
     local COLORS = {
         murderer = Color3.fromRGB(255, 50, 50), killer = Color3.fromRGB(255, 50, 50), zombie = Color3.fromRGB(255, 50, 50),
         sheriff = Color3.fromRGB(50, 120, 255), hero = Color3.fromRGB(255, 230, 0),
         innocent = Color3.fromRGB(65, 220, 105), survivor = Color3.fromRGB(65, 220, 105)
     }
-    function API.new(provider)
-        return setmetatable({ _provider = provider, _hl = {}, _state = {}, _conns = {}, _running = false, _container = nil, _runToken = 0 }, API)
+
+    local function destroyLayer(store, player)
+        local layer = store[player]
+        if layer then pcall(function() layer:Destroy() end) end
+        store[player] = nil
     end
+
+    function API.new(provider)
+        return setmetatable({
+            _provider = provider,
+            _hl = {},             -- outline-only Highlights
+            _fillHL = {},         -- fill-only Highlights; isolated from Outline
+            _state = {},
+            _conns = {},
+            _running = false,
+            _container = nil,
+            _runToken = 0
+        }, API)
+    end
+
+    function API:_ensureLayer(store, player, name)
+        local layer = store[player]
+        if not layer or not layer.Parent then
+            layer = Instance.new("Highlight")
+            layer.Name = name
+            layer.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            layer.Parent = self._container
+            store[player] = layer
+        end
+        return layer
+    end
+
+    function API:_apply(player, char, color)
+        if not self._container or not self._container.Parent then return end
+
+        local outline = self._hl[player]
+        if CFG.ESP_Outline then
+            outline = self:_ensureLayer(self._hl, player, "LiberiumRoleOutline")
+        end
+        if outline then
+            outline.Adornee = char
+            outline.FillTransparency = 1
+            outline.OutlineColor = color
+            outline.OutlineTransparency = CFG.ESP_Outline and 0 or 1
+            outline.Enabled = CFG.ESP_Outline
+        end
+
+        local fill = self._fillHL[player]
+        if CFG.ESP_Fill then
+            fill = self:_ensureLayer(self._fillHL, player, "LiberiumRoleFill")
+        end
+        if fill then
+            fill.Adornee = char
+            fill.FillColor = color
+            fill.FillTransparency = CFG.ESP_Fill and 0.42 or 1
+            fill.OutlineTransparency = 1
+            fill.Enabled = CFG.ESP_Fill
+        end
+
+        self._state[player] = color
+    end
+
     function API:_update(player, tbl)
         local role, data = resolvePlayerRole(tbl, player)
         local char = player.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local dead = (type(data) == "table" and (data.Dead == true or data.IsDead == true or data.isDead == true)) or not hum or hum.Health <= 0
+        local dead = (type(data) == "table" and (data.Dead == true or data.IsDead == true or data.isDead == true))
+            or not hum or hum.Health <= 0
         local color = role and COLORS[role]
-        local hl = self._hl[player]
         if not color or dead or not char or not char.Parent then
-            if hl then hl.Enabled = false end
+            local outline, fill = self._hl[player], self._fillHL[player]
+            if outline then outline.Enabled = false; outline.Adornee = nil end
+            if fill then fill.Enabled = false; fill.Adornee = nil end
             self._state[player] = nil
             return
         end
-        if not hl or not hl.Parent or self._state[player] ~= color then
-            if hl then pcall(function() hl:Destroy() end) end
-            hl = Instance.new("Highlight")
-            hl.Name = "LiberiumRoleHighlight"
-            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Parent = self._container
-            self._hl[player] = hl
-            self._state[player] = color
-        end
-        if not CFG.ESP_Fill and not CFG.ESP_Outline then
-            if hl then hl.Enabled = false end
-            return
-        end
-        -- Re-apply both colors on every refresh; fill and outline must never drift apart.
-        hl.Adornee = char
-        hl.FillColor = color
-        hl.OutlineColor = color
-        hl.FillTransparency = CFG.ESP_Fill and 0.42 or 1
-        hl.OutlineTransparency = CFG.ESP_Outline and 0 or 1
-        hl.Enabled = CFG.ESP_Fill or CFG.ESP_Outline
+        self:_apply(player, char, color)
     end
+
     function API:_step()
         local ok, tbl = pcall(self._provider)
         if not ok or type(tbl) ~= "table" then return end
@@ -465,6 +509,7 @@ local RoleHUD = (function()
             if player ~= LocalPlayer then self:_update(player, tbl) end
         end
     end
+
     function API:Start()
         if self._running then return end
         self._running = true
@@ -478,51 +523,53 @@ local RoleHUD = (function()
             self._container.Parent = Workspace
         end
         table.insert(self._conns, Players.PlayerRemoving:Connect(function(player)
-            if self._hl[player] then pcall(function() self._hl[player]:Destroy() end) end
-            self._hl[player] = nil; self._state[player] = nil
+            destroyLayer(self._hl, player)
+            destroyLayer(self._fillHL, player)
+            self._state[player] = nil
         end))
         task.spawn(function()
             while self._running and self._runToken == token and isRunning do
                 self:_step()
-                task.wait(0.25)
+                task.wait(0.2)
             end
         end)
     end
+
     function API:Stop()
         self._running = false
         self._runToken += 1
         for _, connection in ipairs(self._conns) do pcall(function() connection:Disconnect() end) end
         table.clear(self._conns)
-        for player, hl in pairs(self._hl) do
-            if hl then pcall(function() hl:Destroy() end) end
-            self._hl[player] = nil
-            self._state[player] = nil
-        end
+        for player in pairs(self._hl) do destroyLayer(self._hl, player) end
+        for player in pairs(self._fillHL) do destroyLayer(self._fillHL, player) end
+        table.clear(self._state)
     end
+
     function API:Destroy()
         self:Stop()
-        for player, hl in pairs(self._hl) do pcall(function() hl:Destroy() end); self._hl[player] = nil end
-        table.clear(self._state)
         if self._container then pcall(function() self._container:Destroy() end); self._container = nil end
     end
+
     function API:Refresh()
         local ok, roleData = pcall(self._provider)
         if ok and type(roleData) == "table" then
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer then self:_update(player, roleData) end
             end
-        else
-            for player, hl in pairs(self._hl) do
-                local color = self._state[player]
-                if hl and color then
-                    hl.FillColor = color; hl.OutlineColor = color
-                    hl.FillTransparency = CFG.ESP_Fill and 0.42 or 1
-                    hl.OutlineTransparency = CFG.ESP_Outline and 0 or 1
-                    hl.Enabled = CFG.ESP_Fill or CFG.ESP_Outline
-                end
+            return
+        end
+        for player, color in pairs(self._state) do
+            local char = player.Character
+            if char and char.Parent and color then
+                self:_apply(player, char, color)
+            else
+                local outline, fill = self._hl[player], self._fillHL[player]
+                if outline then outline.Enabled = false end
+                if fill then fill.Enabled = false end
             end
         end
     end
+
     return API
 end)()
 
@@ -1704,59 +1751,121 @@ end)()
 
 local function getActiveMap()
     local spawnFallback = nil
+    local bestMap, bestScore = nil, -1
     for _, candidate in ipairs(Workspace:GetChildren()) do
         if candidate:IsA("Model") or candidate:IsA("Folder") then
-            -- CoinContainer is the strongest signal that this is the active round map.
-            if candidate:FindFirstChild("CoinContainer") then
-                return candidate
-            end
-            -- Some lobby/map states expose Spawns before the round container appears.
-            if not spawnFallback and candidate:FindFirstChild("Spawns") then
+            local container = candidate:FindFirstChild("CoinContainer") or candidate:FindFirstChild("CoinContainer", true)
+            if container then
+                local score = 0
+                for _, item in ipairs(container:GetDescendants()) do
+                    if item:IsA("BasePart") and item.Transparency < 0.98
+                        and item:GetAttribute("Collected") ~= true then
+                        local touch = item:FindFirstChild("TouchInterest")
+                            or item:FindFirstChildWhichIsA("TouchTransmitter", true)
+                        if touch then score += 1 end
+                    end
+                end
+                local name = string.lower(candidate.Name)
+                if name == "map" or name:find("map", 1, true) then score += 0.01 end
+                if score > bestScore then
+                    bestMap, bestScore = candidate, score
+                end
+            elseif not spawnFallback and candidate:FindFirstChild("Spawns") then
                 spawnFallback = candidate
             end
         end
     end
-    return spawnFallback
+    return bestMap or spawnFallback
 end
 
 local function getActiveCoinContainer()
     local map = getActiveMap()
-    return map and map:FindFirstChild("CoinContainer") or nil
+    return map and (map:FindFirstChild("CoinContainer") or map:FindFirstChild("CoinContainer", true)) or nil
 end
 
 weaponTracker = (function()
     local API = {}
     local skipped = setmetatable({}, { __mode = "k" })
+    local drops = setmetatable({}, { __mode = "k" })
     local running = false
+    local addedConnection = nil
+    local lastScanAt = 0
+
+    local function remember(inst)
+        if inst and inst:IsA("BasePart") and string.lower(inst.Name) == "gundrop" then
+            drops[inst] = true
+        end
+    end
+
+    local function scan()
+        lastScanAt = os.clock()
+        for _, inst in ipairs(Workspace:GetDescendants()) do remember(inst) end
+    end
 
     local function findTouchPart(drop)
         if not drop or not drop.Parent or not drop:IsDescendantOf(Workspace) then return nil end
-        -- MM2's actual dropped sheriff weapon is Map.GunDrop and carries a TouchTransmitter.
-        -- Its parent BasePart is the true pickup hitbox; visual gun skins are ignored.
         local transmitter = drop:FindFirstChildWhichIsA("TouchTransmitter", true)
-        local part = transmitter and transmitter.Parent
-        if not part or not part:IsA("BasePart") or not part.Parent then return nil end
-        if not part.CanTouch or part.Size.Magnitude <= 0 then return nil end
-        return part
+            or drop:FindFirstChild("TouchInterest", true)
+        local hitbox = transmitter and transmitter.Parent
+        if hitbox and hitbox:IsA("BasePart") and hitbox.Parent then return hitbox end
+
+        -- PulseHub's GunDrop lookup accepts the named physical drop itself when a
+        -- TouchTransmitter is not exposed by the executor/client build.
+        if drop:IsA("BasePart") and drop.Size.Magnitude > 0 and drop.Transparency < 0.99 then
+            return drop
+        end
+
+        local best, bestScore = nil, -math.huge
+        for _, child in ipairs(drop:GetDescendants()) do
+            if child:IsA("BasePart") and child.Size.Magnitude > 0 then
+                local score = (child.CanTouch and 8 or 0) + (child.Transparency < 0.99 and 2 or 0)
+                if string.lower(child.Name):find("hit", 1, true) then score += 4 end
+                if score > bestScore then best, bestScore = child, score end
+            end
+        end
+        return best
     end
 
     local function findDroppedGun()
-        local map = getActiveMap()
-        if not map or not map.Parent or not map:IsDescendantOf(Workspace) then return nil, nil end
-        local drop = map:FindFirstChild("GunDrop")
-        if not drop then return nil, nil end
-        local part = findTouchPart(drop)
-        if not part then return nil, nil end
-        return drop, part
+        if not running then return nil, nil end
+        if os.clock() - lastScanAt > 1.25 then scan() end
+        local activeMap = getActiveMap()
+        local bestDrop, bestPart, bestScore = nil, nil, -math.huge
+        for drop in pairs(drops) do
+            if not drop or not drop.Parent or not drop:IsDescendantOf(Workspace)
+                or string.lower(drop.Name) ~= "gundrop" then
+                drops[drop] = nil
+            else
+                local part = findTouchPart(drop)
+                if part then
+                    local score = 0
+                    if activeMap and drop:IsDescendantOf(activeMap) then score += 100 end
+                    if part.CanTouch then score += 10 end
+                    if part.Transparency < 0.99 then score += 2 end
+                    if score > bestScore then
+                        bestDrop, bestPart, bestScore = drop, part, score
+                    end
+                end
+            end
+        end
+        return bestDrop, bestPart
     end
 
     function API:Start()
+        if running then return end
         running = true
+        table.clear(skipped)
+        table.clear(drops)
+        scan()
+        addedConnection = Workspace.DescendantAdded:Connect(remember)
     end
 
     function API:Stop()
         running = false
+        if addedConnection then pcall(function() addedConnection:Disconnect() end); addedConnection = nil end
         table.clear(skipped)
+        table.clear(drops)
+        lastScanAt = 0
     end
 
     function API:IsValid(obj)
@@ -1773,13 +1882,12 @@ weaponTracker = (function()
     end
 
     function API:GetClosest(origin, maxDist)
-        if not running then return nil, nil end
+        if not running or not origin then return nil, nil end
         local drop, part = findDroppedGun()
         if not drop or not part then return nil, nil end
         local now = os.clock()
         if (skipped[drop] or 0) > now then return nil, nil end
-        local offset = part.Position - origin
-        local distance = offset.Magnitude
+        local distance = (part.Position - origin).Magnitude
         if maxDist and distance > maxDist then return nil, distance end
         return drop, distance
     end
@@ -1788,10 +1896,7 @@ weaponTracker = (function()
         if not running then return "OFF" end
         local drop, part = findDroppedGun()
         if not drop or not part then return "NO DROP" end
-        if origin then
-            local distance = (part.Position - origin).Magnitude
-            if maxDist and distance > maxDist then return "OUT OF RANGE" end
-        end
+        if origin and maxDist and (part.Position - origin).Magnitude > maxDist then return "OUT OF RANGE" end
         return "READY"
     end
 
@@ -1803,6 +1908,7 @@ weaponTracker = (function()
     function API:Destroy()
         self:Stop()
     end
+
     return API
 end)()
 
@@ -2535,7 +2641,7 @@ end
 -- Keep the predicate strict so coin containers, map props and decorative loot are never farm targets.
 local function isCoin(inst)
     if not inst or not inst:IsA("BasePart") or not inst.Parent then return false end
-    if inst:GetAttribute("Collected") == true or not inst.CanTouch then return false end
+    if inst:GetAttribute("Collected") == true then return false end
     local touch = inst:FindFirstChild("TouchInterest")
         or inst:FindFirstChildWhichIsA("TouchTransmitter", true)
     if not touch then return false end
@@ -2579,6 +2685,7 @@ coinTracker = (function()
     local running = false
     local scanToken = 0
     local boundContainer = nil
+    local lastPeriodicScanAt = 0
     local containerAdded = nil
     local containerRemoving = nil
     local mapAdded = nil
@@ -2616,6 +2723,14 @@ coinTracker = (function()
             return cached.result
         end
         local result = hasGroundBelow(obj, part)
+        -- Like PulseHub's coinInfo fallback, do not discard a touchable coin merely
+        -- because a non-collidable/streamed floor produced no raycast result.
+        if not result then
+            result = {
+                Position = Vector3.new(part.Position.X, part.Position.Y - 3, part.Position.Z),
+                _liberiumEstimated = true
+            }
+        end
         groundCache[obj] = {
             part = part,
             position = part.Position,
@@ -2713,7 +2828,7 @@ coinTracker = (function()
         if not running or not obj or not obj.Parent or not obj:IsDescendantOf(Workspace) then return false end
         if not boundContainer or not obj:IsDescendantOf(boundContainer) or not isCoin(obj) then return false end
         local part = getTouchPart(obj)
-        return part ~= nil and part.Parent ~= nil and part.CanTouch and part.Transparency < 0.98
+        return part ~= nil and part.Parent ~= nil and part.Transparency < 0.98
     end
 
     function API:GetGround(obj, part)
@@ -2730,6 +2845,12 @@ coinTracker = (function()
 
         method = method or CFG.FarmMethod or "Fast"
         local now = os.clock()
+        if now - lastPeriodicScanAt >= 0.75 then
+            lastPeriodicScanAt = now
+            -- DescendantAdded can fire before MM2 attaches the TouchInterest.
+            -- Periodically retry direct children so late-initialized coins enter the cache.
+            for _, child in ipairs(boundContainer:GetChildren()) do add(child) end
+        end
         local candidates = {}
         for i = #coins, 1, -1 do
             local obj = coins[i]
@@ -2738,7 +2859,7 @@ coinTracker = (function()
                 if obj then skipped[obj], failures[obj], observedAt[obj], groundCache[obj] = nil, nil, nil, nil end
             elseif (skipped[obj] or 0) <= now and now - (observedAt[obj] or now) >= 0.18 then
                 local part = getTouchPart(obj)
-                if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
+                if part and part.Parent and part.Transparency < 0.98 then
                     local directDistance = (part.Position - origin).Magnitude
                     if not maxDist or directDistance <= maxDist then
                         local ground = getCachedGround(obj, part)
@@ -3106,7 +3227,7 @@ local function glideTo(target, speed, mode)
                     lastFarmTargetCheck = os.clock()
                     if not coinTracker or not coinTracker:IsValid(target) then break end
                 end
-                if not targetPart.CanTouch or targetPart.Transparency >= 0.98 then break end
+                if targetPart.Transparency >= 0.98 then break end
             end
 
             local contactPosition = targetPart.Position + Vector3.new(0, rootOffset, 0)
@@ -3276,61 +3397,81 @@ local function tryDistanceGunPickup(target, session)
     end
 
     local touchFn = GEN_ENV.LiberiumFireTouchInterest
-    if typeof(touchFn) ~= "function" then return false, "unavailable" end
-
     local root = session.root
     local character = session.character
     local targetPart = weaponTracker:GetTouchPart(target)
-    if not targetPart or not targetPart.Parent or not targetPart.CanTouch then return false, "invalid" end
+    if not targetPart or not targetPart.Parent then return false, "invalid" end
     if (targetPart.Position - root.Position).Magnitude > CFG.PickupRange then return false, "out-of-range" end
+
+    local function hasGun()
+        local currentCharacter = LocalPlayer.Character
+        local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+        return (currentCharacter and currentCharacter:FindFirstChild("Gun") ~= nil)
+            or (backpack and backpack:FindFirstChild("Gun") ~= nil)
+    end
+
+    -- Arceus X builds may not expose firetouchinterest. In that case use the
+    -- existing smooth contact route so native character/part touch can collect the drop.
+    if typeof(touchFn) ~= "function" then
+        local routed = glideTo(target, math.max(25, tonumber(CFG.FastSpeed) or 24), "pickup")
+        task.wait(0.12)
+        if hasGun() or not weaponTracker:IsValid(target) then return true, "collected" end
+        return routed == true, "fallback-unconfirmed"
+    end
 
     local touchParts = {}
     local function addTouchPart(part)
-        if part and part.Parent and part:IsA("BasePart") then
+        if part and part.Parent and part:IsA("BasePart") and not table.find(touchParts, part) then
             table.insert(touchParts, part)
         end
     end
 
     addTouchPart(root)
+    addTouchPart(character:FindFirstChild("Head"))
     addTouchPart(character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm"))
     addTouchPart(character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm"))
+    addTouchPart(character:FindFirstChild("UpperTorso"))
+    addTouchPart(character:FindFirstChild("Torso"))
+    addTouchPart(character:FindFirstChild("LowerTorso"))
     addTouchPart(character:FindFirstChild("RightFoot") or character:FindFirstChild("Right Leg"))
     addTouchPart(character:FindFirstChild("LeftFoot") or character:FindFirstChild("Left Leg"))
 
-    -- Fire a short, bounded touch pulse from the current character parts.
-    -- Unlike glideTo(), this routine never teleports, flies, anchors or edits collisions.
-    for attempt = 1, 4 do
+    local function fire(first, second, state)
+        local ok = pcall(touchFn, first, second, state)
+        return ok
+    end
+
+    for attempt = 1, 5 do
         if not isRunning or currentSession ~= session or session.destroyed
             or not root.Parent or not session.humanoid or session.humanoid.Health <= 0 then
             return false, "interrupted"
         end
-        if not weaponTracker:IsValid(target) then return true, "collected" end
+        if hasGun() or not weaponTracker:IsValid(target) then return true, "collected" end
 
         targetPart = weaponTracker:GetTouchPart(target)
-        if not targetPart or not targetPart.Parent or not targetPart.CanTouch then return false, "invalid" end
+        if not targetPart or not targetPart.Parent then return true, "collected" end
         if (targetPart.Position - root.Position).Magnitude > CFG.PickupRange then return false, "out-of-range" end
 
         for _, bodyPart in ipairs(touchParts) do
             if bodyPart.Parent then
-                pcall(function() touchFn(bodyPart, targetPart, 0) end)
-                pcall(function() touchFn(targetPart, bodyPart, 0) end)
+                fire(bodyPart, targetPart, 0)
+                fire(targetPart, bodyPart, 0)
             end
         end
         RunService.Heartbeat:Wait()
         for _, bodyPart in ipairs(touchParts) do
             if bodyPart.Parent then
-                pcall(function() touchFn(bodyPart, targetPart, 1) end)
-                pcall(function() touchFn(targetPart, bodyPart, 1) end)
+                fire(bodyPart, targetPart, 1)
+                fire(targetPart, bodyPart, 1)
             end
         end
 
-        if not weaponTracker:IsValid(target) then return true, "collected" end
-        if attempt < 4 then task.wait(0.08) end
+        if hasGun() or not weaponTracker:IsValid(target) then return true, "collected" end
+        if attempt < 5 then task.wait(0.1) end
     end
 
     return false, "unconfirmed"
 end
-
 
 -- Compact, non-interactive farm monitor designed for Delta on mobile.
 -- It reports local script state only; it does not claim that the server accepted a pickup.
@@ -4008,9 +4149,9 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() UIControls.espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() UIControls.farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() UIControls.autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() UIControls.optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if not visible and Dropdown and Dropdown.CloseAll then Dropdown.CloseAll() end if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.78 ready • " .. tostring(GEN_ENV.LiberiumExecutorLabel), "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.79 ready • " .. tostring(GEN_ENV.LiberiumExecutorLabel), "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
-setBootStage("v91.78  •  " .. tostring(GEN_ENV.LiberiumExecutorLabel) .. " • READY")
+setBootStage("v91.79  •  " .. tostring(GEN_ENV.LiberiumExecutorLabel) .. " • READY")
 task.delay(1.2, function()
     pcall(function()
         if BOOT_ERROR_CONNECTION then BOOT_ERROR_CONNECTION:Disconnect() BOOT_ERROR_CONNECTION = nil end
@@ -4146,6 +4287,15 @@ end)
 -- v91.71: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
 --         and a safe gethui() / PlayerGui host fallback improve executor and respawn resilience.
 
+-- v91.79: Role ESP uses independent fill-only and outline-only Highlights, each updated
+--          directly from the same resolved role color to prevent fill state/color bleed.
+--          Coin tracking retries late TouchInterest initialization, accepts coins when the
+--          floor raycast cannot resolve a non-collidable/streamed floor, and ranks the map
+--          with the most live touchable coins rather than trusting the first CoinContainer.
+--          GunDrop discovery follows PulseHub's workspace-wide named-drop scan and accepts
+--          the physical GunDrop hitbox when TouchTransmitter is not exposed.
+--          AutoPickup now falls back to a smooth physical contact route when the executor
+--          does not expose firetouchinterest (notably relevant to Arceus X compatibility).
 -- v91.78: One shared source targets both Delta and Arceus X; executor-name and firetouchinterest
 --          lookups tolerate per-executor environment differences without making UI startup depend on them.
 --          Runtime executor detection is informational; each executor still needs an on-device test.
