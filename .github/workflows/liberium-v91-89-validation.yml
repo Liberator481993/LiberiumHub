@@ -39,8 +39,9 @@ jobs:
           set -euo pipefail
           mkdir -p validation
           "$LUAU_COMPILER" "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt" > /dev/null
-          printf "Luau syntax compile: PASS\n" | tee validation/luau-compile-report.txt
-          wc -l -c "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt" | tee -a validation/luau-compile-report.txt
+          "$LUAU_COMPILER" "Liberium_Loader_v91.89_PulseHub_UI.txt" > /dev/null
+          printf "Luau hub syntax compile: PASS\nLuau loader syntax compile: PASS\n" | tee validation/luau-compile-report.txt
+          wc -l -c "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt" "Liberium_Loader_v91.89_PulseHub_UI.txt" | tee -a validation/luau-compile-report.txt
 
       - name: Audit UI API and mobile sizing
         shell: bash
@@ -48,6 +49,9 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           source = Path("Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt").read_text(encoding="utf-8")
+          loader = Path("Liberium_Loader_v91.89_PulseHub_UI.txt").read_text(encoding="utf-8")
+          if "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt" not in loader or "liberium-v91-89-pulsehub-ui-rebuild" not in loader or "loadstring(source)" not in loader:
+              raise SystemExit("FAIL: loader does not target the v91.89 rebuild file on its own branch")
           required = [
               "function Lib.new", "function Win:AddTab", "function Tab:AddSubTab",
               "function Sub:AddSection", "function Sec:AddToggle", "function Sec:AddSlider",
