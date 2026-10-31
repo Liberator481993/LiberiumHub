@@ -2939,7 +2939,7 @@ local function glideTo(target, speed, mode)
             local delta = contactPosition - root.Position
             local distance = delta.Magnitude
             if mode == "farm" and math.abs(delta.Y) > 24 then break end
-            if distance <= 1.0
+            if distance <= 1.0 then
                 arrived = true
                 -- Restore floor collisions before the collection attempt. The previous version
                 -- kept the avatar non-collidable while trying to touch the coin, which could
