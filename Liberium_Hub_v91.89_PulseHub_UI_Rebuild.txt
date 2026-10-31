@@ -2237,6 +2237,8 @@ function Win:AddTab(name, icon, groupName)
     tab.Btn.Activated:Connect(function()
         self:_Select(tab)
         self:ApplySearch(self.SearchQuery)
+        -- On portrait screens, return to the full-width feature page after navigation.
+        if self.PortraitLayout then self:SetSidebarCollapsed(true) end
     end)
 
     tab.Cont = create("Frame", {
