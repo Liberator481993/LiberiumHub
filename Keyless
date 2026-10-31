@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.76 | DROPDOWN OVERLAY + HIDEABLE STATS
+-- LIBERIUM HUB | v91.77 | DELTA + ARCEUS X DUAL EXECUTOR
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -79,7 +79,7 @@ pcall(function()
     BOOT_LABEL.TextSize = 11
     BOOT_LABEL.TextWrapped = true
     BOOT_LABEL.TextColor3 = Color3.fromRGB(165, 230, 255)
-    BOOT_LABEL.Text = "LIBERIUM v91.71  •  STARTING"
+    BOOT_LABEL.Text = "LIBERIUM v91.77  •  STARTING"
     BOOT_LABEL.Parent = panel
     BOOT_GUI.Parent = PlayerGui
 end)
@@ -92,7 +92,7 @@ pcall(function()
 end)
 
 local UI_PARENT = PlayerGui
-setBootStage("v91.71  •  PlayerGui ready")
+setBootStage("v91.77  •  " .. tostring(GEN_ENV.LiberiumExecutorLabel or "Compatible Executor") .. " • PlayerGui ready")
 
 local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -115,6 +115,56 @@ local function resolveExecutorEnvironment()
     return {}
 end
 local GEN_ENV = resolveExecutorEnvironment()
+
+-- Resolve optional executor functions without assuming Delta and Arceus X expose them
+-- in the same environment table. Missing APIs stay nil; UI startup never depends on them.
+local function resolveExecutorFunction(apiName)
+    local candidate = nil
+    pcall(function()
+        candidate = GEN_ENV[apiName]
+    end)
+    if type(candidate) == "function" then return candidate end
+
+    pcall(function()
+        local currentEnvironment = getfenv(0)
+        if type(currentEnvironment) == "table" then
+            candidate = currentEnvironment[apiName]
+        end
+    end)
+    if type(candidate) == "function" then return candidate end
+
+    pcall(function()
+        candidate = _G[apiName]
+    end)
+    if type(candidate) == "function" then return candidate end
+    return nil
+end
+
+local function callExecutorName(apiName)
+    local api = resolveExecutorFunction(apiName)
+    if not api then return nil end
+    local ok, value = pcall(api)
+    if ok and type(value) == "string" and value ~= "" then
+        return value
+    end
+    return nil
+end
+
+local detectedExecutor = callExecutorName("identifyexecutor")
+    or callExecutorName("getexecutorname")
+local executorLower = string.lower(tostring(detectedExecutor or ""))
+if executorLower:find("delta", 1, true) then
+    GEN_ENV.LiberiumExecutorLabel = "Delta"
+elseif executorLower:find("arceus", 1, true) then
+    GEN_ENV.LiberiumExecutorLabel = "Arceus X"
+elseif detectedExecutor then
+    GEN_ENV.LiberiumExecutorLabel = detectedExecutor
+else
+    GEN_ENV.LiberiumExecutorLabel = "Compatible Executor"
+end
+
+GEN_ENV.LiberiumFireTouchInterest = resolveExecutorFunction("firetouchinterest")
+GEN_ENV.LiberiumTouchAvailable = type(GEN_ENV.LiberiumFireTouchInterest) == "function"
 
 -- Stop the previous hub before acquiring shared Lighting effects.
 if type(GEN_ENV.LiberiumCleanup) == "function" then
@@ -3083,7 +3133,7 @@ local function glideTo(target, speed, mode)
                 -- kept the avatar non-collidable while trying to touch the coin, which could
                 -- leave the feet below the hitbox and make the character hover beside it.
                 restoreCollisionForPickup()
-                local touchFn = firetouchinterest
+                local touchFn = GEN_ENV.LiberiumFireTouchInterest
                 local touchParts = {}
                 local function addTouchPart(part)
                     if part and part.Parent and part:IsA("BasePart") and not table.find(touchParts, part) then
@@ -3225,7 +3275,7 @@ local function tryDistanceGunPickup(target, session)
         return false, "invalid"
     end
 
-    local touchFn = firetouchinterest
+    local touchFn = GEN_ENV.LiberiumFireTouchInterest
     if typeof(touchFn) ~= "function" then return false, "unavailable" end
 
     local root = session.root
@@ -3958,9 +4008,9 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() UIControls.espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() UIControls.farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() UIControls.autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() UIControls.optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if not visible and Dropdown and Dropdown.CloseAll then Dropdown.CloseAll() end if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.76 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.77 ready • " .. tostring(GEN_ENV.LiberiumExecutorLabel), "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
-setBootStage("v91.76  •  READY")
+setBootStage("v91.77  •  " .. tostring(GEN_ENV.LiberiumExecutorLabel) .. " • READY")
 task.delay(1.2, function()
     pcall(function()
         if BOOT_ERROR_CONNECTION then BOOT_ERROR_CONNECTION:Disconnect() BOOT_ERROR_CONNECTION = nil end
@@ -4096,6 +4146,9 @@ end)
 -- v91.71: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
 --         and a safe gethui() / PlayerGui host fallback improve executor and respawn resilience.
 
+-- v91.77: One shared source targets both Delta and Arceus X; executor-name and firetouchinterest
+--          lookups tolerate per-executor environment differences without making UI startup depend on them.
+--          Runtime executor detection is informational; each executor still needs an on-device test.
 -- v91.76: Ping/FPS overlay has a direct close button that also resets the Performance toggle.
 -- v91.75: Dropdown options render in a dedicated top-level ScreenGui, outside page scroll clipping;
 --          viewport-aware placement and opaque touch rows prevent invisible/unclickable farm methods.
