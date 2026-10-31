@@ -1,0 +1,19 @@
+-- LIBERIUM HUB v91.89 | PulseHub-inspired UI rebuild
+-- Compatible loader for Arceus X / Delta
+local URL = "https://raw.githubusercontent.com/Liberator481993/LiberiumHub/liberium-v91-89-pulsehub-ui-rebuild/Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt"
+local ok, source = pcall(function()
+    return game:HttpGet(URL)
+end)
+if not ok or type(source) ~= "string" or #source < 1000 then
+    warn("[Liberium] Failed to download v91.89 source: " .. tostring(source))
+    return
+end
+local compile, compileError = loadstring(source)
+if type(compile) ~= "function" then
+    warn("[Liberium] v91.89 compile error: " .. tostring(compileError))
+    return
+end
+local runOk, runError = pcall(compile)
+if not runOk then
+    warn("[Liberium] v91.89 startup error: " .. tostring(runError))
+end
