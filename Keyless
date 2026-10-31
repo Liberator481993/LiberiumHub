@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.74 | ARCEUS UI POLISH + PLAYERGUI STARTUP
+-- LIBERIUM HUB | v91.75 | VISIBLE DROPDOWNS + HIDDEN STATS
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 local TextService = game:GetService("TextService")
+local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 local Stats = game:GetService("Stats")
 local Debris = game:GetService("Debris")
@@ -182,6 +183,7 @@ GEN_ENV.LiberiumCleanup = function()
     if skeletonObj then pcall(function() skeletonObj:Destroy() end) end
     if weaponTracker then pcall(function() weaponTracker:Destroy() end) end
     if win then pcall(function() win:Destroy() end) end
+    if Dropdown and Dropdown.DestroyOverlay then pcall(function() Dropdown.DestroyOverlay() end) end
 end
 setBootStage("Core cleanup registered")
 
@@ -190,12 +192,12 @@ local CFG = {
     AutoFarm = false, AutoFling = false,
     ESP_Outline = false, ESP_Fill = false, ESP_Name = false, ESP_Distance = false, LootESP = false,
     AntiFling = true, PredictionStyle = "Classic", Prediction = false, ProjSpeed = 100,
-    OptimizeFPS = false, Crosshair = false, AntiAFK = false, ShowStats = true,
+    OptimizeFPS = false, Crosshair = false, AntiAFK = false, ShowStats = false,
     WalkSpeed = 16, JumpPower = 50, Noclip = false,
     FOVCircle = false, FOVRadius = 150, FOVColor = "Purple",
     SkeletonESP = false, SkeletonColor = "Purple", ShaderPreset = "Default", LocalAura = "None",
     Tracers = false, TracerColor = "Yellow",
-    AutoPickup = false, PickupRange = 300, ConfigSchemaVersion = 2
+    AutoPickup = false, PickupRange = 300, ConfigSchemaVersion = 3
 }
 local roles = {} currentSession = nil canFarmNow = false
 local KILLER_ROLES = { murderer = true, zombie = true, killer = true }
@@ -988,76 +990,386 @@ EventLogger = (function() local EL = {} EL.__index = EL local DISPLAY_TIME = 5 l
     for _, conn in ipairs(list) do pcall(function() conn:Disconnect() end) end
 end function EL:_start() for _, player in ipairs(Players:GetPlayers()) do self:_watchPlayer(player) end table.insert(self._connections, Players.PlayerAdded:Connect(function(player) self:_watchPlayer(player) end)) table.insert(self._connections, Players.PlayerRemoving:Connect(function(player) self:Log(("%s left the game"):format(player.Name), Color3.fromRGB(180, 180, 190)) self:_unwatchPlayer(player) end)) end function EL:Destroy() self._destroyed = true for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end for player in pairs(self._playerConnections) do self:_unwatchPlayer(player) end pcall(function() self._scroll:Destroy() end) end return EL end)()
 
-Dropdown = (function() local D = {} D.__index = D local Theme = { Surface = THEME.Surface, SurfaceHover = THEME.Element, Accent = THEME.Accent, Stroke = THEME.Stroke, Text = THEME.Text, SubText = THEME.SubText, Font = Enum.Font.GothamMedium, TextSize = 13 } local OP = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) function D.new(parent, name, opts, def, cb) local s = setmetatable({}, D) s.Name=name s.Callback=cb s.Value=nil s.IsOpen=false s._opts={} s._btns={} s._selIdx=nil s._targetHeight=0 s._displayHeight=0 s._openAbove=false s._tween=nil s._destroyed=false s.Frame = create("Frame", {Name="DD_"..name, Size=UDim2.new(1,0,0,44), BackgroundTransparency=1, Parent=parent}) s.Label = create("TextLabel", {Name="Label", Size=UDim2.new(0.34,-8,1,0), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, TextSize=11, TextColor3=Theme.Text, TextXAlignment=Enum.TextXAlignment.Left, Text=name, Parent=s.Frame}) s.Header = create("TextButton", {Name="Header", AnchorPoint=Vector2.new(1,0), Position=UDim2.fromScale(1,0), Size=UDim2.new(0.66,0,1,0), BackgroundColor3=THEME.Element, BackgroundTransparency=0.12, BorderSizePixel=0, AutoButtonColor=false, Text="Select...", TextColor3=Theme.Text, TextTransparency=0, Font=Theme.Font, TextSize=Theme.TextSize, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=15, Parent=s.Frame}) create("UICorner", {CornerRadius=UDim.new(0,9),Parent=s.Header}) create("UIPadding", {PaddingLeft=UDim.new(0,11),PaddingRight=UDim.new(0,25),Parent=s.Header}) s._stroke = create("UIStroke",{Color=Theme.Stroke,Thickness=1,Transparency=0.58,Parent=s.Header}) s.Chevron = create("TextLabel", {Name="Chevron",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-9,0.5,0),Size=UDim2.fromOffset(14,18),BackgroundTransparency=1,Text="⌄",Font=Enum.Font.GothamBold,TextSize=16,TextColor3=Theme.Accent2,ZIndex=16,Parent=s.Header}) s.List = create("Frame", {Name="List", Position=UDim2.new(0,0,1,4), Size=UDim2.new(1,0,0,0), BackgroundColor3=THEME.Surface, BackgroundTransparency=0.025, BorderSizePixel=0, ClipsDescendants=true, Visible=false, ZIndex=20, Parent=s.Frame}) create("UICorner", {CornerRadius=UDim.new(0,9),Parent=s.List}) create("UIStroke",{Color=Theme.Stroke,Thickness=1,Transparency=0.4,Parent=s.List}) s.Scroll = create("ScrollingFrame", {Name="Scroll", Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent2, CanvasSize=UDim2.new(), ZIndex=22, Parent=s.List}) create("UIListLayout", {SortOrder=Enum.SortOrder.LayoutOrder, Parent=s.Scroll}) create("UIPadding", {PaddingTop=UDim.new(0,4),PaddingBottom=UDim.new(0,4),Parent=s.Scroll}) s.Header.Activated:Connect(function() if s.IsOpen then s:Close() else s:Open() end end) s:SetOptions(opts or {}) if def ~= nil then s:Set(def, true) end return s end function D:_enforceStyle() self.List.ZIndex = 20 self.List.BackgroundColor3 = THEME.Surface self.List.BackgroundTransparency = 0.025 for _, inst in ipairs(self.List:GetDescendants()) do if inst:IsA("UIGradient") then inst:Destroy() end end self.Scroll.ZIndex = 22 for _, child in ipairs(self.Scroll:GetChildren()) do if child:IsA("TextButton") then child.ZIndex = 23 child.TextColor3 = Theme.Text child.TextTransparency = 0 end end end function D:_select(idx)
-    self._selIdx = idx
-    self.Value = self._opts[idx]
-    self.Header.Text = tostring(self.Value)
-    self.Header.TextColor3 = Theme.Text
-    for optionIndex, button in pairs(self._btns) do
-        local selected = optionIndex == idx
-        button.BackgroundColor3 = selected and Theme.Accent or THEME.Element
-        button.BackgroundTransparency = selected and 0.12 or 0.16
-        button.TextColor3 = selected and THEME.Text or Color3.fromRGB(220, 226, 244)
-        button.Text = (selected and "✓  " or "   ") .. tostring(self._opts[optionIndex])
-        local edge = button:FindFirstChildOfClass("UIStroke")
-        if edge then
-            edge.Color = selected and Theme.Accent2 or Theme.Stroke
-            edge.Transparency = selected and 0.28 or 0.72
+Dropdown = (function()
+    local D = {}
+    D.__index = D
+    local Theme = {
+        Surface = THEME.Surface,
+        SurfaceHover = THEME.Element,
+        Accent = THEME.Accent,
+        Stroke = THEME.Stroke,
+        Text = THEME.Text,
+        SubText = THEME.SubText,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13
+    }
+    local OP = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local popupGui
+    local activeDropdown
+
+    local function getPopupGui()
+        if popupGui and popupGui.Parent then return popupGui end
+        local stale = PlayerGui:FindFirstChild("LiberiumDropdownOverlay")
+        if stale then pcall(function() stale:Destroy() end) end
+        popupGui = Instance.new("ScreenGui")
+        popupGui.Name = "LiberiumDropdownOverlay"
+        popupGui.ResetOnSpawn = false
+        popupGui.IgnoreGuiInset = false
+        popupGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        popupGui.DisplayOrder = 32767
+        popupGui.Parent = PlayerGui
+        return popupGui
+    end
+
+    function D.new(parent, name, opts, def, cb)
+        local s = setmetatable({}, D)
+        s.Name = name
+        s.Callback = cb
+        s.Value = nil
+        s.IsOpen = false
+        s._opts = {}
+        s._btns = {}
+        s._selIdx = nil
+        s._targetHeight = 0
+        s._displayHeight = 0
+        s._tween = nil
+        s._destroyed = false
+        s._popupGui = getPopupGui()
+
+        s.Frame = create("Frame", {
+            Name = "DD_" .. name,
+            Size = UDim2.new(1, 0, 0, 48),
+            BackgroundTransparency = 1,
+            Parent = parent
+        })
+        s.Label = create("TextLabel", {
+            Name = "Label",
+            Size = UDim2.new(0.34, -8, 1, 0),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.GothamSemibold,
+            TextSize = 11,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Text = name,
+            Parent = s.Frame
+        })
+        s.Header = create("TextButton", {
+            Name = "Header",
+            AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.fromScale(1, 0),
+            Size = UDim2.new(0.66, 0, 1, 0),
+            BackgroundColor3 = THEME.Element,
+            BackgroundTransparency = 0.08,
+            BorderSizePixel = 0,
+            AutoButtonColor = false,
+            Text = "Select...",
+            TextColor3 = Theme.Text,
+            TextTransparency = 0,
+            Font = Theme.Font,
+            TextSize = Theme.TextSize,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+            Parent = s.Frame
+        })
+        create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = s.Header})
+        create("UIPadding", {
+            PaddingLeft = UDim.new(0, 11),
+            PaddingRight = UDim.new(0, 25),
+            Parent = s.Header
+        })
+        s._stroke = create("UIStroke", {
+            Color = Theme.Stroke,
+            Thickness = 1,
+            Transparency = 0.48,
+            Parent = s.Header
+        })
+        s.Chevron = create("TextLabel", {
+            Name = "Chevron",
+            AnchorPoint = Vector2.new(1, 0.5),
+            Position = UDim2.new(1, -9, 0.5, 0),
+            Size = UDim2.fromOffset(14, 18),
+            BackgroundTransparency = 1,
+            Text = "⌄",
+            Font = Enum.Font.GothamBold,
+            TextSize = 16,
+            TextColor3 = Theme.Accent2,
+            ZIndex = 16,
+            Parent = s.Header
+        })
+
+        -- Popup is a top-level ScreenGui object, not a child of the clipped page ScrollingFrame.
+        -- This keeps the option list visible on both narrow phones and low/scrolling pages.
+        s.List = create("Frame", {
+            Name = "List_" .. name,
+            Position = UDim2.fromOffset(8, 8),
+            Size = UDim2.fromOffset(200, 0),
+            BackgroundColor3 = THEME.Surface,
+            BackgroundTransparency = 0.015,
+            BorderSizePixel = 0,
+            ClipsDescendants = true,
+            Visible = false,
+            ZIndex = 500,
+            Parent = s._popupGui
+        })
+        create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = s.List})
+        create("UIStroke", {
+            Color = Theme.Accent,
+            Thickness = 1.2,
+            Transparency = 0.22,
+            Parent = s.List
+        })
+        s.Scroll = create("ScrollingFrame", {
+            Name = "Scroll",
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScrollBarThickness = 4,
+            ScrollBarImageColor3 = Theme.Accent2,
+            CanvasSize = UDim2.new(),
+            ZIndex = 501,
+            Parent = s.List
+        })
+        create("UIListLayout", {
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Padding = UDim.new(0, 4),
+            Parent = s.Scroll
+        })
+        create("UIPadding", {
+            PaddingTop = UDim.new(0, 5),
+            PaddingBottom = UDim.new(0, 5),
+            PaddingLeft = UDim.new(0, 5),
+            PaddingRight = UDim.new(0, 5),
+            Parent = s.Scroll
+        })
+
+        s.Header.Activated:Connect(function()
+            if s.IsOpen then s:Close() else s:Open() end
+        end)
+        s:SetOptions(opts or {})
+        if def ~= nil then s:Set(def, true) end
+        return s
+    end
+
+    function D:_enforceStyle()
+        if not self.List or not self.List.Parent then return end
+        self.List.ZIndex = 500
+        self.List.BackgroundColor3 = THEME.Surface
+        self.List.BackgroundTransparency = 0.015
+        self.Scroll.ZIndex = 501
+        for _, child in ipairs(self.Scroll:GetChildren()) do
+            if child:IsA("TextButton") then
+                child.ZIndex = 502
+                child.TextColor3 = Color3.fromRGB(225, 231, 248)
+                child.TextTransparency = 0
+                child.BackgroundTransparency = 0.14
+            end
         end
     end
-end function D:_fire(val) if typeof(self.Callback)~="function" then return end task.spawn(function() local ok, err = pcall(self.Callback, val) if not ok then warn("Dropdown err:", err) end end) end function D:Set(val, sil) local idx = table.find(self._opts, val) if not idx then return false end self:_select(idx) if not sil then self:_fire(self.Value) end return true end function D:SetOptions(opts, keep) if self.IsOpen then self:Close() end for _, b in self._btns do b:Destroy() end table.clear(self._btns) self._opts = table.clone(opts or {}) for i, o in self._opts do local b = create("TextButton", {
-        Name = "O_" .. i,
-        LayoutOrder = i,
-        Size = UDim2.new(1, -2, 0, 50),
-        BackgroundColor3 = THEME.Element,
-        BackgroundTransparency = 0.16,
-        Text = "   " .. tostring(o),
-        TextColor3 = Color3.fromRGB(220, 226, 244),
-        TextTransparency = 0,
-        Font = Enum.Font.GothamSemibold,
-        TextSize = 15,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        AutoButtonColor = false,
-        ZIndex = 23,
-        Parent = self.Scroll
-    })
-    create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = b})
-    create("UIStroke", {Color = Theme.Stroke, Thickness = 1, Transparency = 0.72, Parent = b})
-    create("UIPadding", {PaddingLeft = UDim.new(0, 10), Parent = b}) b.MouseEnter:Connect(function() if self.Value ~= o then b.BackgroundTransparency=0.4 end end) b.MouseLeave:Connect(function() if self.Value ~= o then b.BackgroundTransparency=1 end end) b.Activated:Connect(function() self:_select(i) self:Close() self:_fire(self.Value) end) self._btns[i] = b end self._selIdx = (keep~=false and self.Value~=nil) and table.find(self._opts, self.Value) or nil if not self._selIdx then self.Value=nil; self.Header.Text="Select..." end if self.Value then self.Header.Text = tostring(self.Value) end local contentHeight = #self._opts * 50 + 8 self.Scroll.CanvasSize = UDim2.fromOffset(0, contentHeight) self._targetHeight = math.min(contentHeight, UserInputService.TouchEnabled and 252 or 236)
-    if self.IsOpen then self:Close() end if self._selIdx then self:_select(self._selIdx) end end function D:Open() if self.IsOpen or self._destroyed then return end if self._tween then pcall(function() self._tween:Cancel() end); self._tween = nil end self.IsOpen = true self:_enforceStyle()
-    if self.Chevron then self.Chevron.Text = "⌃" end
 
-    local clip = self.Frame.Parent
-    while clip and not clip:IsA("ScrollingFrame") do clip = clip.Parent end
-    local desired = self._targetHeight
-    local availableAbove, availableBelow = desired, desired
-
-    if clip then
-        local clipTop = clip.AbsolutePosition.Y
-        local clipBottom = clipTop + clip.AbsoluteSize.Y
-        local rowTop = self.Frame.AbsolutePosition.Y
-        local rowBottom = rowTop + self.Frame.AbsoluteSize.Y
-        availableAbove = math.max(0,rowTop - clipTop - 5)
-        availableBelow = math.max(0,clipBottom - rowBottom - 5)
+    function D:_select(idx)
+        self._selIdx = idx
+        self.Value = self._opts[idx]
+        self.Header.Text = tostring(self.Value)
+        self.Header.TextColor3 = Theme.Text
+        for optionIndex, button in pairs(self._btns) do
+            local selected = optionIndex == idx
+            button.BackgroundColor3 = selected and Theme.Accent or THEME.Element
+            button.BackgroundTransparency = selected and 0.08 or 0.14
+            button.TextColor3 = selected and THEME.Text or Color3.fromRGB(225, 231, 248)
+            button.Text = (selected and "✓  " or "   ") .. tostring(self._opts[optionIndex])
+            local edge = button:FindFirstChildOfClass("UIStroke")
+            if edge then
+                edge.Color = selected and Theme.Accent2 or Theme.Stroke
+                edge.Transparency = selected and 0.18 or 0.68
+            end
+        end
     end
 
-    self._openAbove = availableBelow < math.min(desired,72) and availableAbove > availableBelow
-    local available = self._openAbove and availableAbove or availableBelow
-    self._displayHeight = math.max(0,math.min(desired,available))
-    self.List.Position = self._openAbove
-        and UDim2.new(0,0,0,-self._displayHeight-4)
-        or UDim2.new(0,0,1,4)
-    self.Scroll.CanvasPosition = Vector2.zero
-    self.List.Size = UDim2.new(1,0,0,0)
-    self.List.Visible = self._displayHeight > 0
-    self._tween = TweenService:Create(self.List, OP, {Size = UDim2.new(1,0,0,self._displayHeight)}) self._tween:Play() end function D:Close() if not self.IsOpen or self._destroyed then return end self.IsOpen = false if self.Chevron then self.Chevron.Text = "⌄" end if self._tween then self._tween:Cancel() end self._tween = TweenService:Create(self.List, OP, {Size = UDim2.new(1,0,0,0)}) self._tween.Completed:Once(function(state) if state == Enum.PlaybackState.Completed and not self.IsOpen then self.List.Visible = false end end) self._tween:Play() end function D:Destroy()
-    if self._destroyed then return end
-    self._destroyed = true
-    self.IsOpen = false
-    if self._tween then pcall(function() self._tween:Cancel() end); self._tween = nil end
-    pcall(function() self.Frame:Destroy() end)
-    table.clear(self._btns)
-end return D end)()
+    function D:_fire(val)
+        if typeof(self.Callback) ~= "function" then return end
+        task.spawn(function()
+            local ok, err = pcall(self.Callback, val)
+            if not ok then warn("Dropdown err:", err) end
+        end)
+    end
+
+    function D:Set(val, silent)
+        local idx = table.find(self._opts, val)
+        if not idx then return false end
+        self:_select(idx)
+        if not silent then self:_fire(self.Value) end
+        return true
+    end
+
+    function D:SetOptions(opts, keep)
+        if self.IsOpen then self:Close() end
+        for _, button in pairs(self._btns) do
+            pcall(function() button:Destroy() end)
+        end
+        table.clear(self._btns)
+        self._opts = table.clone(opts or {})
+
+        for i, option in ipairs(self._opts) do
+            local button = create("TextButton", {
+                Name = "O_" .. i,
+                LayoutOrder = i,
+                Size = UDim2.new(1, -2, 0, 48),
+                BackgroundColor3 = THEME.Element,
+                BackgroundTransparency = 0.14,
+                Text = "   " .. tostring(option),
+                TextColor3 = Color3.fromRGB(225, 231, 248),
+                TextTransparency = 0,
+                Font = Enum.Font.GothamSemibold,
+                TextSize = 15,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                AutoButtonColor = false,
+                ZIndex = 502,
+                Parent = self.Scroll
+            })
+            create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = button})
+            create("UIStroke", {
+                Color = Theme.Stroke,
+                Thickness = 1,
+                Transparency = 0.68,
+                Parent = button
+            })
+            create("UIPadding", {PaddingLeft = UDim.new(0, 10), Parent = button})
+
+            button.MouseEnter:Connect(function()
+                if self.Value ~= option then
+                    button.BackgroundTransparency = 0.04
+                end
+            end)
+            button.MouseLeave:Connect(function()
+                if self.Value ~= option then
+                    -- Keep idle rows opaque; the old transparency=1 made them disappear.
+                    button.BackgroundTransparency = 0.14
+                end
+            end)
+            button.Activated:Connect(function()
+                self:_select(i)
+                self:Close()
+                self:_fire(self.Value)
+            end)
+            self._btns[i] = button
+        end
+
+        self._selIdx = (keep ~= false and self.Value ~= nil) and table.find(self._opts, self.Value) or nil
+        if not self._selIdx then
+            self.Value = nil
+            self.Header.Text = "Select..."
+        end
+        if self.Value then self.Header.Text = tostring(self.Value) end
+
+        local contentHeight = #self._opts * 48 + 18
+        self.Scroll.CanvasSize = UDim2.fromOffset(0, contentHeight)
+        self._targetHeight = math.min(contentHeight, UserInputService.TouchEnabled and 230 or 220)
+        if self._selIdx then self:_select(self._selIdx) end
+    end
+
+    function D:Open()
+        if self.IsOpen or self._destroyed or not self.Frame.Parent then return end
+        if activeDropdown and activeDropdown ~= self then
+            pcall(function() activeDropdown:Close() end)
+        end
+        if self._tween then
+            pcall(function() self._tween:Cancel() end)
+            self._tween = nil
+        end
+
+        activeDropdown = self
+        self.IsOpen = true
+        self:_enforceStyle()
+        if self.Chevron then self.Chevron.Text = "⌃" end
+
+        local camera = workspace.CurrentCamera
+        local viewport = camera and camera.ViewportSize or Vector2.new(800, 600)
+        local topInset, bottomInset = Vector2.zero, Vector2.zero
+        pcall(function()
+            topInset, bottomInset = GuiService:GetGuiInset()
+        end)
+
+        local rowPosition = self.Frame.AbsolutePosition
+        local rowSize = self.Frame.AbsoluteSize
+        local rowTop = rowPosition.Y
+        local rowBottom = rowTop + rowSize.Y
+        local safeTop = math.max(4, topInset.Y + 6)
+        local safeBottom = math.max(safeTop + 72, viewport.Y - bottomInset.Y - 6)
+        local availableAbove = math.max(0, rowTop - safeTop - 4)
+        local availableBelow = math.max(0, safeBottom - rowBottom - 4)
+        local desired = math.max(60, self._targetHeight)
+
+        self._openAbove = availableBelow < math.min(desired, 112) and availableAbove > availableBelow
+        local available = self._openAbove and availableAbove or availableBelow
+        self._displayHeight = math.min(desired, math.max(60, available))
+        self._displayHeight = math.min(self._displayHeight, math.max(60, safeBottom - safeTop - 12))
+
+        local width = math.max(160, math.min(rowSize.X, viewport.X - 12))
+        local x = math.clamp(rowPosition.X, 6, math.max(6, viewport.X - width - 6))
+        local y = self._openAbove and (rowTop - self._displayHeight - 4) or (rowBottom + 4)
+        y = math.clamp(y, safeTop, math.max(safeTop, safeBottom - self._displayHeight))
+
+        self.List.Position = UDim2.fromOffset(x, y)
+        self.Scroll.CanvasPosition = Vector2.zero
+        self.List.Size = UDim2.fromOffset(width, 0)
+        self.List.Visible = true
+
+        self._tween = TweenService:Create(self.List, OP, {
+            Size = UDim2.fromOffset(width, self._displayHeight)
+        })
+        self._tween:Play()
+    end
+
+    function D:Close()
+        if not self.IsOpen or self._destroyed then return end
+        self.IsOpen = false
+        if activeDropdown == self then activeDropdown = nil end
+        if self.Chevron then self.Chevron.Text = "⌄" end
+        if self._tween then
+            pcall(function() self._tween:Cancel() end)
+            self._tween = nil
+        end
+        self._tween = TweenService:Create(self.List, OP, {
+            Size = UDim2.fromOffset(self.List.AbsoluteSize.X, 0)
+        })
+        self._tween.Completed:Once(function(state)
+            if state == Enum.PlaybackState.Completed and not self.IsOpen and self.List and self.List.Parent then
+                self.List.Visible = false
+            end
+        end)
+        self._tween:Play()
+    end
+
+    function D:Destroy()
+        if self._destroyed then return end
+        self._destroyed = true
+        self.IsOpen = false
+        if activeDropdown == self then activeDropdown = nil end
+        if self._tween then
+            pcall(function() self._tween:Cancel() end)
+            self._tween = nil
+        end
+        pcall(function() self.List:Destroy() end)
+        pcall(function() self.Frame:Destroy() end)
+        table.clear(self._btns)
+    end
+
+    function D.CloseAll()
+        if activeDropdown then
+            pcall(function() activeDropdown:Close() end)
+        end
+    end
+
+    function D.DestroyOverlay()
+        activeDropdown = nil
+        if popupGui then
+            pcall(function() popupGui:Destroy() end)
+            popupGui = nil
+        end
+    end
+
+    return D
+end)()
 
 MovementUtility = (function() local MU = {} MU.__index = MU local DEFAULT_WALKSPEED = 16 local DEFAULT_JUMPPOWER = 50 local SAFE_RECORD_INTERVAL = 0.5 local SUPPRESSED_STATES = { Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll } local function getCharacterParts(player) local character = player.Character if not character or not character.Parent then return nil end local humanoid = character:FindFirstChildOfClass("Humanoid") local root = character:FindFirstChild("HumanoidRootPart") return character, humanoid, root end function MU.new() local self = setmetatable({}, MU) self._player = Players.LocalPlayer self._destroyed = false self._walkSpeed = nil self._jumpPower = nil self._collisionEnabled = true self._originalCollide = setmetatable({}, { __mode = "k" }) self._suppressedHumanoid = nil self._originalStateEnabled = {} self._lastSafeCFrame = nil self._safeTimer = 0 self._steppedConn = nil self._descendantConn = nil self._noclipCharacter = nil self._heartbeatConn = nil self._charConn = self._player.CharacterAdded:Connect(function(character) task.spawn(function() self:_onCharacterAdded(character) end) end) self._heartbeatConn = RunService.Heartbeat:Connect(function(dt) self._safeTimer += dt if self._safeTimer < SAFE_RECORD_INTERVAL then return end self._safeTimer = 0 if self._collisionEnabled then pcall(function() local _, humanoid, root = getCharacterParts(self._player) if root and humanoid and humanoid.Health > 0 then self._lastSafeCFrame = root.CFrame end end) end end) if self._player.Character then task.spawn(function() self:_onCharacterAdded(self._player.Character) end) end return self end function MU:_applyStats(humanoid) pcall(function() if self._walkSpeed ~= nil then humanoid.WalkSpeed = self._walkSpeed end if self._jumpPower ~= nil then humanoid.UseJumpPower = true humanoid.JumpPower = self._jumpPower end end) end function MU:_onCharacterAdded(character) local humanoid = character:WaitForChild("Humanoid", 5) if not humanoid or self._destroyed or self._player.Character ~= character then return end self:_applyStats(humanoid) table.clear(self._originalCollide) if not self._collisionEnabled then character:WaitForChild("HumanoidRootPart", 5) self:_startNoclip(character) end end function MU:SetWalkSpeed(speed) if self._destroyed or type(speed) ~= "number" then return end self._walkSpeed = math.max(speed, 0) local _, humanoid = getCharacterParts(self._player) if humanoid then self:_applyStats(humanoid) end end function MU:SetJumpPower(power) if self._destroyed or type(power) ~= "number" then return end self._jumpPower = math.max(power, 0) local _, humanoid = getCharacterParts(self._player) if humanoid then self:_applyStats(humanoid) end end function MU:_noclipPart(part) if self._originalCollide[part] == nil then self._originalCollide[part] = part.CanCollide end part.CanCollide = false end function MU:_setStatesSuppressed(humanoid, suppressed)
     if not humanoid then return end
@@ -1976,9 +2288,11 @@ local savedSchemaVersion = tonumber(SavedData.ConfigSchemaVersion) or 0
 for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 -- Migrate only old schemas: a user-selected 100-stud range in a new config must remain 100.
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
-CFG.ConfigSchemaVersion = 2
+-- Schema 3: old configs often had the stats overlay enabled; turn it off once by default.
+if savedSchemaVersion < 3 then CFG.ShowStats = false end
+CFG.ConfigSchemaVersion = 3
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=21, FarmMethod="Fast", FastSpeed=24, TeleportSpeed=25, FarmAvoidMurderer=false, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
+local CONFIG_DEFAULTS = {MaxSpeed=21, FarmMethod="Fast", FastSpeed=24, TeleportSpeed=25, FarmAvoidMurderer=false, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=false, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=3}
 local ENUM_CONFIG_VALUES = {
     FarmMethod = {"Under Map", "Teleport", "Fast"},
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
@@ -3616,10 +3930,10 @@ logGui = Instance.new("ScreenGui") logGui.Name = "LiberiumLogs" logGui.ResetOnSp
 eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Color3.fromRGB(140, 100, 255))
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() UIControls.espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() UIControls.farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() UIControls.autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() UIControls.optToggle:Set(not CFG.OptimizeFPS) end)
-uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.74 ready", "Success", 2.5) end end)
+uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if not visible and Dropdown and Dropdown.CloseAll then Dropdown.CloseAll() end if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.75 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
-setBootStage("v91.74  •  READY")
+setBootStage("v91.75  •  READY")
 task.delay(1.2, function()
     pcall(function()
         if BOOT_ERROR_CONNECTION then BOOT_ERROR_CONNECTION:Disconnect() BOOT_ERROR_CONNECTION = nil end
@@ -3755,5 +4069,9 @@ end)
 -- v91.71: Multi-part R6/R15 contact probes, round-event cleanup, murderer-aware target scoring,
 --         and a safe gethui() / PlayerGui host fallback improve executor and respawn resilience.
 
+-- v91.75: Dropdown options render in a dedicated top-level ScreenGui, outside page scroll clipping;
+--          viewport-aware placement and opaque touch rows prevent invisible/unclickable farm methods.
+-- v91.75: Ping/FPS overlay defaults OFF, legacy saved configs migrate to OFF, and the Performance toggle
+--          remains the only manual way to show or hide the stats panel.
 -- v91.71: Main ScreenGui now always uses PlayerGui for Arceus X rendering; gethui is not required.
 -- v91.71: A temporary PlayerGui boot panel reports the last startup stage and captures runtime errors.
