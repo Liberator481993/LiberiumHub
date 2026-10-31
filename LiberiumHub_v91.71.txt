@@ -2699,10 +2699,8 @@ local function glideTo(target, speed, mode)
                     -- without the large vertical hopping that made earlier farming look jerky.
                     and {
                         rootOffset,
-                        math.clamp(rootOffset - 0.16, 1.8, 4.5),
-                        math.clamp(rootOffset + 0.16, 1.8, 4.5),
-                        math.clamp(rootOffset - 0.32, 1.8, 4.5),
-                        math.clamp(rootOffset + 0.32, 1.8, 4.5)
+                        math.clamp(rootOffset - 0.26, 1.8, 4.5),
+                        math.clamp(rootOffset + 0.26, 1.8, 4.5)
                     }
                     or { rootOffset, math.max(2.0, rootOffset - 0.2), math.max(1.8, rootOffset - 0.45) }
                 for _, heightOffset in ipairs(heightOffsets) do
@@ -2716,7 +2714,7 @@ local function glideTo(target, speed, mode)
                     -- Allow the avatar to settle at the contact point before checking pickup state.
                     RunService.Heartbeat:Wait()
                     if typeof(touchFn) == "function" then
-                        local maxAttempts = mode == "farm" and 3 or 3
+                        local maxAttempts = mode == "farm" and 2 or 3
                         for attempt = 1, maxAttempts do
                             for _, bodyPart in ipairs(touchParts) do
                                 pcall(function() touchFn(bodyPart, targetPart, 0) end)
