@@ -54,13 +54,21 @@ jobs:
               "function Sec:AddButton", "function Sec:AddDropdown",
               "local OPTION_HEIGHT = UserInputService.TouchEnabled and 50 or 42",
               "Name = \"AmbientDecor\"", "local fitScale = touch and 1",
-              "coinTracker =", "weaponTracker =", "LootTracker =", "roleHUD ="
+              "coinTracker =", "weaponTracker =", "LootTracker =", "roleHUD =",
+              "s.Scale = create(\\\"UIScale\\\", {Scale = 1, Parent = s.Main})",
+              "self.FoldButton.Size = compact and UDim2.fromOffset(40, 40)",
+              "if s.SideCollapsed then", "DisplayOrder = 2500", "DisplayOrder = 2450",
+              "local glowPulse = TweenInfo.new",
+              "if self.PortraitLayout then self:SetSidebarCollapsed(true) end",
+              "setStartupStatus(\\\"READY • V91.89\\\")"
           ]
           for item in required:
               count = source.count(item)
               if count != 1:
                   raise SystemExit(f"FAIL: expected one occurrence of {item!r}, got {count}")
-          print("UI API / mobile layout / gameplay module structure: PASS")
+          if "READY • V91.82" in source or "v91.88 ready" in source:
+              raise SystemExit("FAIL: stale startup version string remains")
+          print("UI API / mobile navigation / touch hit targets / overlay order / gameplay module structure: PASS")
           PY
 
       - name: Upload validation report
