@@ -2427,7 +2427,8 @@ local function glideTo(target, speed, mode)
                     -- Allow the avatar to settle at the contact point before checking pickup state.
                     RunService.Heartbeat:Wait()
                     if typeof(touchFn) == "function" then
-                        local maxAttempts = mode == "farm" and 1 or 3
+                        -- A few heartbeat-separated probes let the server register different R6/R15 contact shapes.
+                        local maxAttempts = 3
                         for attempt = 1, maxAttempts do
                             for _, bodyPart in ipairs(touchParts) do
                                 pcall(function() touchFn(bodyPart, targetPart, 0) end)
@@ -3144,6 +3145,7 @@ local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v)
         if CFG.AutoPickup then weaponTracker:Stop() end
     else
         coinTracker:Stop()
+        farmTeleportHomeCFrame, farmTeleportPending = nil, nil
         if CFG.AutoPickup then weaponTracker:Start() end
     end
 end)
