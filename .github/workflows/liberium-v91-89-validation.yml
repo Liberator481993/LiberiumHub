@@ -1,0 +1,73 @@
+name: Liberium v91.89 Luau Validation
+
+on:
+  push:
+    branches:
+      - liberium-v91-89-pulsehub-ui-rebuild
+    paths:
+      - "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt"
+      - ".github/workflows/liberium-v91-89-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download official Luau compiler 0.745
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/luau-lang/luau/releases/download/0.745/luau-ubuntu.zip" -o /tmp/luau.zip
+          mkdir -p /tmp/luau
+          unzip -q /tmp/luau.zip -d /tmp/luau
+          COMPILER="$(find /tmp/luau -type f -name 'luau-compile' -print -quit)"
+          test -n "$COMPILER"
+          chmod +x "$COMPILER"
+          echo "LUAU_COMPILER=$COMPILER" >> "$GITHUB_ENV"
+          "$COMPILER" --help >/tmp/luau-help.txt 2>&1 || true
+          echo "Official Luau compiler ready."
+
+      - name: Compile v91.89 with Luau compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation
+          "$LUAU_COMPILER" "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt" > /dev/null
+          printf "Luau syntax compile: PASS\n" | tee validation/luau-compile-report.txt
+          wc -l -c "Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt" | tee -a validation/luau-compile-report.txt
+
+      - name: Audit UI API and mobile sizing
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("Liberium_Hub_v91.89_PulseHub_UI_Rebuild.txt").read_text(encoding="utf-8")
+          required = [
+              "function Lib.new", "function Win:AddTab", "function Tab:AddSubTab",
+              "function Sub:AddSection", "function Sec:AddToggle", "function Sec:AddSlider",
+              "function Sec:AddButton", "function Sec:AddDropdown",
+              "local OPTION_HEIGHT = UserInputService.TouchEnabled and 50 or 42",
+              "Name = \"AmbientDecor\"", "local fitScale = touch and 1",
+              "coinTracker =", "weaponTracker =", "LootTracker =", "roleHUD ="
+          ]
+          for item in required:
+              count = source.count(item)
+              if count != 1:
+                  raise SystemExit(f"FAIL: expected one occurrence of {item!r}, got {count}")
+          print("UI API / mobile layout / gameplay module structure: PASS")
+          PY
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: liberium-v91-89-luau-validation
+          path: validation/luau-compile-report.txt
+          if-no-files-found: ignore
+          retention-days: 14
