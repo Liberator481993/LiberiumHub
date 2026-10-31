@@ -1775,12 +1775,13 @@ end
 -- Keep the predicate strict so coin containers, map props and decorative loot are never farm targets.
 local function isCoin(inst)
     if not inst or not inst:IsA("BasePart") or not inst.Parent then return false end
-    local name = string.lower(inst.Name)
-    if not name:find("coin", 1, true) and inst:GetAttribute("CoinID") == nil then return false end
     if inst:GetAttribute("Collected") == true or not inst.CanTouch then return false end
     local touch = inst:FindFirstChild("TouchInterest")
         or inst:FindFirstChildWhichIsA("TouchTransmitter", true)
-    return touch ~= nil
+    if not touch then return false end
+    local coinId = inst:GetAttribute("CoinID")
+    if coinId ~= nil and farmBagEventFull[coinId] then return false end
+    return true
 end
 
 -- Return the floor raycast below a coin, excluding the avatar and coin holder.
@@ -2085,7 +2086,7 @@ coinTracker = (function()
             local attempts = (failures[obj] or 0) + 1
             failures[obj] = attempts
             if attempts >= 4 then
-                duration = 18
+                duration = 30
             else
                 duration = math.max(duration, 0.6 * (2 ^ (attempts - 1)))
             end
