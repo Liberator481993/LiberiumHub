@@ -2049,15 +2049,66 @@ function Win:AddTab(name, icon, groupName)
     if not group then
         local header = create("Frame", {
             Name = "NavGroup_" .. groupName:gsub("%W", ""),
-            Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1,
-            LayoutOrder = groupRank * 100, Parent = self.Side
+            Size = UDim2.new(1, 0, 0, 24),
+            BackgroundTransparency = 1,
+            LayoutOrder = groupRank * 100,
+            Parent = self.Side
         })
-        label({
-            Text = string.upper(groupName), Font = Enum.Font.GothamBold, TextSize = 8,
-            TextColor3 = Color3.fromRGB(112, 116, 124), Position = UDim2.fromOffset(7, 2),
-            Size = UDim2.new(1, -14, 1, -4), Parent = header
+        local groupButton = create("TextButton", {
+            Name = "GroupToggle",
+            Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = THEME.Surface2,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            AutoButtonColor = false,
+            Text = "",
+            Parent = header
+        }, {corner(7)})
+        local groupLabel = label({
+            Text = string.upper(groupName),
+            Font = Enum.Font.GothamBold,
+            TextSize = 8,
+            TextColor3 = Color3.fromRGB(135, 139, 149),
+            Position = UDim2.fromOffset(8, 1),
+            Size = UDim2.new(1, -32, 1, -2),
+            Parent = groupButton
         })
-        group = {Name = groupName, Header = header, Tabs = {}}
+        local groupArrow = label({
+            Text = "⌄",
+            Font = Enum.Font.GothamBold,
+            TextSize = 13,
+            TextColor3 = THEME.SubText,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            Position = UDim2.new(1, -24, 0, 0),
+            Size = UDim2.fromOffset(20, 22),
+            Parent = groupButton
+        })
+        group = {
+            Name = groupName,
+            Header = header,
+            Button = groupButton,
+            Label = groupLabel,
+            Arrow = groupArrow,
+            Tabs = {},
+            Collapsed = false
+        }
+        groupButton.MouseEnter:Connect(function()
+            tween(groupButton, FAST, {BackgroundTransparency = 0.55})
+            tween(groupLabel, FAST, {TextColor3 = THEME.Text})
+        end)
+        groupButton.MouseLeave:Connect(function()
+            tween(groupButton, FAST, {BackgroundTransparency = 1})
+            tween(groupLabel, FAST, {TextColor3 = Color3.fromRGB(135, 139, 149)})
+        end)
+        groupButton.Activated:Connect(function()
+            group.Collapsed = not group.Collapsed
+            groupArrow.Text = group.Collapsed and "›" or "⌄"
+            tween(groupButton, FAST, {BackgroundTransparency = group.Collapsed and 0.72 or 1})
+            for _, member in ipairs(group.Tabs) do
+                local searchAllows = self.SearchQuery ~= "" and member._searchVisible == true
+                member.Btn.Visible = self.SearchQuery ~= "" and searchAllows or (not group.Collapsed)
+            end
+        end)
         self._groupMap[groupName] = group
         table.insert(self.Groups, group)
     end
@@ -2091,6 +2142,7 @@ function Win:AddTab(name, icon, groupName)
     local itemRank = ({Home = 1, Player = 1, Visuals = 2, Farm = 1, Combat = 1, Settings = 1})[name] or (#group.Tabs + 1)
     tab.Btn.LayoutOrder = groupRank * 100 + 10 + itemRank
     table.insert(group.Tabs, tab)
+    tab.Btn.Visible = not group.Collapsed
     tab.Btn.MouseEnter:Connect(function()
         if self.Active ~= tab then tween(tab.Btn, FAST, {BackgroundTransparency = 0.88}) end
     end)
@@ -2321,7 +2373,8 @@ function Win:ApplySearch(query)
         end
         local tabVisible = query == "" or tabMatch or anyVisibleSub
         tab._searchVisible = tabVisible
-        tab.Btn.Visible = tabVisible
+        local groupExpanded = query ~= "" or not (tab.Group and tab.Group.Collapsed)
+        tab.Btn.Visible = tabVisible and groupExpanded
         if tabVisible then
             anyVisible = true
             if tab.Group then visibleGroups[tab.Group] = true end
