@@ -34,6 +34,21 @@ if not PlayerGui then
     return
 end
 
+-- Prefer the executor's hidden GUI host when available (Arceus X / Delta variants),
+-- but always fall back to PlayerGui so ordinary client environments still work.
+local UI_PARENT = PlayerGui
+pcall(function()
+    local hiddenGuiGetter = gethui
+    if type(hiddenGuiGetter) ~= "function" then
+        local environment = getgenv and getgenv()
+        hiddenGuiGetter = environment and environment.gethui
+    end
+    if type(hiddenGuiGetter) == "function" then
+        local hiddenGui = hiddenGuiGetter()
+        if typeof(hiddenGui) == "Instance" then UI_PARENT = hiddenGui end
+    end
+end)
+
 local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -1383,8 +1398,12 @@ Win.__index, Tab.__index, Sub.__index, Sec.__index = Win, Tab, Sub, Sec
 local Lib = {}
 function Lib.new(title)
     local s = setmetatable({Tabs={}, Conns={}}, Win)
-    local old = PlayerGui:FindFirstChild("GlassUI") if old then old:Destroy() end
-    s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=2000,Parent=PlayerGui})
+    local old = UI_PARENT:FindFirstChild("GlassUI") if old then old:Destroy() end
+    if UI_PARENT ~= PlayerGui then
+        local playerGuiOld = PlayerGui:FindFirstChild("GlassUI")
+        if playerGuiOld then playerGuiOld:Destroy() end
+    end
+    s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=2000,Parent=UI_PARENT})
     s.Scale = create("UIScale", {Parent=s.Gui})
     local cameraConnection
     local function upd()
