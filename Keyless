@@ -2200,14 +2200,21 @@ local function glideTo(target, speed, mode)
                 local touchFn = firetouchinterest
                 local touchParts = {}
                 local function addTouchPart(part)
-                    if part and part.Parent and part:IsA("BasePart") then
+                    if part and part.Parent and part:IsA("BasePart") and not table.find(touchParts, part) then
                         pcall(function() part.CanTouch = true end)
                         table.insert(touchParts, part)
                     end
                 end
                 addTouchPart(root)
                 if mode == "farm" then
-                    -- Keep the farm contact set small to avoid repeated touch events for every body part.
+                    -- Match PulseHub's broad character contact set: head, accessories, torso and feet.
+                    addTouchPart(character:FindFirstChild("Head"))
+                    for _, child in ipairs(character:GetChildren()) do
+                        if child:IsA("Accessory") then addTouchPart(child:FindFirstChild("Handle")) end
+                    end
+                    addTouchPart(character:FindFirstChild("UpperTorso"))
+                    addTouchPart(character:FindFirstChild("Torso"))
+                    addTouchPart(character:FindFirstChild("LowerTorso"))
                     addTouchPart(character:FindFirstChild("LeftFoot") or character:FindFirstChild("Left Leg"))
                     addTouchPart(character:FindFirstChild("RightFoot") or character:FindFirstChild("Right Leg"))
                 else
@@ -2236,7 +2243,7 @@ local function glideTo(target, speed, mode)
                     -- Allow the avatar to settle at the contact point before checking pickup state.
                     RunService.Heartbeat:Wait()
                     if typeof(touchFn) == "function" then
-                        local maxAttempts = mode == "farm" and 2 or 3
+                        local maxAttempts = mode == "farm" and 1 or 3
                         for attempt = 1, maxAttempts do
                             for _, bodyPart in ipairs(touchParts) do
                                 pcall(function() touchFn(bodyPart, targetPart, 0) end)
