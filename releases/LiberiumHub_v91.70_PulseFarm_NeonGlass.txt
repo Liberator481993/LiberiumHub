@@ -1782,7 +1782,9 @@ local function hasGroundBelow(obj, part)
     params.IgnoreWater = true
     pcall(function() params.RespectCanCollide = true end)
     local ignored = {}
-    if LocalPlayer.Character then table.insert(ignored, LocalPlayer.Character) end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character then table.insert(ignored, player.Character) end
+    end
     if obj then table.insert(ignored, obj) end
     local container = getActiveCoinContainer()
     if container then table.insert(ignored, container) end
@@ -1966,8 +1968,8 @@ coinTracker = (function()
                     local directDistance = (part.Position - origin).Magnitude
                     if not maxDist or directDistance <= maxDist then
                         local ground = getCachedGround(obj, part)
-                        local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
-                        if ground and floorDelta <= 21 and math.abs(part.Position.Y - origin.Y) <= 24 then
+                        -- Different map floors are valid targets; the raycast only rejects unsupported coins.
+                        if ground then
                             table.insert(candidates, {
                                 object = obj, part = part, ground = ground,
                                 distance = directDistance, score = directDistance
@@ -2040,9 +2042,7 @@ coinTracker = (function()
                 local part = getTouchPart(obj)
                 if part and part.Parent and part.CanTouch and part.Transparency < 0.98 then
                     local ground = getCachedGround(obj, part)
-                    local floorDelta = ground and math.abs(origin.Y - ground.Position.Y) or math.huge
-                    local verticalDelta = math.abs(part.Position.Y - origin.Y)
-                    if ground and floorDelta <= 21 and verticalDelta <= 24 then
+                    if ground then
                         eligible += 1
                         nearest = math.min(nearest, (part.Position - origin).Magnitude)
                     end
@@ -2078,7 +2078,7 @@ local function glideTo(target, speed, mode)
     local targetPart = getTouchPart(target)
     if not targetPart then return false end
     if mode == "farm" and (not coinTracker or not coinTracker:IsValid(target)
-        or math.abs(targetPart.Position.Y - root.Position.Y) > 24) then return false end
+        or math.abs(targetPart.Position.Y - root.Position.Y) > 120) then return false end
     local farmMethod = mode == "farm" and CFG.FarmMethod or "Fast"
     if mode == "farm" then
         if farmMethod == "Under Map" then
@@ -2185,7 +2185,7 @@ local function glideTo(target, speed, mode)
             end
             local delta = destination - root.Position
             local distance = delta.Magnitude
-            if mode == "farm" and math.abs(delta.Y) > 60 then break end
+            if mode == "farm" and math.abs(delta.Y) > 120 then break end
             if distance <= 0.8 then
                 if routeStage == "hide" then
                     routeStage = "contact"
