@@ -2210,7 +2210,7 @@ function Win:AddTab(name, icon, groupName)
 
     tab.SubBar = create("ScrollingFrame", {
         Name = "SubNavigation", Position = UDim2.fromOffset(0, 58),
-        Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 52), BackgroundTransparency = 1,
         BorderSizePixel = 0, ScrollBarThickness = 0,
         ScrollBarImageTransparency = 1, ScrollingDirection = Enum.ScrollingDirection.X,
         AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -2220,7 +2220,7 @@ function Win:AddTab(name, icon, groupName)
         SortOrder = Enum.SortOrder.LayoutOrder
     })})
     tab.PageHolder = create("Frame", {
-        Position = UDim2.fromOffset(0, 100), Size = UDim2.new(1, 0, 1, -100),
+        Position = UDim2.fromOffset(0, 110), Size = UDim2.new(1, 0, 1, -110),
         BackgroundTransparency = 1, Parent = tab.Cont
     })
     table.insert(self.Tabs, tab)
@@ -2635,6 +2635,9 @@ function Sec:AddToggle(name, def, callback)
         })
     })
     self.Win:RegisterSearchable(row, self.Name .. " " .. name, self.Sub)
+    if self.CountLabel then
+        self.CountLabel.Text = tostring((tonumber(self.CountLabel.Text) or 0) + 1)
+    end
     local rail = create("Frame", {
         Name = "AccentRail",
         Position = UDim2.fromOffset(0, 12),
@@ -2764,6 +2767,9 @@ function Sec:AddSlider(name, minimum, maximum, default, callback, increment)
         })
     })
     self.Win:RegisterSearchable(row, self.Name .. " " .. name, self.Sub)
+    if self.CountLabel then
+        self.CountLabel.Text = tostring((tonumber(self.CountLabel.Text) or 0) + 1)
+    end
     label({
         Text = tostring(name),
         Position = UDim2.fromOffset(12, 7),
@@ -2900,6 +2906,9 @@ function Sec:AddButton(name, callback)
         })
     })
     self.Win:RegisterSearchable(button, self.Name .. " " .. tostring(name), self.Sub)
+    if self.CountLabel then
+        self.CountLabel.Text = tostring((tonumber(self.CountLabel.Text) or 0) + 1)
+    end
     create("Frame", {
         Position = UDim2.fromOffset(0, 10),
         Size = UDim2.fromOffset(3, self.Win.MobileLayout and 38 or 30),
@@ -2948,6 +2957,9 @@ end
 function Sec:AddDropdown(name, options, default, callback)
     local dropdown = Dropdown.new(self.Frame, name, options, default, callback)
     if dropdown and dropdown.Frame then self.Win:RegisterSearchable(dropdown.Frame, self.Name .. " " .. name, self.Sub) end
+    if self.CountLabel then
+        self.CountLabel.Text = tostring((tonumber(self.CountLabel.Text) or 0) + 1)
+    end
     return dropdown
 end
 
