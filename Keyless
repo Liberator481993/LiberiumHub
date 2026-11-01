@@ -1395,7 +1395,7 @@ function Lib.new(title)
             local fitScale = math.min(availableWidth / baseWidth, availableHeight / baseHeight)
             s.Scale.Scale = math.clamp(fitScale, 0.5, 1)
             if s.Main then s.Main.Size = UDim2.fromOffset(baseWidth, baseHeight) end
-            if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -54) end
+            if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -56) end
             if s.Content then
                 s.Content.Position = UDim2.fromOffset(sideWidth, 56)
                 s.Content.Size = UDim2.new(1, -sideWidth, 1, -56)
@@ -1472,6 +1472,7 @@ end
 function Win:AddTab(name, icon)
     local t = setmetatable({Win=self,Name=name,Subs={}}, Tab)
     local navHeight = self.MobileLayout and 50 or 43
+    local subBarHeight = self.MobileLayout and 46 or 40
     t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,navHeight),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Text="",AutoButtonColor=false,Parent=self.Side}, {corner(10),stroke(1,0.94),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(76,52,126),Color3.fromRGB(28,66,82)),Rotation=0,Transparency=NumberSequence.new(0.56)})})
     t.BtnStroke = t.Btn:FindFirstChildOfClass("UIStroke")
     t.ActiveMark = create("Frame", {Name="ActiveMark",Position=UDim2.fromOffset(0,8),Size=UDim2.fromOffset(4,27),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(3),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
@@ -1501,7 +1502,6 @@ end
 function Tab:_SelectSub(s) if self.ActiveSub==s then return end self.ActiveSub=s for _, v in ipairs(self.Subs) do local a = v==s tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.96,TextColor3=a and THEME.Text or THEME.SubText}) if v.Mark then v.Mark.Visible=a end if v.BtnStroke then v.BtnStroke.Transparency=a and 0.48 or 0.96 end if not a then v.Page.Visible=false end end s.Page.Visible=true if s.Scroll then s.Scroll.CanvasPosition=Vector2.zero end end
 function Tab:AddSubTab(name)
     local s = setmetatable({Tab=self,Name=name}, Sub)
-    local subBarHeight = self.Win.MobileLayout and 46 or 40
     s.Btn = create("TextButton", {Text=name,Font=Enum.Font.GothamBold,TextSize=self.Win.MobileLayout and 12 or 11,TextColor3=THEME.SubText,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.96,AutoButtonColor=false,AutomaticSize=Enum.AutomaticSize.X,Size=UDim2.new(0,0,1,0),Parent=self.SubBar}, {corner(9),stroke(1,0.95),create("UIPadding", {PaddingLeft=UDim.new(0,14),PaddingRight=UDim.new(0,14)})})
     s.BtnStroke = s.Btn:FindFirstChildOfClass("UIStroke")
     s.Mark = create("Frame", {Name="ActiveMark",AnchorPoint=Vector2.new(0.5,1),Position=UDim2.new(0.5,0,1,-2),Size=UDim2.new(1,-22,0,2),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=s.Btn}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2)})})
@@ -2046,7 +2046,7 @@ local function glideTo(target, speed, mode)
     local originalTargetTransparency = targetPart.Transparency
     glideInProgress = true
     success, err = pcall(function()
-        -- Delta-safe smooth step movement: no anchoring; only temporary collision changes.
+        -- Executor-safe smooth step movement: no anchoring; only temporary collision changes.
         root.Anchored = false
         humanoid.AutoRotate = false
         -- Clear inherited momentum once before stepping; clearing it every frame can fight replication.
@@ -2907,10 +2907,10 @@ uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColo
 task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
--- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
+-- v91.15 MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
 -- shared target-part selection, no duplicate coin tracking, non-anchored stepped movement,
 -- multi-limb touch pulse, physics restoration, working prediction-style presets, and complete config validation.
--- Static review only: runtime behavior still needs verification in Delta on-device.
+-- Static review only: runtime behavior still needs verification on-device.
 
 -- v91.16 audit notes: Pulse-style smooth coin routing (original implementation), contact collisions restored at pickup,
 -- coin hitbox offsets account for avatar/coin dimensions, failed targets receive a longer cooldown, and UI tabs gained
@@ -3017,5 +3017,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- attempts without moving the character. The existing sidebar UI receives a darker neon-glass pass.
 -- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
 
--- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
--- Static source validation only; in-game execution still requires an on-device Delta test.
+-- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits.
+-- v91.70: premium Neon Glass header/footer labels, Arceus X branding, portrait-first mobile proportions,
+-- larger touch targets for navigation, toggles, sliders and buttons, and clearer compact-screen typography.
+-- Static source validation only; Arceus X runtime behavior still requires an on-device test.
