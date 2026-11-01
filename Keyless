@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.70 | NEON GLASS UI OVERHAUL | ARCEUS X
+-- LIBERIUM HUB | v91.71 | NEON GLASS UI OVERHAUL | ARCEUS X
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -1378,10 +1378,16 @@ function Lib.new(title)
     local function upd()
         local cam = workspace.CurrentCamera
         if cam then
-            -- Portrait-first layout on touch devices: preserve readable controls instead of
-            -- shrinking the desktop panel until every tap target becomes tiny.
+            -- Use the actual ScreenGui canvas: Camera.ViewportSize and the inset-safe
+            -- ScreenGui coordinate space are not always identical on notched devices.
+            local canvas = s.Gui.AbsoluteSize
+            local canvasWidth = canvas.X > 0 and canvas.X or cam.ViewportSize.X
+            local canvasHeight = canvas.Y > 0 and canvas.Y or cam.ViewportSize.Y
+
+            -- Portrait-first layout on touch devices: preserve readable controls while
+            -- fitting the panel to the usable safe-area canvas.
             local mobile = UserInputService.TouchEnabled
-            local portrait = cam.ViewportSize.Y >= cam.ViewportSize.X
+            local portrait = canvasHeight >= canvasWidth
             local compactPortrait = mobile and portrait
             local baseWidth = compactPortrait and 450 or 620
             local baseHeight = compactPortrait and 640 or (mobile and 430 or 460)
@@ -1389,16 +1395,31 @@ function Lib.new(title)
             s.MobileLayout = mobile
             s.PortraitLayout = compactPortrait
             s.SideWidth = sideWidth
-            local verticalMargin = UserInputService.TouchEnabled and 58 or 18
-            local availableWidth = math.max(1, cam.ViewportSize.X - 12)
-            local availableHeight = math.max(1, cam.ViewportSize.Y - verticalMargin)
+
+            -- ScreenGui uses CoreUISafeInsets, so the system bar/notch area is
+            -- already excluded. Keep only a small visual breathing margin here.
+            local availableWidth = math.max(1, canvasWidth - 16)
+            local availableHeight = math.max(1, canvasHeight - 20)
             local fitScale = math.min(availableWidth / baseWidth, availableHeight / baseHeight)
-            s.Scale.Scale = math.clamp(fitScale, 0.5, 1)
+            s.Scale.Scale = math.clamp(fitScale, 0.35, 1)
+
             if s.Main then s.Main.Size = UDim2.fromOffset(baseWidth, baseHeight) end
             if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -56) end
             if s.Content then
                 s.Content.Position = UDim2.fromOffset(sideWidth, 56)
                 s.Content.Size = UDim2.new(1, -sideWidth, 1, -56)
+            end
+
+            -- A panel dragged to an edge in landscape must remain reachable
+            -- after rotating back to portrait or when the safe area shrinks.
+            if s.Main then
+                local scale = math.max(s.Scale.Scale, 0.01)
+                local maxX = math.max(0, canvasWidth / 2 - (s.Main.Size.X.Offset * scale) / 2 - 8)
+                local maxY = math.max(0, canvasHeight / 2 - (s.Main.Size.Y.Offset * scale) / 2 - 8)
+                local pos = s.Main.Position
+                local x = math.clamp(pos.X.Offset, -maxX, maxX)
+                local y = math.clamp(pos.Y.Offset, -maxY, maxY)
+                s.Main.Position = UDim2.new(pos.X.Scale, x, pos.Y.Scale, y)
             end
         end
     end
@@ -1411,6 +1432,7 @@ function Lib.new(title)
     end
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
+    table.insert(s.Conns, s.Gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(upd))
     s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
     create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(31,22,56)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(10,14,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(8,25,38))}),Rotation=32,Parent=s.Main})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.105,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
@@ -1422,14 +1444,14 @@ function Lib.new(title)
     local statusWidth = s.MobileLayout and 104 or 120
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(statusWidth,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text=s.MobileLayout and "LIVE  /  v91.70" or "MM2  /  LIVE  /  v91.70",Font=Enum.Font.GothamBold,TextSize=s.MobileLayout and 9 or 8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text=s.MobileLayout and "LIVE  /  v91.71" or "MM2  /  LIVE  /  v91.71",Font=Enum.Font.GothamBold,TextSize=s.MobileLayout and 9 or 8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,56),Size=UDim2.new(0,158,1,-56),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="ARCEUS X  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON GLASS  /  v91.70",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="NEON GLASS  /  v91.71",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -1447,11 +1469,11 @@ function Lib.new(title)
         local scale = math.max(s.Scale.Scale, 0.01)
         local delta = (input.Position - dragStart) / scale
         local cam = workspace.CurrentCamera
-        local maxX, maxY = math.huge, math.huge
-        if cam and s.Main then
-            maxX = math.max(0, cam.ViewportSize.X / (2 * scale) - s.Main.Size.X.Offset / 2 - 8)
-            maxY = math.max(0, cam.ViewportSize.Y / (2 * scale) - s.Main.Size.Y.Offset / 2 - 8)
-        end
+        local canvas = s.Gui.AbsoluteSize
+        local canvasWidth = canvas.X > 0 and canvas.X or (cam and cam.ViewportSize.X or 0)
+        local canvasHeight = canvas.Y > 0 and canvas.Y or (cam and cam.ViewportSize.Y or 0)
+        local maxX = math.max(0, canvasWidth / (2 * scale) - s.Main.Size.X.Offset / 2 - 8)
+        local maxY = math.max(0, canvasHeight / (2 * scale) - s.Main.Size.Y.Offset / 2 - 8)
         local targetX = math.clamp(dragPosition.X.Offset + delta.X, -maxX, maxX)
         local targetY = math.clamp(dragPosition.Y.Offset + delta.Y, -maxY, maxY)
         s.Main.Position = UDim2.new(dragPosition.X.Scale, targetX, dragPosition.Y.Scale, targetY)
@@ -2662,7 +2684,7 @@ label({
     Parent=homeHero
 })
 label({
-    Text=homeMobile and "ARCEUS X  •  ANDROID  •  v91.70" or "NEON CONTROL CENTER  •  ARCEUS X MOBILE",
+    Text=homeMobile and "ARCEUS X  •  ANDROID  •  v91.71" or "NEON CONTROL CENTER  •  ARCEUS X MOBILE",
     Font=Enum.Font.GothamSemibold,
     TextSize=homeMobile and 10 or 9,
     TextColor3=Color3.fromRGB(190,202,233),
@@ -2920,7 +2942,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, ButtonSize = 60, DragThreshold = 10, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.71 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -3036,4 +3058,6 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits.
 -- v91.70: premium Neon Glass header/footer labels, Arceus X branding, portrait-first mobile proportions,
 -- larger touch targets for navigation, toggles, sliders and buttons, and clearer compact-screen typography.
+-- v91.71: scale-to-fit and drag boundaries now use ScreenGui.AbsoluteSize (the actual inset-safe UI canvas);
+-- main window is re-clamped after safe-area/viewport changes and listens for ScreenGui size changes.
 -- Static source validation only; Arceus X runtime behavior still requires an on-device test.
