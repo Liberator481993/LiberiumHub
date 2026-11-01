@@ -1414,8 +1414,10 @@ function Lib.new(title)
             -- after rotating back to portrait or when the safe area shrinks.
             if s.Main then
                 local scale = math.max(s.Scale.Scale, 0.01)
-                local maxX = math.max(0, canvasWidth / 2 - (s.Main.Size.X.Offset * scale) / 2 - 8)
-                local maxY = math.max(0, canvasHeight / 2 - (s.Main.Size.Y.Offset * scale) / 2 - 8)
+                -- Position offsets are pre-UIScale units, so convert the screen-space
+                -- bounds back into the same coordinate space before clamping.
+                local maxX = math.max(0, (canvasWidth / 2 - (s.Main.Size.X.Offset * scale) / 2 - 8) / scale)
+                local maxY = math.max(0, (canvasHeight / 2 - (s.Main.Size.Y.Offset * scale) / 2 - 8) / scale)
                 local pos = s.Main.Position
                 local x = math.clamp(pos.X.Offset, -maxX, maxX)
                 local y = math.clamp(pos.Y.Offset, -maxY, maxY)
