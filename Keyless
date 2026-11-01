@@ -1419,9 +1419,10 @@ function Lib.new(title)
     label({Text="L",Font=Enum.Font.GothamBlack,TextSize=20,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromScale(0,0),Size=UDim2.fromScale(1,1),Parent=logo})
     label({Text="LIBERIUM",Font=Enum.Font.GothamBlack,TextSize=17,TextColor3=THEME.Text,Position=UDim2.fromOffset(53,5),Size=UDim2.new(0,160,0,24),Parent=s.Title})
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
-    local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(120,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
+    local statusWidth = s.MobileLayout and 104 or 120
+    local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(statusWidth,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  LIVE  /  v91.70",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    label({Text=s.MobileLayout and "LIVE  /  v91.70" or "MM2  /  LIVE  /  v91.70",Font=Enum.Font.GothamBold,TextSize=s.MobileLayout and 9 or 8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,56),Size=UDim2.new(0,158,1,-56),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
@@ -1443,8 +1444,17 @@ function Lib.new(title)
         local isTouchDrag = input == dragInput
         local isMouseDrag = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
         if not (isTouchDrag or isMouseDrag) then return end
-        local delta = (input.Position - dragStart) / s.Scale.Scale
-        s.Main.Position = UDim2.new(dragPosition.X.Scale, dragPosition.X.Offset + delta.X, dragPosition.Y.Scale, dragPosition.Y.Offset + delta.Y)
+        local scale = math.max(s.Scale.Scale, 0.01)
+        local delta = (input.Position - dragStart) / scale
+        local cam = workspace.CurrentCamera
+        local maxX, maxY = math.huge, math.huge
+        if cam and s.Main then
+            maxX = math.max(0, cam.ViewportSize.X / (2 * scale) - s.Main.Size.X.Offset / 2 - 8)
+            maxY = math.max(0, cam.ViewportSize.Y / (2 * scale) - s.Main.Size.Y.Offset / 2 - 8)
+        end
+        local targetX = math.clamp(dragPosition.X.Offset + delta.X, -maxX, maxX)
+        local targetY = math.clamp(dragPosition.Y.Offset + delta.Y, -maxY, maxY)
+        s.Main.Position = UDim2.new(dragPosition.X.Scale, targetX, dragPosition.Y.Scale, targetY)
     end))
     table.insert(s.Conns, UserInputService.InputEnded:Connect(function(input)
         if not dragInput then return end
@@ -1511,10 +1521,11 @@ function Tab:AddSubTab(name)
 end
 function Sub:AddSection(name)
     local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
-    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
-    local heading = create("Frame", {Size=UDim2.new(1,0,0,23),BackgroundTransparency=1,Parent=s.Frame})
+    local mobile = self.Win.MobileLayout
+    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(mobile and 14 or 12),create("UIListLayout", {Padding=UDim.new(0,mobile and 10 or 8)})})
+    local heading = create("Frame", {Size=UDim2.new(1,0,0,mobile and 25 or 23),BackgroundTransparency=1,Parent=s.Frame})
     create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
+    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=mobile and 12 or 11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,19),Parent=heading})
     create("Frame", {Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-10,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.68,BorderSizePixel=0,Parent=heading})
     return s
 end
@@ -2618,9 +2629,11 @@ local tHome = win:AddTab("Home", "⌂")
 local sHome = tHome:AddSubTab("Overview")
 local secHome = sHome:AddSection("LIVE OVERVIEW")
 
+local homeMobile = win.MobileLayout
+local homePortrait = win.PortraitLayout
 local homeHero = create("Frame", {
     Name="HomeHero",
-    Size=UDim2.new(1,0,0,78),
+    Size=UDim2.new(1,0,0,homeMobile and 84 or 78),
     BackgroundColor3=Color3.fromRGB(29,23,52),
     BackgroundTransparency=0.06,
     Parent=secHome.Frame
@@ -2646,9 +2659,9 @@ label({
     Parent=homeHero
 })
 label({
-    Text="NEON CONTROL CENTER  •  ARCEUS X MOBILE",
+    Text=homeMobile and "ARCEUS X  •  ANDROID  •  v91.70" or "NEON CONTROL CENTER  •  ARCEUS X MOBILE",
     Font=Enum.Font.GothamSemibold,
-    TextSize=9,
+    TextSize=homeMobile and 10 or 9,
     TextColor3=Color3.fromRGB(190,202,233),
     Position=UDim2.fromOffset(15,39),
     Size=UDim2.new(1,-30,0,17),
@@ -2657,15 +2670,15 @@ label({
 
 local homeGrid = create("Frame", {
     Name="HomeStatusGrid",
-    Size=UDim2.new(1,0,0,112),
+    Size=UDim2.new(1,0,0,homePortrait and 224 or 112),
     BackgroundTransparency=1,
     Parent=secHome.Frame
 }, {
     create("UIGridLayout", {
-        CellSize=UDim2.new(0.5,-5,0,52),
+        CellSize=homePortrait and UDim2.new(1,0,0,50) or UDim2.new(0.5,-5,0,52),
         CellPadding=UDim2.fromOffset(8,8),
         FillDirection=Enum.FillDirection.Horizontal,
-        FillDirectionMaxCells=2,
+        FillDirectionMaxCells=homePortrait and 1 or 2,
         SortOrder=Enum.SortOrder.LayoutOrder
     })
 })
@@ -2689,7 +2702,7 @@ local function makeHomeStatusCard(parent, order, titleText)
     label({
         Text=titleText:upper(),
         Font=Enum.Font.GothamBold,
-        TextSize=8,
+        TextSize=homeMobile and 9 or 8,
         TextColor3=THEME.SubText,
         Position=UDim2.fromOffset(9,5),
         Size=UDim2.new(1,-18,0,13),
@@ -2698,7 +2711,7 @@ local function makeHomeStatusCard(parent, order, titleText)
     local value = label({
         Text="CHECKING",
         Font=Enum.Font.GothamBlack,
-        TextSize=10,
+        TextSize=homeMobile and 12 or 10,
         TextColor3=THEME.Accent2,
         Position=UDim2.fromOffset(9,20),
         Size=UDim2.new(1,-38,0,21),
@@ -2723,7 +2736,7 @@ local homeMapValue = makeHomeStatusCard(homeGrid,4,"Round State")
 
 local homeHint = create("Frame", {
     Name="HomeHint",
-    Size=UDim2.new(1,0,0,57),
+    Size=UDim2.new(1,0,0,homeMobile and 66 or 57),
     BackgroundColor3=THEME.Surface,
     BackgroundTransparency=0.12,
     Parent=secHome.Frame
@@ -2731,7 +2744,7 @@ local homeHint = create("Frame", {
 label({
     Text="FARM waits for real coins in the active map. GUN PICKUP waits for the real GunDrop hitbox; lobby display models are not collectible drops.",
     Font=Enum.Font.GothamMedium,
-    TextSize=9,
+    TextSize=homeMobile and 10 or 9,
     TextColor3=THEME.SubText,
     TextWrapped=true,
     Position=UDim2.fromOffset(10,6),
