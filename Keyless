@@ -1552,8 +1552,11 @@ function Sec:AddToggle(name, def, cb)
     return obj
 end
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
-    inc = inc or 1
-    local val = math.clamp(def or mn, mn, mx)
+    mn, mx = tonumber(mn) or 0, tonumber(mx) or 100
+    if mx < mn then mn, mx = mx, mn end
+    inc = math.max(tonumber(inc) or 1, 0.000001)
+    local range = math.max(mx - mn, 0.000001)
+    local val = math.clamp(tonumber(def) or mn, mn, mx)
     local mobile = self.Win.MobileLayout
     local rowHeight = mobile and 72 or 62
     local trackHeight = mobile and 22 or 18
@@ -1562,7 +1565,7 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=mobile and 13 or 12})
     local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
     local t = create("TextButton", {Position=UDim2.new(0,11,1,-(trackHeight+8)),Size=UDim2.new(1,-22,0,trackHeight),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
-    local alpha0=(val-mn)/(mx-mn)
+    local alpha0=math.clamp((val-mn)/range,0,1)
     local f = create("Frame", {Size=UDim2.fromScale(alpha0,1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(9),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})
     local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=knobSize,BackgroundColor3=Color3.fromRGB(246,249,255),Parent=t}, {corner(8),stroke(1,0.42)})
     hover(r,r,0.3,0.16)
@@ -1571,7 +1574,7 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
         v=tonumber(v) or val
         v=math.clamp(math.floor(v/inc+0.5)*inc,mn,mx)
         val=v
-        local alpha=(v-mn)/(mx-mn)
+        local alpha=math.clamp((v-mn)/range,0,1)
         vl.Text=tostring(math.round(v*1000)/1000)
         tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale(alpha,1)})
         tween(knob,TweenInfo.new(0.08),{Position=UDim2.fromScale(alpha,0.5)})
@@ -2916,7 +2919,7 @@ logGui = Instance.new("ScreenGui") logGui.Name = "LiberiumLogs" logGui.ResetOnSp
 eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Color3.fromRGB(140, 100, 255))
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
-uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
+uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, ButtonSize = 60, DragThreshold = 10, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
 task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
