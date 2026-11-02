@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.72 | NEON GLASS UI OVERHAUL | ARCEUS X
+-- LIBERIUM HUB | v91.73 | NEON GLASS UI OVERHAUL | ARCEUS X
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -1446,14 +1446,22 @@ function Lib.new(title)
     local statusWidth = s.MobileLayout and 104 or 120
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(statusWidth,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text=s.MobileLayout and "LIVE  /  v91.72" or "MM2  /  LIVE  /  v91.72",Font=Enum.Font.GothamBold,TextSize=s.MobileLayout and 9 or 8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
-    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,56),Size=UDim2.new(0,158,1,-56),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
+    label({Text=s.MobileLayout and "LIVE  /  v91.73" or "MM2  /  LIVE  /  v91.73",Font=Enum.Font.GothamBold,TextSize=s.MobileLayout and 9 or 8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,56),Size=UDim2.new(0,158,1,-56),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.None,CanvasSize=UDim2.new(0,0,0,0),Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90})})
+    s.SideLayout = create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder,Parent=s.Side})
+    local function updateSideCanvasSize()
+        if not s.Side or not s.Side.Parent or not s.SideLayout then return end
+        s.Side.CanvasSize = UDim2.new(0,0,0,s.SideLayout.AbsoluteContentSize.Y+18)
+    end
+    table.insert(s.Conns, s.SideLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSideCanvasSize))
+    table.insert(s.Conns, s.Side:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSideCanvasSize))
+    task.defer(updateSideCanvasSize)
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="ARCEUS X  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="NEON GLASS  /  v91.72",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    label({Text="NEON GLASS  /  v91.73",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
     s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
@@ -1540,17 +1548,34 @@ function Tab:AddSubTab(name)
     s.BtnStroke = s.Btn:FindFirstChildOfClass("UIStroke")
     s.Mark = create("Frame", {Name="ActiveMark",AnchorPoint=Vector2.new(0.5,1),Position=UDim2.new(0.5,0,1,-2),Size=UDim2.new(1,-22,0,2),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=s.Btn}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2)})})
     s.Page = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.PageHolder})
-    s.Scroll = create("ScrollingFrame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ScrollBarThickness=3,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Page}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,8)})})
+    s.Scroll = create("ScrollingFrame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ScrollBarThickness=3,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.None,CanvasSize=UDim2.new(0,0,0,0),Parent=s.Page}, {pad(8)})
+    s.ScrollLayout = create("UIListLayout", {Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder,Parent=s.Scroll})
+    local function updateScrollCanvasSize()
+        if not s.Scroll or not s.Scroll.Parent or not s.ScrollLayout then return end
+        s.Scroll.CanvasSize = UDim2.new(0,0,0,s.ScrollLayout.AbsoluteContentSize.Y+16)
+    end
+    table.insert(self.Win.Conns, s.ScrollLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateScrollCanvasSize))
+    table.insert(self.Win.Conns, s.Scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateScrollCanvasSize))
+    task.defer(updateScrollCanvasSize)
     s.Btn.Activated:Connect(function() self:_SelectSub(s) end) table.insert(self.Subs, s) if #self.Subs==1 then self:_SelectSub(s) end return s
 end
 function Sub:AddSection(name)
     local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
     local mobile = self.Win.MobileLayout
-    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(mobile and 14 or 12),create("UIListLayout", {Padding=UDim.new(0,mobile and 10 or 8)})})
+    local framePadding = mobile and 14 or 12
+    local sectionLayout = create("UIListLayout", {Padding=UDim.new(0,mobile and 10 or 8),SortOrder=Enum.SortOrder.LayoutOrder})
+    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,40),AutomaticSize=Enum.AutomaticSize.None,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(framePadding),sectionLayout})
+    s.Layout = sectionLayout
+    local function updateSectionSize()
+        if not s.Frame or not s.Frame.Parent then return end
+        s.Frame.Size = UDim2.new(1,0,0,sectionLayout.AbsoluteContentSize.Y+framePadding*2)
+    end
+    table.insert(self.Win.Conns, sectionLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSectionSize))
     local heading = create("Frame", {Size=UDim2.new(1,0,0,mobile and 25 or 23),BackgroundTransparency=1,Parent=s.Frame})
     create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
     label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=mobile and 12 or 11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,19),Parent=heading})
     create("Frame", {Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-10,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.68,BorderSizePixel=0,Parent=heading})
+    task.defer(updateSectionSize)
     return s
 end
 function Sec:AddToggle(name, def, cb)
@@ -2654,7 +2679,9 @@ table.insert(win.Conns, { Disconnect = function() sh:destroy() end })
 
 local tHome = win:AddTab("Home", "⌂")
 local sHome = tHome:AddSubTab("Overview")
-local secHome = sHome:AddSection("LIVE OVERVIEW")
+local secHome
+local homeBuildOk, homeBuildError = pcall(function()
+secHome = sHome:AddSection("LIVE OVERVIEW")
 
 local homeMobile = win.MobileLayout
 local homePortrait = win.PortraitLayout
@@ -2686,7 +2713,7 @@ label({
     Parent=homeHero
 })
 label({
-    Text=homeMobile and "ARCEUS X  •  ANDROID  •  v91.72" or "NEON CONTROL CENTER  •  ARCEUS X MOBILE",
+    Text=homeMobile and "ARCEUS X  •  ANDROID  •  v91.73" or "NEON CONTROL CENTER  •  ARCEUS X MOBILE",
     Font=Enum.Font.GothamSemibold,
     TextSize=homeMobile and 10 or 9,
     TextColor3=Color3.fromRGB(190,202,233),
@@ -2868,6 +2895,27 @@ task.spawn(function()
     end
 end)
 
+end)
+if not homeBuildOk then
+    local diagnostic = create("Frame", {
+        Name="HomeRecoveryNotice",
+        Size=UDim2.new(1,0,0,112),
+        BackgroundColor3=Color3.fromRGB(49,30,37),
+        BackgroundTransparency=0.08,
+        Parent=sHome.Scroll
+    }, {corner(11),stroke(1,0.35),pad(10)})
+    label({
+        Text="HOME DASHBOARD RECOVERED\n"..string.sub(tostring(homeBuildError),1,180),
+        Font=Enum.Font.GothamSemibold,
+        TextSize=11,
+        TextColor3=Color3.fromRGB(255,205,205),
+        TextWrapped=true,
+        Size=UDim2.fromScale(1,1),
+        Parent=diagnostic
+    })
+    warn("[Liberium UI] Home dashboard initialization failed: "..tostring(homeBuildError))
+end
+
 local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start(); if CFG.AutoPickup then weaponTracker:Stop() end else coinTracker:Stop(); if CFG.AutoPickup then weaponTracker:Start() end end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
 local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Gun Pickup"); local pickupToggle = secPick:AddToggle("Auto Pickup Guns", CFG.AutoPickup, function(v) CFG.AutoPickup = v if v and not CFG.AutoFarm then weaponTracker:Start() else weaponTracker:Stop() end end); local pickupRangeSlider = secPick:AddSlider("Pickup Distance", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
 
@@ -2956,7 +3004,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, ButtonSize = 60, DragThreshold = 10, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.72 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.73 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -3076,4 +3124,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- main window is re-clamped after safe-area/viewport changes and listens for ScreenGui size changes.
 -- v91.72: Home status cards reflow between one-column portrait and two-column landscape
 -- when the ScreenGui canvas changes after device rotation.
+-- v91.73: section heights and sidebar/subtab scroll canvases are measured from UIListLayout,
+-- avoiding executor-dependent AutomaticSize/AutomaticCanvasSize behavior; Home initialization
+-- is isolated so a dashboard error cannot stop the remaining feature tabs from being created.
 -- Static source validation only; Arceus X runtime behavior still requires an on-device test.
