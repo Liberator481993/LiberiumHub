@@ -1,0 +1,76 @@
+LIBERIUM HUB v91.70 — STATIC SOURCE AUDIT
+Repository: Liberator481993/LiberiumHub
+Branch: main
+File audited: Keyless
+Audited blob: 40fe118be9ee4f087aa202945483ec91a5593b3c
+Source size: 242,912 characters; 3,012 lines
+Audit type: static review only (no Roblox/Delta runtime execution)
+
+1. SECURITY / STEALER / LOGGER REVIEW
+
+No evidence found in Keyless of:
+- loadstring, game:HttpGet, or remote script/bootstrap loading;
+- Discord webhook URLs or Discord API endpoints;
+- cookie, password, authorization-header, or API-key collection;
+- getgc, hookmetamethod, hookfunction, or executor closure inspection;
+- clipboard extraction or clipboard writes;
+- outbound POST/GET requests to third-party telemetry endpoints.
+
+The only explicit URL found is Roblox's public server-list endpoint:
+https://games.roblox.com/v1/games/<PlaceId>/servers/Public
+It is used by the user-invoked Server Hop feature through HttpService:RequestAsync.
+No other external host was found in the audited source.
+
+Local persistence:
+- ConfigManager reads/writes JSON under DashboardConfig/settings.json using executor file APIs when available.
+- The serialized values are the hub's CFG settings (toggles, sliders, colors, presets); this is local configuration storage, not evidence of exfiltration.
+- getgenv().LiberiumCleanup stores a cleanup callback in the executor environment so a previous hub instance can be stopped before re-execution.
+
+Local event logger:
+- EventLogger creates an in-game GUI and displays local game/session events.
+- No network upload or file export path was found for this logger in Keyless.
+
+Security verdict:
+No logger/stealer behavior was identified in the audited Keyless source. This is a source-level finding, not a guarantee about code injected by the executor, remote dependencies outside this file, or later repository changes.
+
+2. FEATURES CONFIRMED IN SOURCE
+
+- Role ESP maps Hero to yellow, Sheriff to blue, Murderer/Killer/Zombie to red, and Innocent/Survivor to green.
+- Outline and Fill are configured independently through Highlight transparency values.
+- Loot ESP is deliberately candy-only by name matching; coin collection remains a separate AutoFarm system.
+- AutoPickup and AutoFarm are separate trackers; AutoFarm takes priority when both settings are enabled.
+- UI scaling is recalculated after Main, Side, and Content are created (the upd() call follows Content creation).
+- UI cleanup disconnects the camera viewport connection.
+- LootTracker uses a bounded tracker count (150) and batched initial scanning (500 instances per yield).
+
+3. RISKS / ITEMS TO TEST
+
+A. Server Hop compatibility — MEDIUM
+ServerHop uses HttpService:RequestAsync from the client. Roblox's standard HttpService request methods are generally server-side capabilities; this call may fail in a normal client context and the source itself reports an HTTP-blocked failure. Verify on the target Delta build. Rejoin Server uses TeleportService separately and should be tested independently.
+
+B. Loot ESP name matching — LOW
+getTrackedColor accepts any BasePart/Model whose lowercased name contains "candy", except a few explicitly excluded container names. This may include decorative or helper objects whose names contain "candy". Test on active MM2 maps and tighten the allowlist only if false positives are observed.
+
+C. Runtime/syntax validation — NOT VERIFIED
+No Roblox Studio or Delta execution was available in this audit. Static inspection cannot establish that every API call, touch interaction, teleport, UI gesture, or game-specific object path works in a live MM2 round.
+
+D. Game-side behavior — NOT VERIFIED
+RemoteFunction role-data discovery and touch-based pickup behavior depend on the live game hierarchy and server behavior. A local client-side indicator is not proof that the server accepted a pickup.
+
+4. SCOPE LIMITATION
+
+The repository currently contains a single-file hub source (Keyless) plus UI/observer utilities. It does not contain the separate modular ESP project files previously discussed:
+SharedConfig, ServerConfig, ESPService, StudioTestRounds, ESPClient, Maid, Store, Renderer, Interface.
+Therefore this audit is for the current LiberiumHub Keyless source, not the missing modular ESP project.
+
+5. RECOMMENDED NEXT TEST PASS
+
+1. Launch on Delta Android at portrait and landscape viewport sizes.
+2. Toggle Outline only, Fill only, then both; verify Hero remains yellow and role colors do not bleed between players.
+3. Enable Loot ESP in an active round; verify only candy pickups are highlighted.
+4. Test AutoFarm and AutoPickup separately, then together; confirm AutoFarm priority and correct HUD state.
+5. Test repeated enable/disable and re-execution; confirm no duplicate UI, Highlights, or persistent connections.
+6. Test Server Hop separately; record the exact error if HttpService:RequestAsync is blocked.
+7. Capture the live GUI tree with the existing Liberium Slate UI Analyzer if a visual/layout issue remains.
+
+END OF AUDIT
