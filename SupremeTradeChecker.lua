@@ -392,27 +392,70 @@ local function updateInventory(trade)
         end
     end
 
-    -- Locate the visible Weapons/Pets tab label and show the combined total.
-    if tradeGui then
-        local items = tradeGui:FindFirstChild("Items", true)
-        if items then
-            for _, node in ipairs(items:GetDescendants()) do
-                if node:IsA("TextLabel") and node.Visible then
-                    local t = key(originalText[node] or node.Text)
-                    if t == "weapons" or t == "pets" then
-                        inventoryHeading = node
-                        break
+    -- Keep inventory totals off the tiny native tab labels; they can clip on mobile.
+
+end
+
+-- One-shot, compact inventory structure report. This deliberately inspects only
+-- a few direct item cards, not the full 33k-object PlayerGui tree.
+local function reportInventoryStructure()
+    local lines = {"[Supreme Trade Text] INVENTORY DIAGNOSTIC (send this short block)"}
+    local emitted = 0
+    local function add(line)
+        if emitted >= 48 then return end
+        emitted = emitted + 1
+        table.insert(lines, line)
+    end
+
+    for _, guiName in ipairs({"TradeGUI", "TradeGUI_Phone"}) do
+        local gui = playerGui:FindFirstChild(guiName)
+        if gui then
+            add("GUI: " .. guiName)
+            local lists = {}
+            for _, node in ipairs(gui:GetDescendants()) do
+                if node:IsA("ScrollingFrame") and (node.Name == "Weapons" or node.Name == "Pets") then
+                    table.insert(lists, node)
+                end
+            end
+            for _, list in ipairs(lists) do
+                add(" LIST: " .. list:GetFullName() .. " visible=" .. tostring(list.Visible))
+                local cardCount = 0
+                for _, card in ipairs(list:GetChildren()) do
+                    if card:IsA("GuiObject") and card.Visible and card.Name ~= "UIListLayout" then
+                        cardCount = cardCount + 1
+                        if cardCount <= 2 then
+                            add("  CARD: " .. card.Name .. " [" .. card.ClassName .. "]")
+                            local detailCount = 0
+                            for _, child in ipairs(card:GetDescendants()) do
+                                if detailCount >= 10 then break end
+                                local line
+                                if child:IsA("TextLabel") or child:IsA("TextButton") then
+                                    line = "   TEXT " .. child.Name .. "=" .. string.sub(clean(child.Text), 1, 90)
+                                elseif child:IsA("StringValue") then
+                                    line = "   VALUE " .. child.Name .. "=" .. string.sub(clean(child.Value), 1, 90)
+                                elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
+                                    line = "   IMAGE " .. child.Name .. "=" .. string.sub(tostring(child.Image), 1, 70)
+                                end
+                                if line then add(line); detailCount = detailCount + 1 end
+                            end
+                            local attrs = {}
+                            pcall(function() attrs = card:GetAttributes() end)
+                            for k, v in pairs(attrs) do
+                                if detailCount >= 12 then break end
+                                add("   ATTR " .. tostring(k) .. "=" .. string.sub(tostring(v), 1, 90))
+                                detailCount = detailCount + 1
+                            end
+                        end
                     end
                 end
+                add("  visible direct cards=" .. tostring(cardCount))
             end
         end
     end
-    if inventoryHeading then
-        local base = originalText[inventoryHeading] or clean(inventoryHeading.Text)
-        base = base:gsub("%s*[•|%-]%s*INVENTORY TOTAL:%s*[%d,]+", "")
-        rememberAndSet(inventoryHeading, base .. "  |  INVENTORY TOTAL: " .. fmt(inventoryTotal))
-    end
+    add("END DIAGNOSTIC")
+    warn(table.concat(lines, "\\n"))
 end
+
 local function update()
     activeText = setmetatable({}, {__mode = "k"})
     local trade = scanTrade()
@@ -436,6 +479,8 @@ end
 
 task.spawn(function()
     local loaded = refreshValues()
+    task.wait(1.5)
+    pcall(reportInventoryStructure)
     print(loaded and ("[Supreme Trade Text] Values loaded • " .. lastUpdate) or "[Supreme Trade Text] Could not load Supreme Values")
     while textGui.Parent and not stopped do
         pcall(update)
