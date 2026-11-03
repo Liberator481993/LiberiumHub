@@ -78,6 +78,7 @@ if not textGui.Parent then textGui.Parent = playerGui end
 
 local originalText = setmetatable({}, {__mode = "k"})
 local lastApplied = setmetatable({}, {__mode = "k"})
+local activeText = setmetatable({}, {__mode = "k"})
 
 local function restoreNativeText()
     for object, original in pairs(originalText) do
@@ -90,6 +91,7 @@ local function restoreNativeText()
 end
 
 local function rememberAndSet(object, newText)
+    activeText[object] = true
     if not originalText[object] then
         originalText[object] = object.Text
     end
@@ -201,14 +203,97 @@ local function annotateSide(anchor, items, total, sideName)
     end
 end
 
-local function update()
-    local trade = scanTrade()
-    if not trade then
-        restoreNativeText()
-        return
+local function updateInventory(trade)
+    local inventoryItems, inventoryTotal = {}, 0
+    local inventoryHeading
+    local seen = {}
+
+    local function isInsideTradeOffer(object)
+        if not trade then return false end
+        for _, anchor in ipairs({trade.yourAnchor, trade.theirAnchor}) do
+            if anchor and object:FindFirstAncestorOfClass("ScreenGui") == anchor:FindFirstAncestorOfClass("ScreenGui") then
+                local p = object.AbsolutePosition
+                local a = anchor.AbsolutePosition
+                local z = anchor.AbsoluteSize
+                if p.Y >= a.Y - 8 and p.Y <= a.Y + z.Y + 245
+                    and p.X >= a.X - 30 and p.X <= a.X + math.max(z.X, 150) + 240 then
+                    return true
+                end
+            end
+        end
+        return false
     end
-    annotateSide(trade.yourAnchor, trade.yours, trade.yourTotal, "YOUR")
-    annotateSide(trade.theirAnchor, trade.theirs, trade.theirTotal, "THEIR")
+
+    for _, root in ipairs({playerGui, CoreGui}) do
+        local ok, descendants = pcall(function() return root:GetDescendants() end)
+        if ok then
+            for _, object in ipairs(descendants) do
+                if (object:IsA("TextLabel") or object:IsA("TextButton")) and object.Visible
+                    and not isInsideTradeOffer(object) then
+                    local raw = clean(originalText[object] or object.Text)
+                    local normalized = key(raw)
+                    if not inventoryHeading and (normalized == "inventory" or normalized == "weapons") then
+                        inventoryHeading = object
+                    end
+                    if normalized ~= "" then
+                        for _, itemKey in ipairs(valueNames) do
+                            if normalized == itemKey or normalized:find(itemKey, 1, true) then
+                                local data = values[itemKey]
+                                local count = tonumber(raw:match("[xX]%s*(%d+)"))
+                                    or tonumber(raw:match("(%d+)%s*[xX]")) or 1
+                                local p = object.AbsolutePosition
+                                local stamp = itemKey .. "@" .. math.floor(p.X/10) .. ":" .. math.floor(p.Y/10)
+                                if not seen[stamp] then
+                                    seen[stamp] = true
+                                    local amount = (data.value or 0) * count
+                                    inventoryTotal = inventoryTotal + amount
+                                    table.insert(inventoryItems, {
+                                        object = object, data = data, count = count,
+                                        amount = amount, base = raw
+                                    })
+                                end
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    for _, item in ipairs(inventoryItems) do
+        local base = originalText[item.object] or item.base
+        local suffix = "  [" .. (item.data.value and fmt(item.amount) or "N/A") .. "]"
+        base = base:gsub("%s+%[%s*[%d,]+%s*%]$", ""):gsub("%s+%[N/A%]$", "")
+        rememberAndSet(item.object, base .. suffix)
+    end
+
+    if inventoryHeading then
+        local base = originalText[inventoryHeading] or clean(inventoryHeading.Text)
+        base = base:gsub("%s*[•|%-]%s*TOTAL:%s*[%d,]+", "")
+        rememberAndSet(inventoryHeading, base .. "  |  INVENTORY TOTAL: " .. fmt(inventoryTotal))
+    end
+end
+
+local function update()
+    activeText = setmetatable({}, {__mode = "k"})
+    local trade = scanTrade()
+    if trade then
+        annotateSide(trade.yourAnchor, trade.yours, trade.yourTotal, "YOUR")
+        annotateSide(trade.theirAnchor, trade.theirs, trade.theirTotal, "THEIR")
+    end
+    updateInventory(trade)
+
+    -- Restore text that no longer belongs to a visible trade or inventory item.
+    for object, original in pairs(originalText) do
+        if not activeText[object] then
+            if object and object.Parent then
+                pcall(function() object.Text = original end)
+            end
+            originalText[object] = nil
+            lastApplied[object] = nil
+        end
+    end
 end
 
 task.spawn(function()
