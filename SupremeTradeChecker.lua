@@ -453,7 +453,7 @@ local function reportInventoryStructure()
         end
     end
     add("END DIAGNOSTIC")
-    warn(table.concat(lines, "\\n"))
+    warn(table.concat(lines, "\n"))
 end
 
 local function update()
