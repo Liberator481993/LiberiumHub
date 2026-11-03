@@ -252,13 +252,17 @@ end
 
 local function findCardRoot(object)
     local current = object
-    local best = object
     for _ = 1, 5 do
         if not current or not current.Parent then break end
-        if current:IsA("GuiObject") then best = current end
+        if current:IsA("ImageButton") or current:IsA("ImageLabel") then
+            return current
+        end
         current = current.Parent
     end
-    return best
+    if object.Parent and object.Parent:IsA("GuiObject") then
+        return object.Parent
+    end
+    return object
 end
 
 local function updateInventory(trade)
@@ -285,9 +289,12 @@ local function updateInventory(trade)
             for _, object in ipairs(descendants) do
                 if object:IsA("GuiObject") and object.Visible and not isInsideTradeOffer(object) then
                     local normalizedName = key(object.Name)
+                    local visibleText = (object:IsA("TextLabel") or object:IsA("TextButton"))
+                        and key(originalText[object] or object.Text) or ""
                     if not inventoryHeading and (normalizedName == "inventory" or normalizedName == "weapons"
-                        or normalizedName == "inventory frame" or normalizedName == "weapons frame") then
-                        inventoryHeading = object:IsA("TextLabel") and object or nil
+                        or normalizedName == "inventory frame" or normalizedName == "weapons frame"
+                        or visibleText == "inventory" or visibleText == "weapons") then
+                        inventoryHeading = (object:IsA("TextLabel") or object:IsA("TextButton")) and object or inventoryHeading
                     end
 
                     local itemKey, matchedText = inventoryCandidate(object)
