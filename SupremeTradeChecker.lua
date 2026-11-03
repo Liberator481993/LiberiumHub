@@ -453,7 +453,64 @@ local function reportInventoryStructure()
         end
     end
     add("END DIAGNOSTIC")
-    warn(table.concat(lines, "\n"))
+    local reportText = table.concat(lines, "\n")
+    -- Show the report in-game so executors without a readable console can use it.
+    local panel = Instance.new("Frame")
+    panel.Name = "SupremeInventoryDiagnostic"
+    panel.Size = UDim2.new(0.92, 0, 0, 310)
+    panel.Position = UDim2.new(0.04, 0, 0.12, 0)
+    panel.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
+    panel.BackgroundTransparency = 0.08
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 200
+    panel.Parent = textGui
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -48, 0, 34)
+    title.Position = UDim2.new(0, 10, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+    title.TextColor3 = Color3.fromRGB(120, 220, 255)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Text = "INVENTORY DIAGNOSTIC"
+    title.ZIndex = 201
+    title.Parent = panel
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0, 34, 0, 30)
+    close.Position = UDim2.new(1, -38, 0, 2)
+    close.BackgroundColor3 = Color3.fromRGB(65, 38, 48)
+    close.BorderSizePixel = 0
+    close.Font = Enum.Font.GothamBold
+    close.TextSize = 16
+    close.TextColor3 = Color3.new(1, 1, 1)
+    close.Text = "X"
+    close.ZIndex = 202
+    close.Parent = panel
+    close.Activated:Connect(function() panel:Destroy() end)
+
+    local output = Instance.new("TextBox")
+    output.Name = "DiagnosticText"
+    output.Size = UDim2.new(1, -20, 1, -44)
+    output.Position = UDim2.new(0, 10, 0, 38)
+    output.BackgroundColor3 = Color3.fromRGB(9, 11, 18)
+    output.BackgroundTransparency = 0.1
+    output.BorderSizePixel = 0
+    output.ClearTextOnFocus = false
+    output.MultiLine = true
+    output.TextEditable = false
+    output.TextWrapped = true
+    output.TextXAlignment = Enum.TextXAlignment.Left
+    output.TextYAlignment = Enum.TextYAlignment.Top
+    output.Font = Enum.Font.Code
+    output.TextSize = 11
+    output.TextColor3 = Color3.fromRGB(225, 231, 242)
+    output.Text = reportText
+    output.ZIndex = 201
+    output.Parent = panel
+    pcall(function() output:CaptureFocus() end)
+    warn(reportText)
 end
 
 local function update()
