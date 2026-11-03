@@ -203,18 +203,73 @@ local function annotateSide(anchor, items, total, sideName)
     end
 end
 
+local inventoryBadges = setmetatable({}, {__mode = "k"})
+
+local function inventoryCandidate(object)
+    local candidates = {}
+    local function add(value)
+        value = clean(value)
+        if value ~= "" then table.insert(candidates, value) end
+    end
+
+    if object:IsA("TextLabel") or object:IsA("TextButton") then
+        add(originalText[object] or object.Text)
+    end
+    add(object.Name)
+
+    local attrs = {}
+    pcall(function() attrs = object:GetAttributes() end)
+    for attributeName, attributeValue in pairs(attrs) do
+        if type(attributeValue) == "string" then
+            add(attributeValue)
+        end
+    end
+
+    local parent = object.Parent
+    local depth = 0
+    while parent and depth < 4 do
+        if parent:IsA("GuiObject") then
+            add(parent.Name)
+            local parentAttrs = {}
+            pcall(function() parentAttrs = parent:GetAttributes() end)
+            for _, attributeValue in pairs(parentAttrs) do
+                if type(attributeValue) == "string" then add(attributeValue) end
+            end
+        end
+        parent = parent.Parent
+        depth = depth + 1
+    end
+
+    for _, candidate in ipairs(candidates) do
+        local normalized = key(candidate)
+        for _, itemKey in ipairs(valueNames) do
+            if normalized == itemKey or normalized:find(itemKey, 1, true) then
+                return itemKey, candidate
+            end
+        end
+    end
+end
+
+local function findCardRoot(object)
+    local current = object
+    local best = object
+    for _ = 1, 5 do
+        if not current or not current.Parent then break end
+        if current:IsA("GuiObject") then best = current end
+        current = current.Parent
+    end
+    return best
+end
+
 local function updateInventory(trade)
-    local inventoryItems, inventoryTotal = {}, 0
+    local foundCards, inventoryTotal = {}, 0
     local inventoryHeading
-    local seen = {}
 
     local function isInsideTradeOffer(object)
         if not trade then return false end
         for _, anchor in ipairs({trade.yourAnchor, trade.theirAnchor}) do
             if anchor and object:FindFirstAncestorOfClass("ScreenGui") == anchor:FindFirstAncestorOfClass("ScreenGui") then
-                local p = object.AbsolutePosition
-                local a = anchor.AbsolutePosition
-                local z = anchor.AbsoluteSize
+                local p, a, z = object.AbsolutePosition, anchor.AbsolutePosition, anchor.AbsoluteSize
                 if p.Y >= a.Y - 8 and p.Y <= a.Y + z.Y + 245
                     and p.X >= a.X - 30 and p.X <= a.X + math.max(z.X, 150) + 240 then
                     return true
@@ -228,32 +283,30 @@ local function updateInventory(trade)
         local ok, descendants = pcall(function() return root:GetDescendants() end)
         if ok then
             for _, object in ipairs(descendants) do
-                if (object:IsA("TextLabel") or object:IsA("TextButton")) and object.Visible
-                    and not isInsideTradeOffer(object) then
-                    local raw = clean(originalText[object] or object.Text)
-                    local normalized = key(raw)
-                    if not inventoryHeading and (normalized == "inventory" or normalized == "weapons") then
-                        inventoryHeading = object
+                if object:IsA("GuiObject") and object.Visible and not isInsideTradeOffer(object) then
+                    local normalizedName = key(object.Name)
+                    if not inventoryHeading and (normalizedName == "inventory" or normalizedName == "weapons"
+                        or normalizedName == "inventory frame" or normalizedName == "weapons frame") then
+                        inventoryHeading = object:IsA("TextLabel") and object or nil
                     end
-                    if normalized ~= "" then
-                        for _, itemKey in ipairs(valueNames) do
-                            if normalized == itemKey or normalized:find(itemKey, 1, true) then
-                                local data = values[itemKey]
-                                local count = tonumber(raw:match("[xX]%s*(%d+)"))
-                                    or tonumber(raw:match("(%d+)%s*[xX]")) or 1
-                                local p = object.AbsolutePosition
-                                local stamp = itemKey .. "@" .. math.floor(p.X/10) .. ":" .. math.floor(p.Y/10)
-                                if not seen[stamp] then
-                                    seen[stamp] = true
-                                    local amount = (data.value or 0) * count
-                                    inventoryTotal = inventoryTotal + amount
-                                    table.insert(inventoryItems, {
-                                        object = object, data = data, count = count,
-                                        amount = amount, base = raw
-                                    })
-                                end
-                                break
-                            end
+
+                    local itemKey, matchedText = inventoryCandidate(object)
+                    if itemKey then
+                        local data = values[itemKey]
+                        local card = findCardRoot(object)
+                        local stamp = card
+                        if not foundCards[stamp] then
+                            local countText = matchedText .. " " .. object.Name
+                            local count = tonumber(countText:match("[xX]%s*(%d+)"))
+                                or tonumber(countText:match("(%d+)%s*[xX]")) or 1
+                            foundCards[stamp] = {
+                                card = card,
+                                textObject = (object:IsA("TextLabel") or object:IsA("TextButton")) and object or nil,
+                                data = data,
+                                count = count,
+                                itemKey = itemKey,
+                                displayName = data.name
+                            }
                         end
                     end
                 end
@@ -261,20 +314,55 @@ local function updateInventory(trade)
         end
     end
 
-    for _, item in ipairs(inventoryItems) do
-        local base = originalText[item.object] or item.base
-        local suffix = "  [" .. (item.data.value and fmt(item.amount) or "N/A") .. "]"
-        base = base:gsub("%s+%[%s*[%d,]+%s*%]$", ""):gsub("%s+%[N/A%]$", "")
-        rememberAndSet(item.object, base .. suffix)
+    local cardCount = 0
+    for _, item in pairs(foundCards) do
+        cardCount = cardCount + 1
+        local amount = (item.data.value or 0) * item.count
+        inventoryTotal = inventoryTotal + amount
+
+        local amountText = item.data.value and fmt(amount) or "N/A"
+        if item.textObject then
+            local base = originalText[item.textObject] or clean(item.textObject.Text)
+            base = base:gsub("%s+%[%s*[%d,]+%s*%]$", ""):gsub("%s+%[N/A%]$", "")
+            rememberAndSet(item.textObject, base .. "  [" .. amountText .. "]")
+        else
+            -- If the card is icon-only, put a compact price label on the card itself.
+            local card = item.card
+            if card and card.Parent then
+                local badge = inventoryBadges[card]
+                if not badge or not badge.Parent then
+                    badge = Instance.new("TextLabel")
+                    badge.Name = "SupremeValueTag"
+                    badge.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+                    badge.BackgroundTransparency = 0.15
+                    badge.TextColor3 = Color3.fromRGB(255, 235, 145)
+                    badge.TextSize = 11
+                    badge.Font = Enum.Font.GothamBold
+                    badge.TextStrokeTransparency = 0.7
+                    badge.Size = UDim2.new(0, 48, 0, 18)
+                    badge.Position = UDim2.new(1, -50, 0, 2)
+                    badge.ZIndex = 100
+                    badge.Parent = card
+                    inventoryBadges[card] = badge
+                end
+                badge.Text = "[" .. amountText .. "]"
+                activeText[badge] = true
+            end
+        end
     end
 
-    if inventoryHeading then
+    if inventoryHeading and inventoryHeading:IsA("TextLabel") then
         local base = originalText[inventoryHeading] or clean(inventoryHeading.Text)
-        base = base:gsub("%s*[•|%-]%s*TOTAL:%s*[%d,]+", "")
+        base = base:gsub("%s*[•|%-]%s*INVENTORY TOTAL:%s*[%d,]+", "")
         rememberAndSet(inventoryHeading, base .. "  |  INVENTORY TOTAL: " .. fmt(inventoryTotal))
     end
-end
 
+    -- Expose a concise diagnostic if no cards were recognized, without creating a menu.
+    if cardCount == 0 then
+        -- Item cards may be image-only and expose neither item names nor attributes.
+        -- In that case the game's internal inventory data adapter is required.
+    end
+end
 local function update()
     activeText = setmetatable({}, {__mode = "k"})
     local trade = scanTrade()
