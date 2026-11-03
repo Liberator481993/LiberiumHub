@@ -283,37 +283,57 @@ local function updateInventory(trade)
         return false
     end
 
-    for _, root in ipairs({playerGui, CoreGui}) do
-        local ok, descendants = pcall(function() return root:GetDescendants() end)
+    local function addCard(card)
+        if not card or not card.Parent or foundCards[card] then return end
+        local bestKey, bestText, bestObject
+        local nodes = {card}
+        local ok, descendants = pcall(function() return card:GetDescendants() end)
         if ok then
-            for _, object in ipairs(descendants) do
-                if object:IsA("GuiObject") and object.Visible and not isInsideTradeOffer(object) then
-                    local normalizedName = key(object.Name)
-                    local visibleText = (object:IsA("TextLabel") or object:IsA("TextButton"))
-                        and key(originalText[object] or object.Text) or ""
-                    if not inventoryHeading and (normalizedName == "inventory" or normalizedName == "weapons"
-                        or normalizedName == "inventory frame" or normalizedName == "weapons frame"
-                        or visibleText == "inventory" or visibleText == "weapons") then
-                        inventoryHeading = (object:IsA("TextLabel") or object:IsA("TextButton")) and object or inventoryHeading
-                    end
+            for _, node in ipairs(descendants) do table.insert(nodes, node) end
+        end
 
-                    local itemKey, matchedText = inventoryCandidate(object)
-                    if itemKey then
-                        local data = values[itemKey]
-                        local card = findCardRoot(object)
-                        local stamp = card
-                        if not foundCards[stamp] then
-                            local countText = matchedText .. " " .. object.Name
-                            local count = tonumber(countText:match("[xX]%s*(%d+)"))
-                                or tonumber(countText:match("(%d+)%s*[xX]")) or 1
-                            foundCards[stamp] = {
-                                card = card,
-                                textObject = (object:IsA("TextLabel") or object:IsA("TextButton")) and object or nil,
-                                data = data,
-                                count = count,
-                                itemKey = itemKey,
-                                displayName = data.name
-                            }
+        for _, node in ipairs(nodes) do
+            -- MM2 item cards may store the item name in a text object, a
+            -- StringValue, an attribute, or a meaningful child/parent name.
+            local itemKey, matchedText = inventoryCandidate(node)
+            if itemKey then
+                bestKey, bestText, bestObject = itemKey, matchedText, node
+                if node:IsA("TextLabel") or node:IsA("TextButton") then break end
+            end
+        end
+
+        if not bestKey then return end
+        local data = values[bestKey]
+        local countText = (bestText or "") .. " " .. (bestObject and bestObject.Name or "")
+        local count = tonumber(countText:match("[xX]%s*(%d+)"))
+            or tonumber(countText:match("(%d+)%s*[xX]")) or 1
+        foundCards[card] = {
+            card = card,
+            textObject = bestObject and (bestObject:IsA("TextLabel") or bestObject:IsA("TextButton")) and bestObject or nil,
+            data = data,
+            count = count,
+            itemKey = bestKey,
+            displayName = data.name
+        }
+    end
+
+    -- MM2's actual inventory lives in TradeGUI/Container/Items/_mO.
+    -- Scan the Weapons and Pets ScrollingFrames directly instead of guessing
+    -- from every ImageLabel in PlayerGui/CoreGui.
+    local tradeGui = playerGui:FindFirstChild("TradeGUI")
+        or playerGui:FindFirstChild("TradeGUI_Phone")
+    if tradeGui then
+        local container = tradeGui:FindFirstChild("Container", true)
+        local items = container and container:FindFirstChild("Items", true)
+        local itemRoot = items and items:FindFirstChild("_mO", true)
+
+        if itemRoot then
+            for _, categoryName in ipairs({"Weapons", "Pets"}) do
+                local list = itemRoot:FindFirstChild(categoryName)
+                if list and list:IsA("ScrollingFrame") and list.Visible then
+                    for _, card in ipairs(list:GetChildren()) do
+                        if card:IsA("GuiObject") and card.Visible then
+                            addCard(card)
                         end
                     end
                 end
@@ -321,53 +341,76 @@ local function updateInventory(trade)
         end
     end
 
-    local cardCount = 0
-    for _, item in pairs(foundCards) do
-        cardCount = cardCount + 1
+    -- Fallback for alternate MM2 layouts / phone UI variants. Only consider
+    -- objects inside inventory scrolling frames; never scan unrelated HUD art.
+    if next(foundCards) == nil then
+        for _, root in ipairs({playerGui, CoreGui}) do
+            local ok, descendants = pcall(function() return root:GetDescendants() end)
+            if ok then
+                for _, object in ipairs(descendants) do
+                    if object:IsA("ScrollingFrame") and object.Visible
+                        and (object.Name == "Weapons" or object.Name == "Pets")
+                        and object:FindFirstAncestor("TradeGUI") then
+                        for _, card in ipairs(object:GetChildren()) do
+                            if card:IsA("GuiObject") and card.Visible then addCard(card) end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    for card, item in pairs(foundCards) do
         local amount = (item.data.value or 0) * item.count
         inventoryTotal = inventoryTotal + amount
-
         local amountText = item.data.value and fmt(amount) or "N/A"
+
         if item.textObject then
             local base = originalText[item.textObject] or clean(item.textObject.Text)
             base = base:gsub("%s+%[%s*[%d,]+%s*%]$", ""):gsub("%s+%[N/A%]$", "")
             rememberAndSet(item.textObject, base .. "  [" .. amountText .. "]")
         else
-            -- If the card is icon-only, put a compact price label on the card itself.
-            local card = item.card
-            if card and card.Parent then
-                local badge = inventoryBadges[card]
-                if not badge or not badge.Parent then
-                    badge = Instance.new("TextLabel")
-                    badge.Name = "SupremeValueTag"
-                    badge.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
-                    badge.BackgroundTransparency = 0.15
-                    badge.TextColor3 = Color3.fromRGB(255, 235, 145)
-                    badge.TextSize = 11
-                    badge.Font = Enum.Font.GothamBold
-                    badge.TextStrokeTransparency = 0.7
-                    badge.Size = UDim2.new(0, 48, 0, 18)
-                    badge.Position = UDim2.new(1, -50, 0, 2)
-                    badge.ZIndex = 100
-                    badge.Parent = card
-                    inventoryBadges[card] = badge
-                end
-                badge.Text = "[" .. amountText .. "]"
-                activeText[badge] = true
+            -- Image-only cards receive a small price badge on the card itself.
+            local badge = inventoryBadges[card]
+            if not badge or not badge.Parent then
+                badge = Instance.new("TextLabel")
+                badge.Name = "SupremeValueTag"
+                badge.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+                badge.BackgroundTransparency = 0.15
+                badge.TextColor3 = Color3.fromRGB(255, 235, 145)
+                badge.TextSize = 11
+                badge.Font = Enum.Font.GothamBold
+                badge.TextStrokeTransparency = 0.7
+                badge.Size = UDim2.new(0, 48, 0, 18)
+                badge.Position = UDim2.new(1, -50, 0, 2)
+                badge.AnchorPoint = Vector2.new(0, 0)
+                badge.ZIndex = 100
+                badge.Parent = card
+                inventoryBadges[card] = badge
             end
+            badge.Text = "[" .. amountText .. "]"
         end
     end
 
-    if inventoryHeading and inventoryHeading:IsA("TextLabel") then
+    -- Locate the visible Weapons/Pets tab label and show the combined total.
+    if tradeGui then
+        local items = tradeGui:FindFirstChild("Items", true)
+        if items then
+            for _, node in ipairs(items:GetDescendants()) do
+                if node:IsA("TextLabel") and node.Visible then
+                    local t = key(originalText[node] or node.Text)
+                    if t == "weapons" or t == "pets" then
+                        inventoryHeading = node
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if inventoryHeading then
         local base = originalText[inventoryHeading] or clean(inventoryHeading.Text)
         base = base:gsub("%s*[•|%-]%s*INVENTORY TOTAL:%s*[%d,]+", "")
         rememberAndSet(inventoryHeading, base .. "  |  INVENTORY TOTAL: " .. fmt(inventoryTotal))
-    end
-
-    -- Expose a concise diagnostic if no cards were recognized, without creating a menu.
-    if cardCount == 0 then
-        -- Item cards may be image-only and expose neither item names nor attributes.
-        -- In that case the game's internal inventory data adapter is required.
     end
 end
 local function update()
