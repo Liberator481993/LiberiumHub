@@ -273,9 +273,6 @@ task.spawn(function()
     while gui.Parent and not stopped do
         pcall(update)
         task.wait(0.8)
-        if os.clock() - (gui:GetAttribute("LastValueRefresh") or 0) > CONFIG_REFRESH then
-            -- Refresh is handled below by a separate clock.
-        end
     end
 end)
 
