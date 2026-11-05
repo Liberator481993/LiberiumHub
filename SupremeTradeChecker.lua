@@ -12,7 +12,7 @@ local CATEGORIES = {
     "sets","uniques","evos","ancients","vintages","chromas","godlies",
     "legendaries","rares","uncommons","commons","pets","misc","untradables"
 }
-local BASE = "https://supremevalues.com/mm2/"
+local BASE = "https://www.supremevalues.com/mm2/"
 local values, valueNames = {}, {}
 local lastUpdate = "loading"
 local stopped = false
@@ -630,13 +630,14 @@ local function updateInventory(trade)
 
 end
 
--- One-shot, compact inventory structure report. This deliberately inspects only
--- a few direct item cards, not the full 33k-object PlayerGui tree.
+-- Expanded one-shot report: include nested GUI names and every item image,
+-- because this MM2 build wraps the visible inventory cards in an extra Frame.
+local diagnosticReport = ""
 local function reportInventoryStructure()
-    local lines = {"[Supreme Trade Text] INVENTORY DIAGNOSTIC (send this short block)"}
+    local lines = {"[Supreme Trade Text] INVENTORY DIAGNOSTIC"}
     local emitted = 0
     local function add(line)
-        if emitted >= 48 then return end
+        if emitted >= 100 then return end
         emitted = emitted + 1
         table.insert(lines, line)
     end
@@ -644,7 +645,7 @@ local function reportInventoryStructure()
     for _, guiName in ipairs({"TradeGUI", "TradeGUI_Phone"}) do
         local gui = playerGui:FindFirstChild(guiName)
         if gui then
-            add("GUI: " .. guiName)
+            add("GUI: " .. guiName .. " enabled=" .. tostring(not gui:IsA("ScreenGui") or gui.Enabled))
             local lists = {}
             for _, node in ipairs(gui:GetDescendants()) do
                 if node:IsA("ScrollingFrame") and (node.Name == "Weapons" or node.Name == "Pets") then
@@ -658,40 +659,38 @@ local function reportInventoryStructure()
                     if card:IsA("GuiObject") and card.Visible and card.Name ~= "UIListLayout" then
                         cardCount = cardCount + 1
                         if cardCount <= 2 then
-                            add("  CARD: " .. card.Name .. " [" .. card.ClassName .. "]")
-                            local detailCount = 0
-                            for _, child in ipairs(card:GetDescendants()) do
-                                if detailCount >= 10 then break end
-                                local line
-                                if child:IsA("TextLabel") or child:IsA("TextButton") then
-                                    line = "   TEXT " .. child.Name .. "=" .. string.sub(clean(child.Text), 1, 90)
-                                elseif child:IsA("StringValue") then
-                                    line = "   VALUE " .. child.Name .. "=" .. string.sub(clean(child.Value), 1, 90)
-                                elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
-                                    line = "   IMAGE " .. child.Name .. "=" .. string.sub(tostring(child.Image), 1, 70)
+                            add("  ROOT: " .. card.Name .. " [" .. card.ClassName .. "]")
+                            local descendants = card:GetDescendants()
+                            add("  DESCENDANTS: " .. tostring(#descendants))
+                            for _, node in ipairs(descendants) do
+                                local line = "   " .. node.ClassName .. " " .. node.Name
+                                if node:IsA("TextLabel") or node:IsA("TextButton") then
+                                    line = line .. " TEXT=" .. string.sub(clean(node.Text), 1, 70)
+                                elseif node:IsA("StringValue") or node:IsA("IntValue") or node:IsA("NumberValue") then
+                                    line = line .. " VALUE=" .. string.sub(clean(node.Value), 1, 70)
+                                elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
+                                    line = line .. " IMAGE=" .. string.sub(tostring(node.Image), 1, 90)
                                 end
-                                if line then add(line); detailCount = detailCount + 1 end
-                            end
-                            local attrs = {}
-                            pcall(function() attrs = card:GetAttributes() end)
-                            for k, v in pairs(attrs) do
-                                if detailCount >= 12 then break end
-                                add("   ATTR " .. tostring(k) .. "=" .. string.sub(tostring(v), 1, 90))
-                                detailCount = detailCount + 1
+                                local attrs = {}
+                                pcall(function() attrs = node:GetAttributes() end)
+                                for attrName, attrValue in pairs(attrs) do
+                                    line = line .. " ATTR[" .. tostring(attrName) .. "]=" .. string.sub(tostring(attrValue), 1, 50)
+                                end
+                                add(line)
                             end
                         end
                     end
                 end
-                add("  visible direct cards=" .. tostring(cardCount))
+                add("  VISIBLE DIRECT CHILDREN: " .. tostring(cardCount))
             end
         end
     end
     add("END DIAGNOSTIC")
-    local reportText = table.concat(lines, "\n")
-    diagnosticTitle.Text = "INVENTORY DIAGNOSTIC"
-    diagnosticOutput.Text = reportText
+    diagnosticReport = table.concat(lines, "\n")
+    diagnosticTitle.Text = "SUPREME — SCAN DETAILS"
+    diagnosticOutput.Text = diagnosticReport
     pcall(function() diagnosticOutput.CursorPosition = 1 end)
-    warn(reportText)
+    warn(diagnosticReport)
 end
 
 local tradeSummary = Instance.new("TextLabel")
@@ -764,7 +763,12 @@ task.spawn(function()
         diagnosticOutput.Text = "The inventory scan failed before completion:\\n" .. tostring(diagErr)
     end
     local loaded = refreshValues()
-    print(loaded and ("[Supreme Trade Text] Values loaded • " .. lastUpdate) or "[Supreme Trade Text] Could not load Supreme Values")
+    local valueCount = #valueNames
+    local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
+        or "VALUES: 0 loaded — Supreme Values request/parser failed"
+    diagnosticTitle.Text = loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR"
+    diagnosticOutput.Text = diagnosticReport .. "\\n" .. dbLine
+    print(loaded and ("[Supreme Trade Text] Values loaded • " .. lastUpdate .. " • " .. tostring(valueCount) .. " items") or "[Supreme Trade Text] Could not load Supreme Values")
     while textGui.Parent and not stopped do
         pcall(update)
         task.wait(0.6)
