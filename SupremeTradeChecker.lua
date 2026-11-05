@@ -137,7 +137,7 @@ diagnosticPanel.Visible = true
 diagnosticPanel.Parent = textGui
 
 local diagnosticTitle = Instance.new("TextLabel")
-diagnosticTitle.Size = UDim2.new(1, -48, 0, 34)
+diagnosticTitle.Size = UDim2.new(1, -132, 0, 34)
 diagnosticTitle.Position = UDim2.new(0, 10, 0, 0)
 diagnosticTitle.BackgroundTransparency = 1
 diagnosticTitle.Font = Enum.Font.GothamBold
@@ -147,6 +147,39 @@ diagnosticTitle.TextXAlignment = Enum.TextXAlignment.Left
 diagnosticTitle.Text = "SUPREME — STARTING"
 diagnosticTitle.ZIndex = 201
 diagnosticTitle.Parent = diagnosticPanel
+
+local latestResults = "Supreme Trade Checker is loading..."
+
+local function copyResults(text)
+    text = tostring(text or "")
+    local copied = false
+    if type(setclipboard) == "function" then copied = pcall(setclipboard, text) end
+    if not copied and type(toclipboard) == "function" then copied = pcall(toclipboard, text) end
+    return copied
+end
+
+local copyResultsButton = Instance.new("TextButton")
+copyResultsButton.Name = "CopySupremeResults"
+copyResultsButton.Size = UDim2.new(0, 72, 0, 28)
+copyResultsButton.Position = UDim2.new(1, -116, 0, 3)
+copyResultsButton.BackgroundColor3 = Color3.fromRGB(35, 91, 112)
+copyResultsButton.BorderSizePixel = 0
+copyResultsButton.Font = Enum.Font.GothamBold
+copyResultsButton.TextSize = 11
+copyResultsButton.TextColor3 = Color3.new(1, 1, 1)
+copyResultsButton.Text = "COPY"
+copyResultsButton.ZIndex = 202
+copyResultsButton.Parent = diagnosticPanel
+copyResultsButton.Activated:Connect(function()
+    if copyResults(latestResults) then
+        copyResultsButton.Text = "COPIED"
+    else
+        copyResultsButton.Text = "NO CLIP"
+    end
+    task.delay(1.5, function()
+        if copyResultsButton and copyResultsButton.Parent then copyResultsButton.Text = "COPY" end
+    end)
+end)
 
 local diagnosticClose = Instance.new("TextButton")
 diagnosticClose.Size = UDim2.new(0, 34, 0, 30)
@@ -772,6 +805,7 @@ local function reportInventoryStructure()
     end
     add("END DIAGNOSTIC")
     diagnosticReport = table.concat(lines, "\n")
+    latestResults = diagnosticReport
     diagnosticTitle.Text = "SUPREME — SCAN DETAILS"
     diagnosticOutput.Text = diagnosticReport
     pcall(function() diagnosticOutput.CursorPosition = 1 end)
@@ -809,6 +843,32 @@ end
 local function update()
     activeText = setmetatable({}, {__mode = "k"})
     local trade = scanTrade()
+
+    local resultLines = {"SUPREME TRADE CHECKER"}
+    local function addSide(label, items, total)
+        table.insert(resultLines, label .. " TOTAL: " .. fmt(total))
+        for _, item in ipairs(items) do
+            local unit = item.data and item.data.value
+            local itemName = item.data and item.data.name or item.key or "Unknown item"
+            local count = item.count or 1
+            local lineValue = unit and (fmt(unit) .. " each; total " .. fmt(unit * count)) or "N/A"
+            table.insert(resultLines, "  - " .. itemName .. " x" .. tostring(count) .. " | " .. lineValue)
+        end
+    end
+    if trade then
+        addSide("YOUR OFFER", trade.yours, trade.yourTotal)
+        addSide("THEIR OFFER", trade.theirs, trade.theirTotal)
+        if #trade.yours > 0 and #trade.theirs > 0 then
+            local verdict, difference = getTradeVerdict(trade.yourTotal, trade.theirTotal)
+            table.insert(resultLines, "RESULT: " .. verdict .. " | Difference: " .. (difference > 0 and "+" or "") .. fmt(difference))
+        else
+            table.insert(resultLines, "RESULT: Waiting for both sides of the trade.")
+        end
+    else
+        table.insert(resultLines, "No active trade detected.")
+    end
+    table.insert(resultLines, "Source: Supreme Values | Updated: " .. tostring(lastUpdate))
+    latestResults = table.concat(resultLines, "\n")
     if trade then
         annotateSide(trade.yourAnchor, trade.yours, trade.yourTotal, "YOUR")
         annotateSide(trade.theirAnchor, trade.theirs, trade.theirTotal, "THEIR")
@@ -853,6 +913,7 @@ task.spawn(function()
     local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
         or "VALUES: 0 loaded — Supreme Values request/parser failed"
     diagnosticTitle.Text = loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR"
+    latestResults = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0) .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none") .. "\nMM2 icon mappings: " .. tostring(iconCount)
     diagnosticOutput.Text = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0)
         .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
         .. "\nMM2 icon mappings: " .. tostring(iconCount)
