@@ -127,7 +127,7 @@ textGui.DisplayOrder = 9999
 -- Create visible feedback immediately. Do not wait for external value-site requests.
 local diagnosticPanel = Instance.new("Frame")
 diagnosticPanel.Name = "SupremeInventoryDiagnostic"
-diagnosticPanel.Size = UDim2.new(0.92, 0, 0, 310)
+diagnosticPanel.Size = UDim2.new(0.92, 0, 0, 350)
 diagnosticPanel.Position = UDim2.new(0.04, 0, 0.12, 0)
 diagnosticPanel.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
 diagnosticPanel.BackgroundTransparency = 0.08
@@ -137,7 +137,7 @@ diagnosticPanel.Visible = true
 diagnosticPanel.Parent = textGui
 
 local diagnosticTitle = Instance.new("TextLabel")
-diagnosticTitle.Size = UDim2.new(1, -132, 0, 34)
+diagnosticTitle.Size = UDim2.new(1, -48, 0, 34)
 diagnosticTitle.Position = UDim2.new(0, 10, 0, 0)
 diagnosticTitle.BackgroundTransparency = 1
 diagnosticTitle.Font = Enum.Font.GothamBold
@@ -160,26 +160,32 @@ end
 
 local copyResultsButton = Instance.new("TextButton")
 copyResultsButton.Name = "CopySupremeResults"
-copyResultsButton.Size = UDim2.new(0, 72, 0, 28)
-copyResultsButton.Position = UDim2.new(1, -116, 0, 3)
-copyResultsButton.BackgroundColor3 = Color3.fromRGB(35, 91, 112)
+copyResultsButton.Size = UDim2.new(1, -20, 0, 34)
+copyResultsButton.Position = UDim2.new(0, 10, 0, 40)
+copyResultsButton.BackgroundColor3 = Color3.fromRGB(35, 125, 145)
 copyResultsButton.BorderSizePixel = 0
 copyResultsButton.Font = Enum.Font.GothamBold
-copyResultsButton.TextSize = 11
+copyResultsButton.TextSize = 13
 copyResultsButton.TextColor3 = Color3.new(1, 1, 1)
-copyResultsButton.Text = "COPY"
-copyResultsButton.ZIndex = 202
+copyResultsButton.Text = "COPY TRADE RESULTS"
+copyResultsButton.ZIndex = 205
 copyResultsButton.Parent = diagnosticPanel
-copyResultsButton.Activated:Connect(function()
+
+local function onCopyResults()
     if copyResults(latestResults) then
-        copyResultsButton.Text = "COPIED"
+        copyResultsButton.Text = "COPIED TO CLIPBOARD"
     else
-        copyResultsButton.Text = "NO CLIP"
+        copyResultsButton.Text = "CLIPBOARD NOT SUPPORTED"
     end
-    task.delay(1.5, function()
-        if copyResultsButton and copyResultsButton.Parent then copyResultsButton.Text = "COPY" end
+    task.delay(2, function()
+        if copyResultsButton and copyResultsButton.Parent then
+            copyResultsButton.Text = "COPY TRADE RESULTS"
+        end
     end)
-end)
+end
+copyResultsButton.Activated:Connect(onCopyResults)
+copyResultsButton.MouseButton1Click:Connect(onCopyResults)
+
 
 local diagnosticClose = Instance.new("TextButton")
 diagnosticClose.Size = UDim2.new(0, 34, 0, 30)
@@ -196,8 +202,8 @@ diagnosticClose.Activated:Connect(function() diagnosticPanel.Visible = false end
 
 local diagnosticOutput = Instance.new("TextBox")
 diagnosticOutput.Name = "DiagnosticText"
-diagnosticOutput.Size = UDim2.new(1, -20, 1, -44)
-diagnosticOutput.Position = UDim2.new(0, 10, 0, 38)
+diagnosticOutput.Size = UDim2.new(1, -20, 1, -88)
+diagnosticOutput.Position = UDim2.new(0, 10, 0, 80)
 diagnosticOutput.BackgroundColor3 = Color3.fromRGB(9, 11, 18)
 diagnosticOutput.BackgroundTransparency = 0.1
 diagnosticOutput.BorderSizePixel = 0
