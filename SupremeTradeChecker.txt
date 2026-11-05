@@ -249,9 +249,6 @@ diagnosticClose.Text = "+"
 diagnosticClose.Activated:Connect(function()
     setPanelCollapsed(not panelCollapsed)
 end)
-diagnosticClose.MouseButton1Click:Connect(function()
-    setPanelCollapsed(not panelCollapsed)
-end)
 setPanelCollapsed(true)
 
 -- Drag the panel from its title area (mouse or touchscreen).
