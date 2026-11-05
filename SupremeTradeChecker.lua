@@ -37,18 +37,25 @@ local function parsePage(html, out)
     html = html:gsub("<br%s*/?>"," "):gsub("</p>"," "):gsub("</div>"," ")
     html = clean(html)
 
+    local parsedThisPage = false
     local function add(nameText, valueText)
         local name = clean(nameText)
+        -- Ignore decorative "Image: Item Stability" text before the next item.
+        local finalImageName = name:match(".*Image:%s*(.+)$")
+        if finalImageName then name = finalImageName end
         name = name:gsub("^Image:%s*","")
         name = name:gsub("%s*|.*$","")
         name = name:gsub("%s+Contains%s*%-%s*.*$","")
         name = name:gsub("%s+Value%s*$","")
+
         local normalized = key(name)
         local rawValue = clean(valueText):gsub(",","")
         local number = tonumber(rawValue:match("^[%d%.%-]+") or "")
         if normalized ~= "" and number ~= nil
+            and not normalized:find("item stability",1,true)
             and not normalized:find("image stability",1,true) then
             out[normalized] = {name=name, value=number, valueText=clean(valueText)}
+            parsedThisPage = true
         end
     end
 
@@ -64,7 +71,7 @@ local function parsePage(html, out)
     end
 
     -- Last-resort fallback for text-only layouts that omit the "Image:" prefix.
-    if next(out) == nil then
+    if not parsedThisPage then
         for nameText, valueText in html:gmatch("|%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
             add(nameText, valueText)
         end
@@ -517,8 +524,8 @@ local function updateInventory(trade)
         if not bestKey then return end
         local data = values[bestKey]
         local countText = (bestText or "") .. " " .. (bestObject and bestObject.Name or "")
-        local count = tonumber(countText:match("[xX]%s*(%d+)"))
-            or tonumber(countText:match("(%d+)%s*[xX]")) or 1
+        local count = tonumber(countText:match("[xX×]%s*(%d+)"))
+            or tonumber(countText:match("(%d+)%s*[xX×]")) or 1
         foundCards[card] = {
             card = card,
             textObject = bestObject and (bestObject:IsA("TextLabel") or bestObject:IsA("TextButton")) and bestObject or nil,
@@ -570,13 +577,15 @@ local function updateInventory(trade)
     end
 
     for card, item in pairs(foundCards) do
-        local amount = (item.data.value or 0) * item.count
+        local unitValue = item.data.value
+        local amount = (unitValue or 0) * item.count
         inventoryTotal = inventoryTotal + amount
-        local amountText = item.data.value and fmt(amount) or "N/A"
+        local amountText = unitValue and
+            (fmt(unitValue) .. " ×" .. tostring(item.count) .. " = " .. fmt(amount)) or "N/A"
 
         if item.textObject then
             local base = originalText[item.textObject] or clean(item.textObject.Text)
-            base = base:gsub("%s+%[%s*[%d,]+%s*%]$", ""):gsub("%s+%[N/A%]$", "")
+            base = base:gsub("%s+%[[^%]]*%]$", "")
             rememberAndSet(item.textObject, base .. "  [" .. amountText .. "]")
         else
             -- Image-only cards receive a small price badge on the card itself.
