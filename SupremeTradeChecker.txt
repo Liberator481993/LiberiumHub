@@ -856,7 +856,7 @@ task.spawn(function()
     diagnosticOutput.Text = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0)
         .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
         .. "\nMM2 icon mappings: " .. tostring(iconCount)
-        .. "\nOpen inventory to test item prices; open a trade to test both totals.")
+        .. "\nOpen inventory to test item prices; open a trade to test both totals."
     print(loaded and ("[Supreme Trade Text] Values loaded • " .. lastUpdate .. " • " .. tostring(valueCount) .. " items") or "[Supreme Trade Text] Could not load Supreme Values")
     while textGui.Parent and not stopped do
         pcall(update)
