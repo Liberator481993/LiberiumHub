@@ -829,19 +829,19 @@ end
 
 task.spawn(function()
     task.wait(0.25)
-    local diagOk, diagErr = pcall(reportInventoryStructure)
-    if not diagOk then
-        diagnosticTitle.Text = "DIAGNOSTIC ERROR"
-        diagnosticOutput.Text = "The inventory scan failed before completion:\\n" .. tostring(diagErr)
-    end
+    diagnosticTitle.Text = "SUPREME — LOADING"
+    diagnosticOutput.Text = "Reading MM2 item database and Supreme Values...\\nInventory scanner active."
     local iconOk, iconErr = pcall(refreshIconDatabase)
     if not iconOk then warn("[Supreme Trade Text] Item icon database scan failed: " .. tostring(iconErr)) end
     local loaded = refreshValues()
     local valueCount = #valueNames
+    local iconCount = 0
+    for _ in pairs(iconToItem) do iconCount = iconCount + 1 end
     local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
         or "VALUES: 0 loaded — Supreme Values request/parser failed"
     diagnosticTitle.Text = loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR"
-    diagnosticOutput.Text = diagnosticReport .. "\\n" .. dbLine
+    diagnosticOutput.Text = dbLine .. "\\nMM2 icon mappings: " .. tostring(iconCount)
+        .. "\\nOpen inventory to test item prices; open a trade to test both totals."
     print(loaded and ("[Supreme Trade Text] Values loaded • " .. lastUpdate .. " • " .. tostring(valueCount) .. " items") or "[Supreme Trade Text] Could not load Supreme Values")
     while textGui.Parent and not stopped do
         pcall(update)
