@@ -201,7 +201,7 @@ diagnosticClose.TextColor3 = Color3.new(1, 1, 1)
 diagnosticClose.Text = "X"
 diagnosticClose.ZIndex = 202
 diagnosticClose.Parent = diagnosticPanel
-diagnosticClose.Activated:Connect(function() diagnosticPanel.Visible = false end)
+-- The same button is wired below as the expand/collapse toggle.
 
 local diagnosticOutput = Instance.new("TextBox")
 diagnosticOutput.Name = "DiagnosticText"
