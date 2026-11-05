@@ -243,15 +243,16 @@ diagnosticTitle.ZIndex = 201
 diagnosticTitle.Parent = diagnosticPanel
 
 local latestResults = "Supreme Trade Checker is loading..."
+local iconToItem = {}
 
 local function copyResults(text)
     text = tostring(text or "")
     local clipboardFunctions = {
-        setclipboard,
-        toclipboard,
-        setrbxclipboard
+        setclipboard = setclipboard,
+        toclipboard = toclipboard,
+        setrbxclipboard = setrbxclipboard
     }
-    for _, clipboardFunction in ipairs(clipboardFunctions) do
+    for _, clipboardFunction in pairs(clipboardFunctions) do
         if type(clipboardFunction) == "function" then
             local ok, result = pcall(clipboardFunction, text)
             if ok and result ~= false then return true end
@@ -683,7 +684,7 @@ end
 
 -- Build an icon-id -> item-name index from MM2's replicated item database.
 -- The inventory GUI in some mobile layouts only exposes icon images, not item names.
-local iconToItem = {}
+iconToItem = {}
 local function addIconMapping(imageValue, itemName)
     if type(imageValue) ~= "string" and type(imageValue) ~= "number" then return end
     local imageText = tostring(imageValue)
