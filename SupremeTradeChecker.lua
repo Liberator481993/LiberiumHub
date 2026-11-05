@@ -12,7 +12,7 @@ local CATEGORIES = {
     "sets","uniques","evos","ancients","vintages","chromas","godlies",
     "legendaries","rares","uncommons","commons","pets","misc","untradables"
 }
-local BASE = "https://www.supremevalues.com/mm2/"
+local BASE = "https://supremevalues.com/mm2/"
 local values, valueNames = {}, {}
 local lastUpdate = "loading"
 local stopped = false
@@ -28,84 +28,166 @@ local function key(s)
     return normalized:gsub("[%p%c]"," "):gsub("%s+"," "):gsub("^%s+",""):gsub("%s+$","")
 end
 local function get(url)
+    local function validBody(body)
+        if type(body) == "table" then
+            body = body.Body or body.body or body.ResponseBody
+        end
+        if type(body) == "string" and #body > 100 then return body end
+        return nil
+    end
+
+    local function tryRequest(fn, label)
+        if type(fn) ~= "function" then return nil end
+        local ok, response = pcall(function()
+            return fn({
+                Url = url,
+                Method = "GET",
+                Headers = {
+                    ["User-Agent"] = "Mozilla/5.0",
+                    ["Accept"] = "text/html,application/xhtml+xml"
+                }
+            })
+        end)
+        if not ok then return nil end
+        local status
+        if type(response) == "table" then
+            status = tonumber(response.StatusCode or response.Status or response.status_code)
+        end
+        local body = validBody(response)
+        if body and (not status or (status >= 200 and status < 300)) then
+            return body, label
+        end
+        return nil
+    end
+
+    local errors = {}
     local ok, body = pcall(function() return game:HttpGet(url) end)
-    if ok and type(body) == "string" and #body > 100 then return body end
+    body = ok and validBody(body) or nil
+    if body then return body, "game:HttpGet" end
+    table.insert(errors, "game:HttpGet failed")
+
+    local directRequest = request
+    local body2, source2 = tryRequest(directRequest, "request")
+    if body2 then return body2, source2 end
+
+    local httpRequest = http_request
+    local body3, source3 = tryRequest(httpRequest, "http_request")
+    if body3 then return body3, source3 end
+
+    local synRequest = type(syn) == "table" and syn.request or nil
+    local body4, source4 = tryRequest(synRequest, "syn.request")
+    if body4 then return body4, source4 end
+
+    local httpServiceRequest = type(http) == "table" and http.request or nil
+    local body5, source5 = tryRequest(httpServiceRequest, "http.request")
+    if body5 then return body5, source5 end
+
+    return nil, table.concat(errors, "; ")
 end
+
 local function parsePage(html, out)
-    -- Preserve item names stored in image alt attributes before removing HTML.
-    html = html:gsub("<img[^>]-alt=[\"'](.-)[\"'][^>]->", " Image: %1 ")
-    html = html:gsub("<script[^>]*>.-</script>"," ")
-    html = html:gsub("<style[^>]*>.-</style>"," ")
+    local parsedCount = 0
+
+    -- Convert image alt/ARIA labels into explicit item-name markers before tags are removed.
+    html = html:gsub("<[Ii][Mm][Gg]([^>]*)>", function(attributes)
+        local alt = attributes:match("[Aa][Ll][Tt]%s*=%s*\"(.-)\"")
+            or attributes:match("[Aa][Ll][Tt]%s*=%s*'(.-)'")
+            or attributes:match("[Aa][Rr][Ii][Aa]%-[Ll][Aa][Bb][Ee][Ll]%s*=%s*\"(.-)\"")
+            or attributes:match("[Tt][Ii][Tt][Ll][Ee]%s*=%s*\"(.-)\"")
+        if alt and alt ~= "" then return " Image: " .. alt .. " " end
+        return " "
+    end)
+
+    html = html:gsub("<[Ss][Cc][Rr][Ii][Pp][Tt][^>]*>.-</[Ss][Cc][Rr][Ii][Pp][Tt]%s*>", " ")
+    html = html:gsub("<[Ss][Tt][Yy][Ll][Ee][^>]*>.-</[Ss][Tt][Yy][Ll][Ee]%s*>", " ")
+    html = html:gsub("<[Bb][Rr][^>]*>", " ")
+    html = html:gsub("</[Pp]>", " ")
+    html = html:gsub("</[Dd][Ii][Vv]>", " ")
     html = html:gsub("<[^>]->", " ")
-    html = html:gsub("&nbsp;"," "):gsub("&amp;","&"):gsub("&quot;",'\"'):gsub("&#39;","'")
-    html = html:gsub("<br%s*/?>"," "):gsub("</p>"," "):gsub("</div>"," ")
+    html = html:gsub("&nbsp;", " "):gsub("&#160;", " ")
+    html = html:gsub("&amp;", "&"):gsub("&quot;", '"')
+    html = html:gsub("&#39;", "'"):gsub("&#x27;", "'")
+    html = html:gsub("&apos;", "'"):gsub("&lt;", "<"):gsub("&gt;", ">")
     html = clean(html)
 
-    local parsedThisPage = false
     local function add(nameText, valueText)
         local name = clean(nameText)
-        -- Ignore decorative "Image: Item Stability" text before the next item.
         local finalImageName = name:match(".*Image:%s*(.+)$")
         if finalImageName then name = finalImageName end
-        name = name:gsub("^Image:%s*","")
-        name = name:gsub("%s*|.*$","")
-        name = name:gsub("%s+Contains%s*%-%s*.*$","")
-        name = name:gsub("%s+Value%s*$","")
+        name = name:gsub("^Image:%s*", "")
+        name = name:gsub("%s*|.*$", "")
+        name = name:gsub("%s+Contains%s*%-%s*.*$", "")
+        name = name:gsub("%s+Value%s*$", "")
 
         local normalized = key(name)
-        local rawValue = clean(valueText):gsub(",","")
+        local rawValue = clean(valueText):gsub(",", "")
         local number = tonumber(rawValue:match("^[%d%.%-]+") or "")
         if normalized ~= "" and number ~= nil
-            and not normalized:find("item stability",1,true)
-            and not normalized:find("image stability",1,true) then
-            out[normalized] = {name=name, value=number, valueText=clean(valueText)}
-            parsedThisPage = true
+            and not normalized:find("item stability", 1, true)
+            and not normalized:find("image stability", 1, true) then
+            out[normalized] = {name = name, value = number, valueText = clean(valueText)}
+            parsedCount = parsedCount + 1
         end
     end
 
-    -- Supreme's accessible card text repeats the name after the pipe;
-    -- set cards append "Contains - ..." after that repeated name.
-    for nameText, valueText in html:gmatch("Image:%s*(.-)%s*|%s*.-%s+Value%s*%-%s*([%d,%.]+)") do
-        add(nameText, valueText)
+    -- The site renders each item as: Image: NAME | DISPLAY NAME Value - NUMBER.
+    -- Parse one image-delimited card at a time so text from adjacent cards cannot mix.
+    local cursor = 1
+    while cursor <= #html do
+        local markerStart, markerEnd = html:find("Image:", cursor, true)
+        if not markerStart then break end
+        local nextMarker = html:find("Image:", markerEnd + 1, true)
+        local segment = html:sub(markerEnd + 1, (nextMarker or (#html + 1)) - 1)
+
+        local nameText, valueText = segment:match(
+            "^%s*(.-)%s*|%s*.-%s+Value%s*%-%s*([%d,%.]+)"
+        )
+        if not nameText then
+            nameText, valueText = segment:match(
+                "^%s*(.-)%s+Value%s*%-%s*([%d,%.]+)"
+            )
+        end
+        if nameText then add(nameText, valueText) end
+        cursor = nextMarker or (#html + 1)
     end
 
-    -- Fallback for cards whose accessible text has no pipe separator.
-    for nameText, valueText in html:gmatch("Image:%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
-        add(nameText, valueText)
-    end
-
-    -- Last-resort fallback for text-only layouts that omit the "Image:" prefix.
-    if not parsedThisPage then
+    -- Fallback for list layouts where item images have no alt text.
+    if parsedCount == 0 then
         for nameText, valueText in html:gmatch("|%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
             add(nameText, valueText)
         end
     end
-    return parsedThisPage
+    return parsedCount
 end
 
 local function refreshValues()
     local fresh = {}
-    local fetchedPages, pageErrors = 0, {}
-    for _,cat in ipairs(CATEGORIES) do
+    local fetchedPages, parsedPages, parsedEntries = 0, 0, 0
+    local pageErrors, fetchMethods = {}, {}
+    for _, cat in ipairs(CATEGORIES) do
         if stopped then return end
-        local html = get(BASE .. cat)
+        local html, fetchInfo = get(BASE .. cat)
         if html then
             fetchedPages = fetchedPages + 1
-            parsePage(html,fresh)
+            fetchMethods[fetchInfo or "unknown"] = (fetchMethods[fetchInfo or "unknown"] or 0) + 1
+            local count = parsePage(html, fresh)
+            if count > 0 then parsedPages = parsedPages + 1 end
+            parsedEntries = parsedEntries + count
         else
-            table.insert(pageErrors, cat)
+            table.insert(pageErrors, cat .. ": " .. tostring(fetchInfo or "request failed"))
         end
         task.wait(0.12)
     end
     _G.__SUPREME_FETCHED_PAGES = fetchedPages
+    _G.__SUPREME_PARSED_PAGES = parsedPages
+    _G.__SUPREME_PARSED_ENTRIES = parsedEntries
+    _G.__SUPREME_FETCH_METHODS = fetchMethods
     _G.__SUPREME_FAILED_PAGES = table.concat(pageErrors, ", ")
     if next(fresh) then
-        for itemKey, data in pairs(fresh) do
-            values[itemKey] = data
-        end
+        for itemKey, data in pairs(fresh) do values[itemKey] = data end
         valueNames = {}
-        for itemKey in pairs(values) do table.insert(valueNames,itemKey) end
-        table.sort(valueNames,function(a,b) return #a > #b end)
+        for itemKey in pairs(values) do table.insert(valueNames, itemKey) end
+        table.sort(valueNames, function(a, b) return #a > #b end)
         lastUpdate = os.date("%H:%M:%S")
         return true
     end
@@ -563,9 +645,11 @@ local function walkItemDatabase(node, depth, inheritedName, seen)
         if type(value) == "table" then
             local candidateName = type(field) == "string" and field or inheritedName
             local image = value.Image or value.ImageId or value.Icon or value.IconId
-                or value.Texture or value.AssetId or value.ImageAsset
-            if image and candidateName then addIconMapping(image, candidateName) end
-            walkItemDatabase(value, depth + 1, candidateName, seen)
+                or value.Texture or value.AssetId or value.ImageAsset or value.ImageURL
+            local displayName = value.Name or value.ItemName or value.DisplayName
+                or value.name or value.itemName or candidateName
+            if image and displayName then addIconMapping(image, displayName) end
+            walkItemDatabase(value, depth + 1, displayName or candidateName, seen)
         end
     end
 end
@@ -982,8 +1066,18 @@ task.spawn(function()
     local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
         or "VALUES: 0 loaded — Supreme Values request/parser failed"
     setDiagnosticStatus(loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR")
-    latestResults = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0) .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none") .. "\nMM2 icon mappings: " .. tostring(iconCount)
+    local fetchMethodText = ""
+    for method, count in pairs(_G.__SUPREME_FETCH_METHODS or {}) do
+        fetchMethodText = fetchMethodText .. method .. "=" .. tostring(count) .. " "
+    end
+    local parseLine = "Parsed pages: " .. tostring(_G.__SUPREME_PARSED_PAGES or 0)
+        .. " • Entries: " .. tostring(_G.__SUPREME_PARSED_ENTRIES or 0)
+    latestResults = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0)
+        .. "\n" .. parseLine .. "\nFetch: " .. fetchMethodText
+        .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
+        .. "\nMM2 icon mappings: " .. tostring(iconCount)
     diagnosticOutput.Text = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0)
+        .. "\n" .. parseLine .. "\nFetch: " .. fetchMethodText
         .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
         .. "\nMM2 icon mappings: " .. tostring(iconCount)
         .. "\nOpen inventory to test item prices; open a trade to test both totals."
