@@ -328,11 +328,22 @@ local function buildMapping(entries, database)
         if value.cl then
             filterMatches(function(item) return item.Rarity == value.cl end)
         end
+        -- Year/Event are useful discriminators when MM2 exposes them, but
+        -- many valid database records omit these fields. Missing metadata
+        -- must not erase an otherwise exact name/category match.
         if year then
-            filterMatches(function(item) return tostring(item.Year or "") == tostring(year) end)
+            filterMatches(function(item)
+                local itemYear = item.Year
+                return itemYear == nil or tostring(itemYear) == ""
+                    or tostring(itemYear) == tostring(year)
+            end)
         end
         if value.e then
-            filterMatches(function(item) return tostring(item.Event or "") == tostring(value.e) end)
+            filterMatches(function(item)
+                local itemEvent = item.Event
+                return itemEvent == nil or tostring(itemEvent) == ""
+                    or tostring(itemEvent) == tostring(value.e)
+            end)
         end
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
