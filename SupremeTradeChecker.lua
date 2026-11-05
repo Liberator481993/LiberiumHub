@@ -12,7 +12,7 @@ local CATEGORIES = {
     "sets","uniques","evos","ancients","vintages","chromas","godlies",
     "legendaries","rares","uncommons","commons","pets","misc","untradables"
 }
-local BASE = "https://www.supremevalues.com/mm2/"
+local BASE = "https://supremevalues.com/mm2/"
 local values, valueNames = {}, {}
 local lastUpdate = "loading"
 local stopped = false
@@ -23,31 +23,54 @@ local function clean(s)
     return (s:gsub("[%c]"," "):gsub("%s+"," "):gsub("^%s+",""):gsub("%s+$",""))
 end
 local function key(s)
-    return string.lower(clean(s)):gsub("[%p%c]"," "):gsub("%s+"," "):gsub("^%s+",""):gsub("%s+$","")
+    local normalized = string.lower(clean(s))
+    normalized = normalized:gsub("['`]", "")
+    return normalized:gsub("[%p%c]"," "):gsub("%s+"," "):gsub("^%s+",""):gsub("%s+$","")
 end
 local function get(url)
     local ok, body = pcall(function() return game:HttpGet(url) end)
     if ok and type(body) == "string" and #body > 100 then return body end
 end
 local function parsePage(html, out)
-    html = html:gsub("<script[^>]*>.-</script>"," "):gsub("<style[^>]*>.-</style>"," ")
-    html = html:gsub("<br%s*/?>","\n"):gsub("</p>","\n"):gsub("</div>","\n")
+    html = html:gsub("<script[^>]*>.-</script>"," ")
+    html = html:gsub("<style[^>]*>.-</style>"," ")
+    html = html:gsub("<br%s*/?>"," "):gsub("</p>"," "):gsub("</div>"," ")
     html = clean(html)
-    local function add(n,v)
-        n = clean(n):gsub("^Image:%s*",""):gsub("^|%s*",""):gsub("%s*|.*$","")
-        v = clean(v)
-        local k = key(n)
-        local number = tonumber((v:gsub(",",""):match("^[%d%.%-]+") or ""))
-        if k ~= "" and v ~= "" and not k:find("image stability",1,true) then
-            out[k] = {name=n, value=number, valueText=v}
+
+    local function add(nameText, valueText)
+        local name = clean(nameText)
+        name = name:gsub("^Image:%s*","")
+        name = name:gsub("%s*|.*$","")
+        name = name:gsub("%s+Contains%s*%-%s*.*$","")
+        name = name:gsub("%s+Value%s*$","")
+        local normalized = key(name)
+        local rawValue = clean(valueText):gsub(",","")
+        local number = tonumber(rawValue:match("^[%d%.%-]+") or "")
+        if normalized ~= "" and number ~= nil
+            and not normalized:find("image stability",1,true) then
+            out[normalized] = {name=name, value=number, valueText=clean(valueText)}
         end
     end
-    for n,v in html:gmatch("|%s*(.-)%s+Value%s*%-%s*(.-)%s+Range%s*%-") do add(n,v) end
-    for n,v in html:gmatch("|%s*(.-)%s+Value%s*%-%s*(.-)%s+Stability%s*%-") do add(n,v) end
+
+    -- Supreme's accessible card text repeats the name after the pipe;
+    -- set cards append "Contains - ..." after that repeated name.
+    for nameText, valueText in html:gmatch("Image:%s*(.-)%s*|%s*.-%s+Value%s*%-%s*([%d,%.]+)") do
+        add(nameText, valueText)
+    end
+
+    -- Fallback for cards whose accessible text has no pipe separator.
+    for nameText, valueText in html:gmatch("Image:%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
+        add(nameText, valueText)
+    end
+
+    -- Last-resort fallback for text-only layouts that omit the "Image:" prefix.
     if next(out) == nil then
-        for n,v in html:gmatch("|%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do add(n,v) end
+        for nameText, valueText in html:gmatch("|%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
+            add(nameText, valueText)
+        end
     end
 end
+
 local function refreshValues()
     local fresh = {}
     for _,cat in ipairs(CATEGORIES) do
@@ -57,9 +80,11 @@ local function refreshValues()
         task.wait(0.12)
     end
     if next(fresh) then
-        values = fresh
+        for itemKey, data in pairs(fresh) do
+            values[itemKey] = data
+        end
         valueNames = {}
-        for k in pairs(values) do table.insert(valueNames,k) end
+        for itemKey in pairs(values) do table.insert(valueNames,itemKey) end
         table.sort(valueNames,function(a,b) return #a > #b end)
         lastUpdate = os.date("%H:%M:%S")
         return true
@@ -172,74 +197,147 @@ local function fmt(n)
     return s
 end
 
-local function scanTrade()
-    local yourAnchor, theirAnchor
-    for _, root in ipairs({playerGui, CoreGui}) do
-        local ok, descendants = pcall(function() return root:GetDescendants() end)
-        if ok then
-            for _, object in ipairs(descendants) do
-                if (object:IsA("TextLabel") or object:IsA("TextButton")) and object.Visible then
-                    local t = string.lower(clean(object.Text))
-                    if t == "your offer" or t:find("your offer", 1, true) then
-                        yourAnchor = object
-                    elseif t == "their offer" or t:find("their offer", 1, true) then
-                        theirAnchor = object
-                    end
-                end
+local function normalizeGuiName(name)
+    return string.lower(tostring(name or "")):gsub("[^%a%d]","")
+end
+
+local function findOfferAnchor(tradeGui, wantedName, headingText)
+    -- The game can expose offer containers as Frames rather than text headings.
+    local named = tradeGui:FindFirstChild(wantedName, true)
+    if named and named:IsA("GuiObject") then return named end
+
+    local wanted = string.lower(headingText)
+    for _, object in ipairs(tradeGui:GetDescendants()) do
+        if object:IsA("TextLabel") or object:IsA("TextButton") then
+            local text = string.lower(clean(object.Text))
+            if text == wanted or text:find(wanted,1,true) then
+                return object
             end
         end
     end
+    return nil
+end
+
+local function scanTrade()
+    local tradeGui = playerGui:FindFirstChild("TradeGUI")
+    if not tradeGui or (tradeGui:IsA("ScreenGui") and not tradeGui.Enabled) then
+        tradeGui = playerGui:FindFirstChild("TradeGUI_Phone")
+    end
+    if not tradeGui then return nil end
+
+    local yourAnchor = findOfferAnchor(tradeGui, "YourOffer", "your offer")
+    local theirAnchor = findOfferAnchor(tradeGui, "TheirOffer", "their offer")
     if not yourAnchor and not theirAnchor then return nil end
 
-    local function collect(anchor)
-        local found, total = {}, 0
-        if not anchor then return found, total end
-        local pos = anchor.AbsolutePosition
-        local size = anchor.AbsoluteSize
-        local top = pos.Y + size.Y
-        local bottom = top + 230
-        local left = pos.X - 20
-        local right = pos.X + math.max(size.X, 150) + 220
-        local sg = anchor:FindFirstAncestorOfClass("ScreenGui")
-        if not sg then return found, total end
+    local function matchCandidate(candidate)
+        local normalized = key(candidate)
+        if normalized == "" then return nil end
+        for _, itemKey in ipairs(valueNames) do
+            if normalized == itemKey or normalized:find(itemKey,1,true) then
+                return itemKey
+            end
+        end
+        return nil
+    end
 
-        local seen = {}
-        for _, object in ipairs(sg:GetDescendants()) do
-            if (object:IsA("TextLabel") or object:IsA("TextButton"))
-                and object.Visible and object ~= anchor then
-                local p = object.AbsolutePosition
-                if p.X >= left and p.X <= right and p.Y >= top and p.Y <= bottom then
-                    local raw = clean(object.Text)
-                    local normalized = key(raw)
-                    if normalized ~= "" then
-                        for _, itemKey in ipairs(valueNames) do
-                            if normalized == itemKey or normalized:find(itemKey, 1, true) then
-                                local data = values[itemKey]
-                                local count = tonumber(raw:match("[xX]%s*(%d+)")) or 1
-                                local stamp = itemKey .. "@" .. math.floor(p.X/8) .. ":" .. math.floor(p.Y/8)
-                                if not seen[stamp] then
-                                    seen[stamp] = true
-                                    table.insert(found, {
-                                        object = object,
-                                        key = itemKey,
-                                        count = count,
-                                        data = data,
-                                        base = raw
-                                    })
-                                    total = total + (data.value or 0) * count
-                                end
-                                break
-                            end
-                        end
+    local function readCount(text)
+        text = clean(text)
+        return tonumber(text:match("[xX×]%s*(%d+)"))
+            or tonumber(text:match("(%d+)%s*[xX×]")) or 1
+    end
+
+    local function offerScope(anchor, wantedName)
+        if not anchor then return nil end
+        local current = anchor
+        while current and current ~= tradeGui do
+            if normalizeGuiName(current.Name) == normalizeGuiName(wantedName) then
+                return current
+            end
+            current = current.Parent
+        end
+        if anchor:IsA("TextLabel") or anchor:IsA("TextButton") then
+            return anchor.Parent or anchor
+        end
+        return anchor
+    end
+
+    local function collect(anchor, wantedName)
+        local found, total = {}, 0
+        local scope = offerScope(anchor, wantedName)
+        if not scope then return found, total end
+
+        local nodes = {scope}
+        local ok, descendants = pcall(function() return scope:GetDescendants() end)
+        if ok then
+            for _, node in ipairs(descendants) do table.insert(nodes,node) end
+        end
+
+        local seenCards = {}
+        for _, object in ipairs(nodes) do
+            local candidates = {}
+            if object:IsA("TextLabel") or object:IsA("TextButton") then
+                table.insert(candidates, clean(object.Text))
+            elseif object:IsA("StringValue") then
+                table.insert(candidates, clean(object.Value))
+            end
+
+            local objectName = clean(object.Name)
+            if objectName ~= "" and not objectName:match("^NewItem%d+$") then
+                table.insert(candidates, objectName)
+            end
+
+            local attrs = {}
+            pcall(function() attrs = object:GetAttributes() end)
+            for _, attrValue in pairs(attrs) do
+                if type(attrValue) == "string" then
+                    table.insert(candidates, clean(attrValue))
+                end
+            end
+
+            local matchedKey, matchedText
+            for _, candidate in ipairs(candidates) do
+                local itemKey = matchCandidate(candidate)
+                if itemKey then
+                    matchedKey, matchedText = itemKey, candidate
+                    break
+                end
+            end
+
+            if matchedKey then
+                local card = object
+                local current = object
+                for _ = 1, 7 do
+                    if not current or current == scope then break end
+                    if current:IsA("ImageButton") or current:IsA("ImageLabel")
+                        or tostring(current.Name):match("^NewItem%d+$") then
+                        card = current
+                        break
                     end
+                    current = current.Parent
+                end
+
+                if not seenCards[card] then
+                    seenCards[card] = true
+                    local data = values[matchedKey]
+                    local count = readCount(matchedText)
+                    local displayObject = (object:IsA("TextLabel") or object:IsA("TextButton")) and object or nil
+                    table.insert(found, {
+                        object = displayObject,
+                        card = card,
+                        key = matchedKey,
+                        count = count,
+                        data = data,
+                        base = matchedText
+                    })
+                    total = total + (data.value or 0) * count
                 end
             end
         end
         return found, total
     end
 
-    local yours, yourTotal = collect(yourAnchor)
-    local theirs, theirTotal = collect(theirAnchor)
+    local yours, yourTotal = collect(yourAnchor, "YourOffer")
+    local theirs, theirTotal = collect(theirAnchor, "TheirOffer")
     return {
         yourAnchor = yourAnchor,
         theirAnchor = theirAnchor,
@@ -250,17 +348,68 @@ local function scanTrade()
     }
 end
 
+local tradeBadges = setmetatable({}, {__mode = "k"})
+local offerTotalBadges = setmetatable({}, {__mode = "k"})
+
+local function makeValueBadge(parent, name, size, position)
+    local badge = parent:FindFirstChild(name)
+    if not badge then
+        badge = Instance.new("TextLabel")
+        badge.Name = name
+        badge.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+        badge.BackgroundTransparency = 0.12
+        badge.BorderSizePixel = 0
+        badge.TextColor3 = Color3.fromRGB(255, 235, 145)
+        badge.TextSize = 10
+        badge.Font = Enum.Font.GothamBold
+        badge.TextStrokeTransparency = 0.8
+        badge.TextXAlignment = Enum.TextXAlignment.Center
+        badge.TextYAlignment = Enum.TextYAlignment.Center
+        badge.Size = size
+        badge.Position = position
+        badge.ZIndex = 100
+        badge.Parent = parent
+    end
+    return badge
+end
+
 local function annotateSide(anchor, items, total, sideName)
     if not anchor then return end
     local totalText = sideName .. " • TOTAL: " .. fmt(total)
-    rememberAndSet(anchor, clean(originalText[anchor] or anchor.Text):gsub("%s*[•|%-]%s*TOTAL:%s*[%d,]+", "") .. "  |  " .. totalText)
+
+    if anchor:IsA("TextLabel") or anchor:IsA("TextButton") then
+        local base = originalText[anchor] or anchor.Text
+        base = clean(base):gsub("%s*[•|%-]%s*TOTAL:%s*[%d,]+","")
+        rememberAndSet(anchor, base .. "  |  " .. totalText)
+    elseif anchor:IsA("GuiObject") then
+        local badge = offerTotalBadges[anchor]
+        if not badge or not badge.Parent then
+            badge = makeValueBadge(anchor, "SupremeOfferTotal",
+                UDim2.new(1,-8,0,18), UDim2.new(0,4,1,-20))
+            offerTotalBadges[anchor] = badge
+        end
+        badge.Text = totalText
+    end
 
     for _, item in ipairs(items) do
-        local object = item.object
-        local base = originalText[object] or item.base
-        local amount = item.data.value and fmt(item.data.value * item.count) or "N/A"
-        local suffix = "  [" .. amount .. "]"
-        rememberAndSet(object, base:gsub("%s+%[%s*[%d,]+%s*%]$", ""):gsub("%s+%[N/A%]$", "") .. suffix)
+        local unitValue = item.data.value
+        local totalValue = (unitValue or 0) * item.count
+        local amountText = unitValue and
+            (fmt(unitValue) .. " ×" .. tostring(item.count) .. " = " .. fmt(totalValue)) or "N/A"
+
+        if item.object then
+            local base = originalText[item.object] or item.base
+            base = clean(base):gsub("%s+%[[^%]]*%]$","")
+            rememberAndSet(item.object, base .. "  [" .. amountText .. "]")
+        elseif item.card and item.card:IsA("GuiObject") then
+            local badge = tradeBadges[item.card]
+            if not badge or not badge.Parent then
+                badge = makeValueBadge(item.card, "SupremeTradeValue",
+                    UDim2.new(0,92,0,18), UDim2.new(1,-94,0,2))
+                tradeBadges[item.card] = badge
+            end
+            badge.Text = "[" .. amountText .. "]"
+        end
     end
 end
 
@@ -275,6 +424,8 @@ local function inventoryCandidate(object)
 
     if object:IsA("TextLabel") or object:IsA("TextButton") then
         add(originalText[object] or object.Text)
+    elseif object:IsA("StringValue") then
+        add(object.Value)
     end
     add(object.Name)
 
@@ -404,17 +555,14 @@ local function updateInventory(trade)
 
     -- Fallback for alternate MM2 layouts / phone UI variants. Only consider
     -- objects inside inventory scrolling frames; never scan unrelated HUD art.
-    if next(foundCards) == nil then
-        for _, root in ipairs({playerGui, CoreGui}) do
-            local ok, descendants = pcall(function() return root:GetDescendants() end)
-            if ok then
-                for _, object in ipairs(descendants) do
-                    if object:IsA("ScrollingFrame") and object.Visible
-                        and (object.Name == "Weapons" or object.Name == "Pets")
-                        and object:FindFirstAncestor("TradeGUI") then
-                        for _, card in ipairs(object:GetChildren()) do
-                            if card:IsA("GuiObject") and card.Visible then addCard(card) end
-                        end
+    if next(foundCards) == nil and tradeGui then
+        local ok, descendants = pcall(function() return tradeGui:GetDescendants() end)
+        if ok then
+            for _, object in ipairs(descendants) do
+                if object:IsA("ScrollingFrame") and object.Visible
+                    and (object.Name == "Weapons" or object.Name == "Pets") then
+                    for _, card in ipairs(object:GetChildren()) do
+                        if card:IsA("GuiObject") and card.Visible then addCard(card) end
                     end
                 end
             end
@@ -521,12 +669,53 @@ local function reportInventoryStructure()
     warn(reportText)
 end
 
+local tradeSummary = Instance.new("TextLabel")
+tradeSummary.Name = "SupremeTradeSummary"
+tradeSummary.Size = UDim2.new(0,300,0,28)
+tradeSummary.Position = UDim2.new(0.5,-150,0.08,0)
+tradeSummary.BackgroundColor3 = Color3.fromRGB(16,19,29)
+tradeSummary.BackgroundTransparency = 0.08
+tradeSummary.BorderSizePixel = 0
+tradeSummary.Font = Enum.Font.GothamBold
+tradeSummary.TextSize = 12
+tradeSummary.TextColor3 = Color3.fromRGB(120,220,255)
+tradeSummary.TextStrokeTransparency = 0.85
+tradeSummary.Text = "SUPREME • WAITING FOR TRADE"
+tradeSummary.Visible = false
+tradeSummary.ZIndex = 250
+tradeSummary.Parent = textGui
+
+local function getTradeVerdict(yourTotal, theirTotal)
+    local difference = theirTotal - yourTotal
+    -- A difference within 5% of the higher side is treated as FAIR.
+    local tolerance = math.max(1, math.max(yourTotal,theirTotal) * 0.05)
+    if math.abs(difference) <= tolerance then
+        return "FAIR", difference
+    elseif difference > 0 then
+        return "WIN", difference
+    end
+    return "LOSE", difference
+end
+
 local function update()
     activeText = setmetatable({}, {__mode = "k"})
     local trade = scanTrade()
     if trade then
         annotateSide(trade.yourAnchor, trade.yours, trade.yourTotal, "YOUR")
         annotateSide(trade.theirAnchor, trade.theirs, trade.theirTotal, "THEIR")
+
+        if #trade.yours > 0 and #trade.theirs > 0 then
+            local verdict, difference = getTradeVerdict(trade.yourTotal,trade.theirTotal)
+            local sign = difference > 0 and "+" or ""
+            tradeSummary.Text = "SUPREME • " .. verdict .. "  |  YOU GET " ..
+                fmt(trade.theirTotal) .. " / GIVE " .. fmt(trade.yourTotal) ..
+                "  (" .. sign .. fmt(difference) .. ")"
+            tradeSummary.Visible = true
+        else
+            tradeSummary.Visible = false
+        end
+    else
+        tradeSummary.Visible = false
     end
     updateInventory(trade)
 
