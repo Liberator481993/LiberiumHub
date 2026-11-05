@@ -34,10 +34,10 @@ end
 local function parsePage(html, out)
     -- Preserve item names stored in image alt attributes before removing HTML.
     html = html:gsub("<img[^>]-alt=[\"'](.-)[\"'][^>]->", " Image: %1 ")
-    html = html:gsub("<[^>]->", " ")
-    html = html:gsub("&nbsp;"," "):gsub("&amp;","&"):gsub("&quot;",'\"'):gsub("&#39;","'")
     html = html:gsub("<script[^>]*>.-</script>"," ")
     html = html:gsub("<style[^>]*>.-</style>"," ")
+    html = html:gsub("<[^>]->", " ")
+    html = html:gsub("&nbsp;"," "):gsub("&amp;","&"):gsub("&quot;",'\"'):gsub("&#39;","'")
     html = html:gsub("<br%s*/?>"," "):gsub("</p>"," "):gsub("</div>"," ")
     html = clean(html)
 
