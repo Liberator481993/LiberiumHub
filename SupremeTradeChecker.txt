@@ -28,13 +28,7 @@ local function key(s)
     return normalized:gsub("[%p%c]"," "):gsub("%s+"," "):gsub("^%s+",""):gsub("%s+$","")
 end
 local function get(url)
-    local function validBody(body)
-        if type(body) == "table" then
-            body = body.Body or body.body or body.ResponseBody
-        end
-        if type(body) == "string" and #body > 100 then return body end
-        return nil
-    end
+    local errors = {}
 
     local function tryRequest(fn, label)
         if type(fn) ~= "function" then return nil end
@@ -48,39 +42,54 @@ local function get(url)
                 }
             })
         end)
-        if not ok then return nil end
+        if not ok then
+            table.insert(errors, label .. " failed")
+            return nil
+        end
+
         local status
         if type(response) == "table" then
             status = tonumber(response.StatusCode or response.Status or response.status_code)
+            response = response.Body or response.body or response.ResponseBody
         end
-        local body = validBody(response)
-        if body and (not status or (status >= 200 and status < 300)) then
-            return body, label
+        if type(response) == "string" and #response > 100 then
+            if not status or (status >= 200 and status < 300) then
+                if response:find("Value", 1, true) or response:find("value", 1, true) then
+                    return response, label
+                end
+                table.insert(errors, label .. " returned a page without values")
+            else
+                table.insert(errors, label .. " HTTP " .. tostring(status))
+            end
+        else
+            table.insert(errors, label .. " returned an empty response")
         end
         return nil
     end
 
-    local errors = {}
-    local ok, body = pcall(function() return game:HttpGet(url) end)
-    body = ok and validBody(body) or nil
-    if body then return body, "game:HttpGet" end
-    table.insert(errors, "game:HttpGet failed")
+    local body, source = tryRequest(request, "request")
+    if body then return body, source end
 
-    local directRequest = request
-    local body2, source2 = tryRequest(directRequest, "request")
-    if body2 then return body2, source2 end
-
-    local httpRequest = http_request
-    local body3, source3 = tryRequest(httpRequest, "http_request")
-    if body3 then return body3, source3 end
+    body, source = tryRequest(http_request, "http_request")
+    if body then return body, source end
 
     local synRequest = type(syn) == "table" and syn.request or nil
-    local body4, source4 = tryRequest(synRequest, "syn.request")
-    if body4 then return body4, source4 end
+    body, source = tryRequest(synRequest, "syn.request")
+    if body then return body, source end
 
     local httpServiceRequest = type(http) == "table" and http.request or nil
-    local body5, source5 = tryRequest(httpServiceRequest, "http.request")
-    if body5 then return body5, source5 end
+    body, source = tryRequest(httpServiceRequest, "http.request")
+    if body then return body, source end
+
+    local ok, gameBody = pcall(function() return game:HttpGet(url) end)
+    if ok and type(gameBody) == "string" and #gameBody > 100 then
+        if gameBody:find("Value", 1, true) or gameBody:find("value", 1, true) then
+            return gameBody, "game:HttpGet"
+        end
+        table.insert(errors, "game:HttpGet returned a page without values")
+    else
+        table.insert(errors, "game:HttpGet failed or returned an empty response")
+    end
 
     return nil, table.concat(errors, "; ")
 end
