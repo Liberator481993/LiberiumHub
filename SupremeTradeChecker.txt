@@ -46,8 +46,10 @@ local state = {
     inventoryModuleRetryAt = 0,
     inventoryFrames = 0,
     inventoryVisibleFrames = 0,
+    inventoryDataEntries = 0,
     inventoryGroups = 0,
     inventoryGuiPath = "unknown",
+    inventoryScreenList = "not scanned",
     busy = false,
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet."
@@ -625,6 +627,53 @@ local function scanRoot(root, group)
     return total, known, count
 end
 
+-- Some mobile MM2 builds omit ItemName nodes from the inventory list and expose
+-- only an image card. Resolve the nearest card from its Container.Icon instead.
+local function scanImageCards(root, group)
+    if not root then return 0, 0, 0 end
+    local seen = {}
+    local total, known, count = 0, 0, 0
+
+    local function cardForImage(image)
+        local current = image
+        while current and current ~= root do
+            if current:IsA("GuiObject") then
+                local container = current:FindFirstChild("Container")
+                local icon = container and container:FindFirstChild("Icon")
+                if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+                    return current
+                end
+            end
+            current = current.Parent
+        end
+        return nil
+    end
+
+    for _, node in ipairs(root:GetDescendants()) do
+        if not (node:IsA("ImageLabel") or node:IsA("ImageButton")) then continue end
+        local card = cardForImage(node)
+        if not card or seen[card] or not card.Parent then continue end
+        seen[card] = true
+        if not visible(card) then continue end
+
+        local name, quantity = itemData(card)
+        local value = valueOf(card, name)
+        if value == nil then
+            local amountNode = card:FindFirstChild("Container")
+                and card.Container:FindFirstChild("Amount")
+            local rawAmount = amountNode and tonumber(tostring(amountNode.Text):match("%d+"))
+            quantity = rawAmount or quantity
+        end
+        if value ~= nil then
+            total = total + value * quantity
+            known = known + quantity
+        end
+        count = count + quantity
+        updateTileBadge(card, value, quantity, group)
+    end
+    return total, known, count
+end
+
 local function visible(object)
     local current = object
     while current and current:IsA("GuiObject") do
@@ -789,7 +838,7 @@ local function scanModuleInventory()
 
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount = 0, 0, 0, 0
-    local visibleFrames, groupCount = 0, 0
+    local visibleFrames, groupCount, dataEntries = 0, 0, 0
     local seen = {}
 
     for groupName, group in pairs(groups) do
@@ -797,6 +846,7 @@ local function scanModuleInventory()
         groupCount = groupCount + 1
         for itemKey, entry in pairs(group) do
             if type(entry) ~= "table" then continue end
+            dataEntries = dataEntries + 1
             local tile = entry.Frame
             if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
             seen[tile] = true
@@ -806,7 +856,7 @@ local function scanModuleInventory()
 
             local name, quantity = itemData(tile)
             local value = valueOf(tile, name)
-            if value == nil and type(entry.Amount) == "number" then
+            if type(entry.Amount) == "number" and quantity <= 1 then
                 quantity = math.max(1, math.floor(entry.Amount))
             end
             local resolvedValue, resolvedName = value, nil
@@ -826,6 +876,7 @@ local function scanModuleInventory()
 
     state.inventoryFrames = frameCount
     state.inventoryVisibleFrames = visibleFrames
+    state.inventoryDataEntries = dataEntries
     state.inventoryGroups = groupCount
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
@@ -903,20 +954,36 @@ local function scanInventory()
             for _, category in ipairs({"Weapons", "Pets"}) do
                 local list = itemRoot:FindFirstChild(category)
                 if list and list:IsA("GuiObject") and visible(list) then
-                    scanRoot(list, "tradeInventory")
+                    local _, _, namedCount = scanRoot(list, "tradeInventory")
+                    if namedCount == 0 then
+                        scanImageCards(list, "tradeInventory")
+                    else
+                        -- Supplement text-based cards with image-only cards.
+                        scanImageCards(list, "tradeInventory")
+                    end
                 end
             end
         end
     end
 
+    local screenNames = {}
+    for _, child in ipairs(playerGui:GetChildren()) do
+        if child:IsA("LayerCollector") then
+            table.insert(screenNames, child.Name .. "=" .. tostring(child.Enabled))
+        end
+    end
+    state.inventoryScreenList = table.concat(screenNames, ", ")
+
     state.latestInventory =
         "InventoryModule: " .. tostring(state.inventoryModuleStatus)
+        .. " | Data entries: " .. tostring(state.inventoryDataEntries)
         .. " | Frames: " .. tostring(state.inventoryFrames)
         .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
         .. " | Groups: " .. tostring(state.inventoryGroups)
         .. " | GUI: " .. tostring(state.inventoryGuiPath)
         .. " | Total: " .. tostring(math.floor(weaponTotal + 0.5))
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
+        .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
 
 -- Minimal diagnostics panel.
