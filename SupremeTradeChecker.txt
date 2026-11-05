@@ -41,6 +41,13 @@ local state = {
     dbPets = 0,
     mappedCount = 0,
     iconCount = 0,
+    inventoryModuleStatus = "not checked",
+    inventoryModule = nil,
+    inventoryModuleRetryAt = 0,
+    inventoryFrames = 0,
+    inventoryVisibleFrames = 0,
+    inventoryGroups = 0,
+    inventoryGuiPath = "unknown",
     busy = false,
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet."
@@ -731,45 +738,151 @@ local function scanTrade()
     }
 end
 
-local function findActualInventory()
-    for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
-        local screen = playerGui:FindFirstChild(guiName)
-        if screen and screen:IsA("ScreenGui") and screen.Enabled then
-            local gameFrame = screen:FindFirstChild("Game")
-            local inventory = gameFrame and gameFrame:FindFirstChild("Inventory")
-            if inventory and visible(inventory) then return inventory end
+-- PulseHub does not guess the inventory ScreenGui name. It reads the
+-- live InventoryModule singleton and its MyInventory.Data.Weapons entries.
+local function getInventoryModule()
+    if state.inventoryModule then return state.inventoryModule end
+    if os.clock() < (state.inventoryModuleRetryAt or 0) then return nil end
+    state.inventoryModuleRetryAt = os.clock() + 5
+
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    if not modules then
+        state.inventoryModuleStatus = "ReplicatedStorage.Modules missing"
+        return nil
+    end
+
+    local moduleScript = modules:FindFirstChild("InventoryModule")
+    if not moduleScript then
+        state.inventoryModuleStatus = "Modules.InventoryModule missing"
+        return nil
+    end
+
+    local ok, result = pcall(require, moduleScript)
+    if not ok then
+        state.inventoryModuleStatus = "require failed: " .. tostring(result)
+        return nil
+    end
+    if type(result) ~= "table" then
+        state.inventoryModuleStatus = "require returned " .. typeof(result)
+        return nil
+    end
+
+    state.inventoryModule = result
+    state.inventoryModuleStatus = "loaded"
+    return result
+end
+
+local function scanModuleInventory()
+    local module = getInventoryModule()
+    if not module then return 0, 0, 0, 0, nil end
+
+    local myInventory = module.MyInventory
+    local data = type(myInventory) == "table" and myInventory.Data or nil
+    local groups = type(data) == "table" and {
+        Weapons = data.Weapons,
+        Pets = data.Pets
+    } or nil
+    if type(groups) ~= "table" then
+        state.inventoryModuleStatus = "loaded, MyInventory.Data unavailable"
+        return 0, 0, 0, 0, nil
+    end
+
+    local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
+    local total, known, count, frameCount = 0, 0, 0, 0
+    local visibleFrames, groupCount = 0, 0
+    local seen = {}
+
+    for groupName, group in pairs(groups) do
+        if type(group) ~= "table" then continue end
+        groupCount = groupCount + 1
+        for itemKey, entry in pairs(group) do
+            if type(entry) ~= "table" then continue end
+            local tile = entry.Frame
+            if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
+            seen[tile] = true
+            frameCount = frameCount + 1
+            if not tile.Parent or not visible(tile) then continue end
+            visibleFrames = visibleFrames + 1
+
+            local name, quantity = itemData(tile)
+            local value = valueOf(tile, name)
+            if value == nil and type(entry.Amount) == "number" then
+                quantity = math.max(1, math.floor(entry.Amount))
+            end
+            local resolvedValue, resolvedName = value, nil
+            if value ~= nil then
+                local _, foundName = valueOf(tile, name)
+                resolvedName = foundName
+            end
+
+            if resolvedValue ~= nil then
+                total = total + resolvedValue * quantity
+                known = known + quantity
+            end
+            count = count + quantity
+            updateTileBadge(tile, resolvedValue, quantity, "inventory")
         end
     end
-    return nil
+
+    state.inventoryFrames = frameCount
+    state.inventoryVisibleFrames = visibleFrames
+    state.inventoryGroups = groupCount
+    state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
+        or "InventoryModule.GUI.MyInventory unavailable"
+
+    local guiInstance = typeof(gui) == "Instance" and gui or nil
+    if guiInstance and guiInstance:IsA("GuiObject") and visible(guiInstance) then
+        local label = makeLabel(guiInstance, "__SupremeInventoryTotal", "inventory")
+        label.AnchorPoint = Vector2.new(0, 1)
+        label.Position = UDim2.new(0, 4, 1, -5)
+        label.Size = UDim2.fromOffset(290, 28)
+        label.TextSize = 12
+        label.Text = "INV " .. tostring(math.floor(total + 0.5))
+            .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
+        label.Visible = count > 0
+    end
+
+    return total, known, count, visibleFrames, myInventory
 end
 
 local function scanInventory()
-    local inventory = findActualInventory()
-    local weaponTotal, weaponKnown, weaponCount = 0, 0, 0
-    local petTotal, petKnown, petCount = 0, 0, 0
+    local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
+    local moduleTotal, moduleKnown, moduleCount, moduleVisible = scanModuleInventory()
+    weaponTotal, weaponKnown, weaponCount, visibleFrames = moduleTotal, moduleKnown, moduleCount, moduleVisible
 
-    if inventory then
-        local main = inventory:FindFirstChild("Main")
-        local weapons = main and main:FindFirstChild("Weapons")
-        local pets = main and main:FindFirstChild("Pets")
-        local weaponRoot = weapons and weapons:FindFirstChild("Items")
-        local petRoot = pets and pets:FindFirstChild("Items")
-        weaponTotal, weaponKnown, weaponCount = scanRoot(weaponRoot, "inventory")
-        petTotal, petKnown, petCount = scanRoot(petRoot, "inventory")
-
-        local invLabel = makeLabel(inventory, "__SupremeInventoryTotal", "inventory")
-        invLabel.AnchorPoint = Vector2.new(0, 1)
-        invLabel.Position = UDim2.new(0, 4, 1, -5)
-        invLabel.Size = UDim2.fromOffset(290, 28)
-        invLabel.TextSize = 12
-        invLabel.Text = "INV " .. tostring(math.floor(weaponTotal + petTotal + 0.5))
-            .. " | W " .. tostring(math.floor(weaponTotal + 0.5))
-            .. " | P " .. tostring(math.floor(petTotal + 0.5))
-        invLabel.Visible = weaponCount + petCount > 0
+    -- Fallback for UI-only builds where InventoryModule does not expose frames.
+    -- Keep the explicit MainGUI/MainMobile paths as a secondary option.
+    if visibleFrames == 0 then
+        for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
+            local screen = playerGui:FindFirstChild(guiName)
+            if screen and screen:IsA("ScreenGui") and screen.Enabled then
+                local gameFrame = screen:FindFirstChild("Game")
+                local inventory = gameFrame and gameFrame:FindFirstChild("Inventory")
+                if inventory and visible(inventory) then
+                    local main = inventory:FindFirstChild("Main")
+                    local weapons = main and main:FindFirstChild("Weapons")
+                    local pets = main and main:FindFirstChild("Pets")
+                    local weaponRoot = weapons and weapons:FindFirstChild("Items")
+                    local petRoot = pets and pets:FindFirstChild("Items")
+                    local a,b,c = scanRoot(weaponRoot, "inventory")
+                    local d,e,f = scanRoot(petRoot, "inventory")
+                    weaponTotal, weaponKnown, weaponCount = a+d, b+e, c+f
+                    local label = makeLabel(inventory, "__SupremeInventoryTotal", "inventory")
+                    label.AnchorPoint = Vector2.new(0, 1)
+                    label.Position = UDim2.new(0, 4, 1, -5)
+                    label.Size = UDim2.fromOffset(290, 28)
+                    label.TextSize = 12
+                    label.Text = "INV " .. tostring(math.floor(weaponTotal + 0.5))
+                        .. " | KNOWN " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
+                    label.Visible = weaponCount > 0
+                    state.inventoryGuiPath = guiName .. ".Game.Inventory"
+                    break
+                end
+            end
+        end
     end
 
-    -- The trade screen has its own inventory list. Support the exact _mO path
-    -- reported by this MM2 client, as well as PulseHub's Items.Main layout.
+    -- Also scan the inventory cards embedded in the trade window.
     local screen = playerGui:FindFirstChild("TradeGUI")
     if not screen or not screen:IsA("ScreenGui") or not screen.Enabled then
         screen = playerGui:FindFirstChild("TradeGUI_Phone")
@@ -796,15 +909,14 @@ local function scanInventory()
         end
     end
 
-    local total = weaponTotal + petTotal
-    local known = weaponKnown + petKnown
-    local count = weaponCount + petCount
-    state.latestInventory = inventory and (
-        "INVENTORY TOTAL: " .. tostring(math.floor(total + 0.5))
-        .. " | Weapons: " .. tostring(math.floor(weaponTotal + 0.5))
-        .. " | Pets: " .. tostring(math.floor(petTotal + 0.5))
-        .. " | Valued: " .. tostring(known) .. "/" .. tostring(count)
-    ) or "MainGUI/MainMobile inventory not visible; trade inventory path scanned."
+    state.latestInventory =
+        "InventoryModule: " .. tostring(state.inventoryModuleStatus)
+        .. " | Frames: " .. tostring(state.inventoryFrames)
+        .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
+        .. " | Groups: " .. tostring(state.inventoryGroups)
+        .. " | GUI: " .. tostring(state.inventoryGuiPath)
+        .. " | Total: " .. tostring(math.floor(weaponTotal + 0.5))
+        .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
 end
 
 -- Minimal diagnostics panel.
