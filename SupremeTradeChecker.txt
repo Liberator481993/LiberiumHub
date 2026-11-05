@@ -266,10 +266,8 @@ local function buildMapping(entries, database)
         if wrapping then table.insert(aliases, "Box of " .. wrapping .. " Wrapping Paper") end
         if name == "Ultra Wrap" then table.insert(aliases, "Box of Ultra Wrapping Paper") end
         if name:sub(-1) == "s" then table.insert(aliases, name:sub(1, -2)) end
-        if category == "legendaries" then
-            local short = name:match("^%S+%s+(.+)$")
-            if short then table.insert(aliases, short) end
-        end
+        -- Do not strip the first word from legendary names: that can
+        -- collide with a different weapon and assign its value incorrectly.
 
         local matches = {}
         for _, alias in ipairs(aliases) do
