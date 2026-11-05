@@ -32,6 +32,10 @@ local function get(url)
     if ok and type(body) == "string" and #body > 100 then return body end
 end
 local function parsePage(html, out)
+    -- Preserve item names stored in image alt attributes before removing HTML.
+    html = html:gsub("<img[^>]-alt=[\"'](.-)[\"'][^>]->", " Image: %1 ")
+    html = html:gsub("<[^>]->", " ")
+    html = html:gsub("&nbsp;"," "):gsub("&amp;","&"):gsub("&quot;",'\"'):gsub("&#39;","'")
     html = html:gsub("<script[^>]*>.-</script>"," ")
     html = html:gsub("<style[^>]*>.-</style>"," ")
     html = html:gsub("<br%s*/?>"," "):gsub("</p>"," "):gsub("</div>"," ")
@@ -76,16 +80,25 @@ local function parsePage(html, out)
             add(nameText, valueText)
         end
     end
+    return parsedThisPage
 end
 
 local function refreshValues()
     local fresh = {}
+    local fetchedPages, pageErrors = 0, {}
     for _,cat in ipairs(CATEGORIES) do
         if stopped then return end
         local html = get(BASE .. cat)
-        if html then parsePage(html,fresh) end
+        if html then
+            fetchedPages = fetchedPages + 1
+            parsePage(html,fresh)
+        else
+            table.insert(pageErrors, cat)
+        end
         task.wait(0.12)
     end
+    _G.__SUPREME_FETCHED_PAGES = fetchedPages
+    _G.__SUPREME_FAILED_PAGES = table.concat(pageErrors, ", ")
     if next(fresh) then
         for itemKey, data in pairs(fresh) do
             values[itemKey] = data
@@ -840,8 +853,10 @@ task.spawn(function()
     local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
         or "VALUES: 0 loaded — Supreme Values request/parser failed"
     diagnosticTitle.Text = loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR"
-    diagnosticOutput.Text = dbLine .. "\\nMM2 icon mappings: " .. tostring(iconCount)
-        .. "\\nOpen inventory to test item prices; open a trade to test both totals."
+    diagnosticOutput.Text = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0)
+        .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
+        .. "\nMM2 icon mappings: " .. tostring(iconCount)
+        .. "\nOpen inventory to test item prices; open a trade to test both totals.")
     print(loaded and ("[Supreme Trade Text] Values loaded • " .. lastUpdate .. " • " .. tostring(valueCount) .. " items") or "[Supreme Trade Text] Could not load Supreme Values")
     while textGui.Parent and not stopped do
         pcall(update)
