@@ -133,7 +133,8 @@ local function parsePage(html, out)
         local number = tonumber(rawValue:match("^[%d%.%-]+") or "")
         if normalized ~= "" and number ~= nil
             and not normalized:find("item stability", 1, true)
-            and not normalized:find("image stability", 1, true) then
+            and not normalized:find("image stability", 1, true)
+            and not out[normalized] then
             out[normalized] = {name = name, value = number, valueText = clean(valueText)}
             parsedCount = parsedCount + 1
         end
@@ -160,11 +161,17 @@ local function parsePage(html, out)
         cursor = nextMarker or (#html + 1)
     end
 
+    -- Secondary whole-page pass: some site layouts put the item label and
+    -- value in the same text stream but split cards with extra image markers.
+    -- Run this even when the segmented pass found other items; otherwise one
+    -- malformed card can silently omit a valid item such as Emberbow.
+    for nameText, valueText in html:gmatch("Image:%s*(.-)%s*|%s*.-%s+Value%s*%-%s*([%d,%.]+)") do
+        add(nameText, valueText)
+    end
+
     -- Fallback for list layouts where item images have no alt text.
-    if parsedCount == 0 then
-        for nameText, valueText in html:gmatch("|%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
-            add(nameText, valueText)
-        end
+    for nameText, valueText in html:gmatch("|%s*(.-)%s+Value%s*%-%s*([%d,%.]+)") do
+        add(nameText, valueText)
     end
     return parsedCount
 end
@@ -487,6 +494,9 @@ local function findOfferAnchor(tradeGui, wantedName, headingText)
     return nil
 end
 
+-- Forward declaration: trade cards often expose only their image asset id.
+local imageItemName
+
 local function scanTrade()
     local tradeGui = playerGui:FindFirstChild("TradeGUI")
     if not tradeGui or (tradeGui:IsA("ScreenGui") and not tradeGui.Enabled) then
@@ -553,6 +563,13 @@ local function scanTrade()
             local objectName = clean(object.Name)
             if objectName ~= "" and not objectName:match("^NewItem%d+$") then
                 table.insert(candidates, objectName)
+            end
+
+            -- MM2 offer slots can be image-only (NewItem1..3); resolve their
+            -- Roblox image id through the replicated item database as well.
+            if imageItemName and (object:IsA("ImageLabel") or object:IsA("ImageButton")) then
+                local mappedName = imageItemName(object)
+                if mappedName then table.insert(candidates, mappedName) end
             end
 
             local attrs = {}
@@ -731,7 +748,7 @@ local function refreshIconDatabase()
     end
 end
 
-local function imageItemName(object)
+imageItemName = function(object)
     if not (object:IsA("ImageLabel") or object:IsA("ImageButton")) then return nil end
     local image = tostring(object.Image or "")
     local id = image:match("rbxassetid://(%d+)") or image:match("[?&]id=(%d+)")
