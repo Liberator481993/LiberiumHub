@@ -428,6 +428,62 @@ local function annotateSide(anchor, items, total, sideName)
     end
 end
 
+-- Build an icon-id -> item-name index from MM2's replicated item database.
+-- The inventory GUI in some mobile layouts only exposes icon images, not item names.
+local iconToItem = {}
+local function addIconMapping(imageValue, itemName)
+    if type(imageValue) ~= "string" and type(imageValue) ~= "number" then return end
+    local imageText = tostring(imageValue)
+    local id = imageText:match("rbxassetid://(%d+)") or imageText:match("[?&]id=(%d+)")
+        or imageText:match("^(%d+)$")
+    if id and type(itemName) == "string" and clean(itemName) ~= "" then
+        iconToItem[id] = clean(itemName)
+    end
+end
+
+local function walkItemDatabase(node, depth, inheritedName, seen)
+    if depth > 7 or type(node) ~= "table" or seen[node] then return end
+    seen[node] = true
+    for field, value in pairs(node) do
+        if type(value) == "table" then
+            local candidateName = type(field) == "string" and field or inheritedName
+            local image = value.Image or value.ImageId or value.Icon or value.IconId
+                or value.Texture or value.AssetId or value.ImageAsset
+            if image and candidateName then addIconMapping(image, candidateName) end
+            walkItemDatabase(value, depth + 1, candidateName, seen)
+        end
+    end
+end
+
+local function refreshIconDatabase()
+    local replicated = game:GetService("ReplicatedStorage")
+    local candidates = {}
+    for _, node in ipairs(replicated:GetDescendants()) do
+        if node:IsA("ModuleScript") then
+            local n = string.lower(node.Name)
+            if n == "item" or n == "items" or n == "itemdata" or n == "database"
+                or n == "weapon" or n == "weapons" or n == "pets" then
+                table.insert(candidates, node)
+            end
+        end
+    end
+    for _, module in ipairs(candidates) do
+        local ok, data = pcall(require, module)
+        if ok and type(data) == "table" then
+            walkItemDatabase(data, 0, nil, {})
+        end
+    end
+end
+
+local function imageItemName(object)
+    if not (object:IsA("ImageLabel") or object:IsA("ImageButton")) then return nil end
+    local image = tostring(object.Image or "")
+    local id = image:match("rbxassetid://(%d+)") or image:match("[?&]id=(%d+)")
+        or image:match("^(%d+)$")
+    if not id then return nil end
+    return iconToItem[id]
+end
+
 local inventoryBadges = setmetatable({}, {__mode = "k"})
 
 local function inventoryCandidate(object)
@@ -443,6 +499,8 @@ local function inventoryCandidate(object)
         add(object.Value)
     end
     add(object.Name)
+    local iconName = imageItemName(object)
+    if iconName then add(iconName) end
 
     local attrs = {}
     pcall(function() attrs = object:GetAttributes() end)
@@ -566,8 +624,24 @@ local function updateInventory(trade)
             for _, categoryName in ipairs({"Weapons", "Pets"}) do
                 local list = itemRoot:FindFirstChild(categoryName)
                 if list and list:IsA("ScrollingFrame") and list.Visible then
+                    -- This build nests the actual cards under a Frame named "Items".
+                    -- Walk descendants, not just the one wrapper child.
+                    for _, node in ipairs(list:GetDescendants()) do
+                        if node:IsA("ImageButton") or node:IsA("ImageLabel") then
+                            local root = node
+                            local parent = node.Parent
+                            for _ = 1, 5 do
+                                if not parent or parent == list then break end
+                                if parent:IsA("Frame") or parent:IsA("ImageButton") then
+                                    root = parent
+                                end
+                                parent = parent.Parent
+                            end
+                            addCard(root)
+                        end
+                    end
                     for _, card in ipairs(list:GetChildren()) do
-                        if card:IsA("GuiObject") and card.Visible then
+                        if card:IsA("GuiObject") and card.Visible and card.Name ~= "Items" then
                             addCard(card)
                         end
                     end
@@ -762,6 +836,8 @@ task.spawn(function()
         diagnosticTitle.Text = "DIAGNOSTIC ERROR"
         diagnosticOutput.Text = "The inventory scan failed before completion:\\n" .. tostring(diagErr)
     end
+    local iconOk, iconErr = pcall(refreshIconDatabase)
+    if not iconOk then warn("[Supreme Trade Text] Item icon database scan failed: " .. tostring(iconErr)) end
     local loaded = refreshValues()
     local valueCount = #valueNames
     local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
