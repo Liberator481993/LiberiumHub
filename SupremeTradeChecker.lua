@@ -209,13 +209,21 @@ local function normalizeGuiName(name)
 end
 
 local function findOfferAnchor(tradeGui, wantedName, headingText)
-    -- The game can expose offer containers as Frames rather than text headings.
+    -- Prefer the visible named container; some builds keep hidden templates nearby.
     local named = tradeGui:FindFirstChild(wantedName, true)
-    if named and named:IsA("GuiObject") then return named end
+    if named and named:IsA("GuiObject") and named.Visible then return named end
+
+    local normalizedWanted = normalizeGuiName(wantedName)
+    for _, object in ipairs(tradeGui:GetDescendants()) do
+        if object:IsA("GuiObject") and object.Visible
+            and normalizeGuiName(object.Name) == normalizedWanted then
+            return object
+        end
+    end
 
     local wanted = string.lower(headingText)
     for _, object in ipairs(tradeGui:GetDescendants()) do
-        if object:IsA("TextLabel") or object:IsA("TextButton") then
+        if (object:IsA("TextLabel") or object:IsA("TextButton")) and object.Visible then
             local text = string.lower(clean(object.Text))
             if text == wanted or text:find(wanted,1,true) then
                 return object
@@ -540,7 +548,15 @@ local function updateInventory(trade)
     -- Scan the Weapons and Pets ScrollingFrames directly instead of guessing
     -- from every ImageLabel in PlayerGui/CoreGui.
     local tradeGui = playerGui:FindFirstChild("TradeGUI")
-        or playerGui:FindFirstChild("TradeGUI_Phone")
+    if tradeGui and tradeGui:IsA("ScreenGui") and not tradeGui.Enabled then
+        tradeGui = nil
+    end
+    if not tradeGui then
+        tradeGui = playerGui:FindFirstChild("TradeGUI_Phone")
+        if tradeGui and tradeGui:IsA("ScreenGui") and not tradeGui.Enabled then
+            tradeGui = nil
+        end
+    end
     if tradeGui then
         local container = tradeGui:FindFirstChild("Container", true)
         local items = container and container:FindFirstChild("Items", true)
