@@ -634,6 +634,18 @@ local function scanImageCards(root, group)
     local seen = {}
     local total, known, count = 0, 0, 0
 
+    -- This helper is local here because the shared visible() helper is declared
+    -- later in the file, after the trade-offer scanner.
+    local function cardVisible(object)
+        local current = object
+        while current and current:IsA("GuiObject") do
+            if not current.Visible then return false end
+            current = current.Parent
+        end
+        if current and current:IsA("ScreenGui") then return current.Enabled end
+        return current ~= nil
+    end
+
     local function cardForImage(image)
         local current = image
         while current and current ~= root do
@@ -654,7 +666,7 @@ local function scanImageCards(root, group)
         local card = cardForImage(node)
         if not card or seen[card] or not card.Parent then continue end
         seen[card] = true
-        if not visible(card) then continue end
+        if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
         local value = valueOf(card, name)
