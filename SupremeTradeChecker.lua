@@ -479,6 +479,7 @@ local function loadValues(force)
             state.entryCount = entryCount
             state.failedPages = failed
             state.fetchMethods = methods
+            state.categoryCounts = categoryCounts
 
             if #failed > 0 or pageCount ~= #CATEGORIES then
                 error("Supreme pages incomplete; refusing to publish partial values")
@@ -838,6 +839,7 @@ title.TextSize = 12
 title.TextColor3 = Color3.fromRGB(120, 220, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Text = "SUPREME — LOADING"
+title.Active = true
 title.ZIndex = 201
 title.Parent = panel
 
@@ -903,8 +905,13 @@ end)
 setCollapsed(true)
 
 local function copyText(text)
-    local methods = {setclipboard, toclipboard, setrbxclipboard}
-    for _, method in ipairs(methods) do
+    local methods = {
+        {"setclipboard", setclipboard},
+        {"toclipboard", toclipboard},
+        {"setrbxclipboard", setrbxclipboard}
+    }
+    for _, entry in ipairs(methods) do
+        local method = entry[2]
         if type(method) == "function" then
             local ok, result = pcall(method, text)
             if ok and result ~= false then return true end
@@ -926,6 +933,7 @@ local function buildDiagnostic()
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
         "Pages parsed: " .. tostring(state.parsedPages),
         "Supreme entries: " .. tostring(state.entryCount),
+        "Category counts: " .. HttpService:JSONEncode(state.categoryCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
