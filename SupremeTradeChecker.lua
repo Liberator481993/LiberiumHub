@@ -246,10 +246,57 @@ local latestResults = "Supreme Trade Checker is loading..."
 
 local function copyResults(text)
     text = tostring(text or "")
-    local copied = false
-    if type(setclipboard) == "function" then copied = pcall(setclipboard, text) end
-    if not copied and type(toclipboard) == "function" then copied = pcall(toclipboard, text) end
-    return copied
+    local clipboardFunctions = {
+        setclipboard,
+        toclipboard,
+        setrbxclipboard
+    }
+    for _, clipboardFunction in ipairs(clipboardFunctions) do
+        if type(clipboardFunction) == "function" then
+            local ok, result = pcall(clipboardFunction, text)
+            if ok and result ~= false then return true end
+        end
+    end
+
+    if type(Clipboard) == "table" and type(Clipboard.set) == "function" then
+        local ok, result = pcall(Clipboard.set, text)
+        if ok and result ~= false then return true end
+    end
+    return false
+end
+
+local function buildCopyReport()
+    local lines = {
+        "SUPREME TRADE CHECKER — FULL DIAGNOSTIC",
+        "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
+        "Values loaded: " .. tostring(#valueNames),
+        "Pages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0),
+        "Pages parsed: " .. tostring(_G.__SUPREME_PARSED_PAGES or 0),
+        "Entries parsed: " .. tostring(_G.__SUPREME_PARSED_ENTRIES or 0),
+        "Fetch methods: " .. tostring(_G.__SUPREME_FETCH_METHODS and "see details below" or "not reported"),
+        "Failed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
+    }
+
+    local methods = _G.__SUPREME_FETCH_METHODS or {}
+    for method, count in pairs(methods) do
+        table.insert(lines, "  " .. tostring(method) .. ": " .. tostring(count))
+    end
+
+    local iconCount = 0
+    for _ in pairs(iconToItem or {}) do iconCount = iconCount + 1 end
+    table.insert(lines, "MM2 icon mappings: " .. tostring(iconCount))
+
+    local emberbow = values["emberbow"]
+    if emberbow then
+        table.insert(lines, "Emberbow lookup: FOUND | " .. tostring(emberbow.name) .. " | Value: " .. tostring(emberbow.value))
+    else
+        table.insert(lines, "Emberbow lookup: NOT FOUND")
+    end
+
+    table.insert(lines, "")
+    table.insert(lines, "CURRENT TRADE / SCAN RESULT:")
+    table.insert(lines, tostring(latestResults or "No current result"))
+    return table.concat(lines, "\n")
 end
 
 local copyResultsButton = Instance.new("TextButton")
@@ -261,24 +308,24 @@ copyResultsButton.BorderSizePixel = 0
 copyResultsButton.Font = Enum.Font.GothamBold
 copyResultsButton.TextSize = 13
 copyResultsButton.TextColor3 = Color3.new(1, 1, 1)
-copyResultsButton.Text = "COPY TRADE RESULTS"
+copyResultsButton.Text = "COPY FULL DIAGNOSTIC"
 copyResultsButton.ZIndex = 205
 copyResultsButton.Parent = diagnosticPanel
 
 local function onCopyResults()
-    if copyResults(latestResults) then
-        copyResultsButton.Text = "COPIED TO CLIPBOARD"
+    local report = buildCopyReport()
+    if copyResults(report) then
+        copyResultsButton.Text = "COPIED — SEND THE TEXT"
     else
-        copyResultsButton.Text = "CLIPBOARD NOT SUPPORTED"
+        copyResultsButton.Text = "CLIPBOARD API UNAVAILABLE"
     end
-    task.delay(2, function()
+    task.delay(3, function()
         if copyResultsButton and copyResultsButton.Parent then
-            copyResultsButton.Text = "COPY TRADE RESULTS"
+            copyResultsButton.Text = "COPY FULL DIAGNOSTIC"
         end
     end)
 end
 copyResultsButton.Activated:Connect(onCopyResults)
-copyResultsButton.MouseButton1Click:Connect(onCopyResults)
 
 
 local diagnosticClose = Instance.new("TextButton")
