@@ -839,12 +839,8 @@ local function scanModuleInventory()
 
     local myInventory = module.MyInventory
     local data = type(myInventory) == "table" and myInventory.Data or nil
-    local groups = type(data) == "table" and {
-        Weapons = data.Weapons,
-        Pets = data.Pets
-    } or nil
-    if type(groups) ~= "table" then
-        state.inventoryModuleStatus = "loaded, MyInventory.Data unavailable"
+    if type(data) ~= "table" or type(data.Weapons) ~= "table" then
+        state.inventoryModuleStatus = "loaded, MyInventory.Data.Weapons unavailable"
         return 0, 0, 0, 0, nil
     end
 
@@ -853,37 +849,58 @@ local function scanModuleInventory()
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
     local seen = {}
 
-    for groupName, group in pairs(groups) do
-        if type(group) ~= "table" then continue end
-        groupCount = groupCount + 1
-        for itemKey, entry in pairs(group) do
-            if type(entry) ~= "table" then continue end
-            dataEntries = dataEntries + 1
-            local tile = entry.Frame
-            if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
-            seen[tile] = true
-            frameCount = frameCount + 1
-            if not tile.Parent or not visible(tile) then continue end
-            visibleFrames = visibleFrames + 1
+    -- PulseHub's actual structure is Data.Weapons[group][itemId] = entry.
+    -- The previous scanner stopped one level too early and counted only the
+    -- category/group tables (5 in the user's diagnostic), not item entries.
+    local function scanCollection(collection, collectionName)
+        if type(collection) ~= "table" then return end
+        for subgroupName, subgroup in pairs(collection) do
+            if type(subgroup) ~= "table" then continue end
+            groupCount = groupCount + 1
+            for itemKey, entry in pairs(subgroup) do
+                if type(entry) ~= "table" then continue end
+                dataEntries = dataEntries + 1
+                local tile = entry.Frame
+                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
+                seen[tile] = true
+                frameCount = frameCount + 1
+                if not tile.Parent then continue end
+                if visible(tile) then visibleFrames = visibleFrames + 1 end
 
-            local name, quantity = itemData(tile)
-            local value = valueOf(tile, name)
-            if type(entry.Amount) == "number" and quantity <= 1 then
-                quantity = math.max(1, math.floor(entry.Amount))
+                -- Do not depend on ItemName text: PulseHub's inventory tiles
+                -- are reliably identified by Container.Icon -> MM2 database.
+                local name, quantity = itemData(tile)
+                if type(entry.Amount) == "number" and quantity <= 1 then
+                    quantity = math.max(1, math.floor(entry.Amount))
+                end
+                local resolvedValue = valueOf(tile, name)
+                if resolvedValue ~= nil then
+                    total = total + resolvedValue * quantity
+                    known = known + quantity
+                end
+                count = count + quantity
+                updateTileBadge(tile, resolvedValue, quantity, "inventory")
             end
-            local resolvedValue, resolvedName = value, nil
-            if value ~= nil then
-                local _, foundName = valueOf(tile, name)
-                resolvedName = foundName
-            end
-
-            if resolvedValue ~= nil then
-                total = total + resolvedValue * quantity
-                known = known + quantity
-            end
-            count = count + quantity
-            updateTileBadge(tile, resolvedValue, quantity, "inventory")
         end
+    end
+
+    scanCollection(data.Weapons, "Weapons")
+    scanCollection(data.Pets, "Pets")
+
+    -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
+    -- Put the running total on the visible inventory page when available.
+    local guiInstance = typeof(gui) == "Instance" and gui or nil
+    local main = guiInstance and guiInstance:FindFirstChild("Main")
+    local totalParent = main or guiInstance
+    if totalParent and totalParent:IsA("GuiObject") then
+        local label = makeLabel(totalParent, "__SupremeInventoryTotal", "inventory")
+        label.AnchorPoint = Vector2.new(0, 0)
+        label.Position = UDim2.new(0, 8, 0, 8)
+        label.Size = UDim2.fromOffset(250, 26)
+        label.TextSize = 12
+        label.Text = "INV " .. tostring(math.floor(total + 0.5))
+            .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
+        label.Visible = count > 0
     end
 
     state.inventoryFrames = frameCount
@@ -993,6 +1010,7 @@ local function scanInventory()
         .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
         .. " | Groups: " .. tostring(state.inventoryGroups)
         .. " | GUI: " .. tostring(state.inventoryGuiPath)
+        .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
         .. " | Total: " .. tostring(math.floor(weaponTotal + 0.5))
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
