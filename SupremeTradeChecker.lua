@@ -127,8 +127,9 @@ textGui.DisplayOrder = 9999
 -- Create visible feedback immediately. Do not wait for external value-site requests.
 local diagnosticPanel = Instance.new("Frame")
 diagnosticPanel.Name = "SupremeInventoryDiagnostic"
-diagnosticPanel.Size = UDim2.new(0.92, 0, 0, 350)
-diagnosticPanel.Position = UDim2.new(0.04, 0, 0.12, 0)
+diagnosticPanel.Size = UDim2.new(0, 290, 0, 245)
+diagnosticPanel.Position = UDim2.new(1, -12, 0, 88)
+diagnosticPanel.AnchorPoint = Vector2.new(1, 0)
 diagnosticPanel.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
 diagnosticPanel.BackgroundTransparency = 0.08
 diagnosticPanel.BorderSizePixel = 0
@@ -141,10 +142,12 @@ diagnosticTitle.Size = UDim2.new(1, -48, 0, 34)
 diagnosticTitle.Position = UDim2.new(0, 10, 0, 0)
 diagnosticTitle.BackgroundTransparency = 1
 diagnosticTitle.Font = Enum.Font.GothamBold
-diagnosticTitle.TextSize = 13
+diagnosticTitle.TextSize = 12
 diagnosticTitle.TextColor3 = Color3.fromRGB(120, 220, 255)
 diagnosticTitle.TextXAlignment = Enum.TextXAlignment.Left
-diagnosticTitle.Text = "SUPREME — STARTING"
+diagnosticTitle.Text = "SUPREME"
+diagnosticTitle.TextTruncate = Enum.TextTruncate.AtEnd
+diagnosticTitle.Active = true
 diagnosticTitle.ZIndex = 201
 diagnosticTitle.Parent = diagnosticPanel
 
@@ -219,6 +222,69 @@ diagnosticOutput.TextColor3 = Color3.fromRGB(225, 231, 242)
 diagnosticOutput.Text = "Script injected. Waiting for inventory scan..."
 diagnosticOutput.ZIndex = 201
 diagnosticOutput.Parent = diagnosticPanel
+
+-- Start minimized so the native MM2 trade buttons remain accessible.
+local panelCollapsed = true
+local diagnosticStatusText = "SUPREME — STARTING"
+local expandedPanelSize = UDim2.new(0, 290, 0, 245)
+local collapsedPanelSize = UDim2.new(0, 150, 0, 34)
+
+local function setDiagnosticStatus(status)
+    diagnosticStatusText = tostring(status or "SUPREME")
+    diagnosticTitle.Text = panelCollapsed and "SUPREME" or diagnosticStatusText
+end
+
+local function setPanelCollapsed(collapsed)
+    panelCollapsed = collapsed
+    diagnosticPanel.Size = collapsed and collapsedPanelSize or expandedPanelSize
+    diagnosticTitle.Text = collapsed and "SUPREME" or diagnosticStatusText
+    copyResultsButton.Visible = not collapsed
+    diagnosticOutput.Visible = not collapsed
+    diagnosticClose.Text = collapsed and "+" or "−"
+end
+
+diagnosticClose.Name = "SupremePanelToggle"
+diagnosticClose.BackgroundColor3 = Color3.fromRGB(35, 95, 125)
+diagnosticClose.Text = "+"
+diagnosticClose.Activated:Connect(function()
+    setPanelCollapsed(not panelCollapsed)
+end)
+diagnosticClose.MouseButton1Click:Connect(function()
+    setPanelCollapsed(not panelCollapsed)
+end)
+setPanelCollapsed(true)
+
+-- Drag the panel from its title area (mouse or touchscreen).
+local dragging = false
+local dragStartPosition
+local panelStartPosition
+
+diagnosticTitle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStartPosition = input.Position
+        panelStartPosition = diagnosticPanel.Position
+        local endedConnection
+        endedConnection = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                if endedConnection then endedConnection:Disconnect() end
+            end
+        end)
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartPosition
+        diagnosticPanel.Position = UDim2.new(
+            panelStartPosition.X.Scale, panelStartPosition.X.Offset + delta.X,
+            panelStartPosition.Y.Scale, panelStartPosition.Y.Offset + delta.Y
+        )
+    end
+end)
 
 
 local originalText = setmetatable({}, {__mode = "k"})
@@ -812,7 +878,7 @@ local function reportInventoryStructure()
     add("END DIAGNOSTIC")
     diagnosticReport = table.concat(lines, "\n")
     latestResults = diagnosticReport
-    diagnosticTitle.Text = "SUPREME — SCAN DETAILS"
+    setDiagnosticStatus("SUPREME — SCAN DETAILS")
     diagnosticOutput.Text = diagnosticReport
     pcall(function() diagnosticOutput.CursorPosition = 1 end)
     warn(diagnosticReport)
@@ -908,7 +974,7 @@ end
 
 task.spawn(function()
     task.wait(0.25)
-    diagnosticTitle.Text = "SUPREME — LOADING"
+    setDiagnosticStatus("SUPREME — LOADING")
     diagnosticOutput.Text = "Reading MM2 item database and Supreme Values...\\nInventory scanner active."
     local iconOk, iconErr = pcall(refreshIconDatabase)
     if not iconOk then warn("[Supreme Trade Text] Item icon database scan failed: " .. tostring(iconErr)) end
@@ -918,7 +984,7 @@ task.spawn(function()
     for _ in pairs(iconToItem) do iconCount = iconCount + 1 end
     local dbLine = loaded and ("VALUES: " .. tostring(valueCount) .. " loaded • " .. lastUpdate)
         or "VALUES: 0 loaded — Supreme Values request/parser failed"
-    diagnosticTitle.Text = loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR"
+    setDiagnosticStatus(loaded and "SUPREME — DATABASE READY" or "SUPREME — DATABASE ERROR")
     latestResults = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0) .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none") .. "\nMM2 icon mappings: " .. tostring(iconCount)
     diagnosticOutput.Text = dbLine .. "\nPages fetched: " .. tostring(_G.__SUPREME_FETCHED_PAGES or 0)
         .. "\nFailed pages: " .. tostring(_G.__SUPREME_FAILED_PAGES or "none")
