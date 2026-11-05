@@ -628,14 +628,12 @@ local function updateInventory(trade)
                     -- Walk descendants, not just the one wrapper child.
                     for _, node in ipairs(list:GetDescendants()) do
                         if node:IsA("ImageButton") or node:IsA("ImageLabel") then
+                            -- Use the nearest card frame only. Climbing to the
+                            -- direct child would collapse every item into "Items".
                             local root = node
                             local parent = node.Parent
-                            for _ = 1, 5 do
-                                if not parent or parent == list then break end
-                                if parent:IsA("Frame") or parent:IsA("ImageButton") then
-                                    root = parent
-                                end
-                                parent = parent.Parent
+                            if parent and parent ~= list and parent:IsA("Frame") then
+                                root = parent
                             end
                             addCard(root)
                         end
