@@ -321,46 +321,41 @@ local function buildMapping(entries, database)
             for _, candidate in ipairs(matches) do
                 if predicate(candidate.item) then table.insert(filtered, candidate) end
             end
-            if #filtered > 0 then matches = filtered end
+            -- A supplied discriminator that does not match must reject the
+            -- candidate set; never silently fall back to a different skin.
+            matches = filtered
         end
 
         if kind then filterMatches(function(item) return item.ItemType == kind end) end
-        if #matches > 1 and value.cl then
+        if value.cl then
             filterMatches(function(item) return item.Rarity == value.cl end)
         end
-        if #matches > 1 then
-            local previous = #matches
-            if year then
-                filterMatches(function(item) return tostring(item.Year or "") == tostring(year) end)
-            end
-            if #matches == previous then
-                filterMatches(function(item) return not item.Year end)
-            end
+        if year then
+            filterMatches(function(item) return tostring(item.Year or "") == tostring(year) end)
         end
-        if #matches > 1 then
-            local previous = #matches
-            if value.e then
-                filterMatches(function(item) return tostring(item.Event or "") == tostring(value.e) end)
-            end
-            if #matches == previous then
-                filterMatches(function(item) return not item.Event end)
-            end
+        if value.e then
+            filterMatches(function(item) return tostring(item.Event or "") == tostring(value.e) end)
         end
 
-        for _, candidate in ipairs(matches) do
+        -- Never fan one Supreme value out to several MM2 records. Ambiguous
+        -- names remain unvalued until metadata makes the match unique.
+        if #matches == 1 then
+            local candidate = matches[1]
             local idKey = candidate.kind .. ":" .. candidate.id
-            local previous = byKey[idKey]
-            if not previous then mappedCount = mappedCount + 1 end
-            if not previous or previous.n >= #matches then
-                byKey[idKey] = {v = amount, n = #matches, name = name, category = category}
+            if not byKey[idKey] then
+                mappedCount = mappedCount + 1
+                byKey[idKey] = {v = amount, n = 1, name = name, category = category}
             end
         end
     end
 
-    local icon, chromaOf, byName = {}, {}, {}
+    local icon, iconCandidates, chromaOf, byName = {}, {}, {}, {}
     local function addIcon(item, idKey)
         local image = assetId(item.Image)
-        if image and not icon[image] then icon[image] = idKey end
+        if image then
+            iconCandidates[image] = iconCandidates[image] or {}
+            table.insert(iconCandidates[image], idKey)
+        end
     end
 
     for id, item in pairs(weapons) do
@@ -369,11 +364,24 @@ local function buildMapping(entries, database)
     for id, item in pairs(weapons) do
         if type(item) == "table" and not item.Chroma and item.ItemID then
             local imageId = tostring(item.ItemID)
-            if not icon[imageId] then icon[imageId] = "i:" .. tostring(id) end
+            iconCandidates[imageId] = iconCandidates[imageId] or {}
+            table.insert(iconCandidates[imageId], "i:" .. tostring(id))
         end
     end
     for id, item in pairs(pets) do
         if type(item) == "table" then addIcon(item, "p:" .. tostring(id)) end
+    end
+    -- Only unique asset IDs are safe for icon-based identification.
+    for image, candidates in pairs(iconCandidates) do
+        local unique = {}
+        for _, idKey in ipairs(candidates) do
+            if not unique[idKey] then unique[idKey] = true end
+        end
+        local onlyKey, count = nil, 0
+        for idKey in pairs(unique) do
+            onlyKey, count = idKey, count + 1
+        end
+        if count == 1 then icon[image] = onlyKey end
     end
 
     for _, group in ipairs({
@@ -429,23 +437,34 @@ local function valueOf(tile, name)
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
+
+    -- Prefer an exact visible item name. A shared/reused icon can otherwise
+    -- make one skin inherit another skin's value.
+    local namedMatches = {}
+    local normalizedName = normalize(name)
+    if normalizedName ~= "" then
+        for _, candidate in ipairs(mapped.byName[normalizedName] or {}) do
+            if candidate.chroma == chroma and mapped.byKey[candidate.key] then
+                table.insert(namedMatches, candidate)
+            end
+        end
+    end
+    if #namedMatches == 1 then
+        local entry = mapped.byKey[namedMatches[1].key]
+        return entry.v, entry.name
+    end
+
+    -- Fall back to image matching only when the asset ID is globally unique.
     local container = tile and tile:FindFirstChild("Container")
     local iconObject = container and container:FindFirstChild("Icon")
     local id = iconObject and assetId(iconObject.Image)
     local idKey = id and mapped.icon[id]
-
     if idKey and chroma then
         idKey = mapped.chromaOf[idKey] or idKey
     end
     if idKey and mapped.byKey[idKey] then
-        return mapped.byKey[idKey].v, mapped.byKey[idKey].name
-    end
-
-    for _, candidate in ipairs(mapped.byName[normalize(name)] or {}) do
-        if candidate.chroma == chroma and mapped.byKey[candidate.key] then
-            local entry = mapped.byKey[candidate.key]
-            return entry.v, entry.name
-        end
+        local entry = mapped.byKey[idKey]
+        return entry.v, entry.name
     end
     return nil
 end
