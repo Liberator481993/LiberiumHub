@@ -369,7 +369,7 @@ local function buildMapping(entries, database)
         end
         if not year and value.o then year = tostring(value.o):match("(20%d%d)") end
 
-        local altName, altKind, altYear = splitVariant(value.im)
+        local _, altKind, altYear = splitVariant(value.im)
         if altKind then
             if kind and kind ~= altKind then continue end
             kind = altKind
@@ -880,7 +880,7 @@ local VALUE_TEXT_COLORS = {
     vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
     -- Swap the two low-tier accents to match the in-game item color mapping.
     rares = Color3.fromRGB(94, 220, 171), uncommons = Color3.fromRGB(104, 174, 255),
-    commons = Color3.fromRGB(174, 190, 210), pets = Color3.fromRGB(116, 225, 210),
+    commons = Color3.fromRGB(228, 235, 248), pets = Color3.fromRGB(116, 225, 210),
     misc = Color3.fromRGB(190, 190, 205)
 }
 
@@ -1136,11 +1136,11 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
-        caption, color = "WAITING FOR BOTH OFFERS", Color3.fromRGB(225, 232, 245)
+        caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS — NO NUMERIC VERDICT", Color3.fromRGB(255, 190, 65)
+        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "PARTIAL VALUES — CHECK N/A ITEMS", Color3.fromRGB(255, 190, 65)
+        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
