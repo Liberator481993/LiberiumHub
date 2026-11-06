@@ -40,6 +40,7 @@ local state = {
     dbItems = 0,
     dbPets = 0,
     mappedCount = 0,
+    tierEntryCount = 0,
     iconCount = 0,
     inventoryModuleStatus = "not checked",
     inventoryModule = nil,
@@ -52,7 +53,9 @@ local state = {
     inventoryScreenList = "not scanned",
     busy = false,
     latestTrade = "No active trade detected.",
-    latestInventory = "Inventory not scanned yet."
+    latestInventory = "Inventory not scanned yet.",
+    unmatchedInventory = {},
+    unmatchedTrade = {}
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -82,6 +85,17 @@ end
 
 local function normalize(value)
     return string.lower(tostring(value or "")):gsub("[^%w]", "")
+end
+
+-- Supreme Values contains fractional values for many low-tier items.
+-- Keep up to four decimals instead of rounding each item to a whole number.
+local function formatValue(value)
+    local number = tonumber(value) or 0
+    local formatted = string.format("%.4f", number)
+        :gsub("0+$", "")
+        :gsub("%.$", "")
+    if formatted == "-0" or formatted == "" then return "0" end
+    return formatted
 end
 
 local function assetId(value)
@@ -148,10 +162,10 @@ local function fetchPage(url)
     return nil, table.concat(errors, "; ")
 end
 
--- Supreme Values stores the exact item amount in data-value and the item title
--- in itemhead. This is the same card-level parser used by PulseHub.
+-- Supreme Values item cards expose numeric or tier-based values as visible text.
+-- Parse the displayed value first; data-value is only a numeric fallback.
 local function parseCategory(category, html, output)
-    local count, cursor, scanned = 0, 1, 0
+    local count, tierCount, cursor, scanned = 0, 0, 1, 0
     while true do
         local first = html:find('<div class="itemcolumn"', cursor, true)
         if not first then break end
@@ -161,16 +175,26 @@ local function parseCategory(category, html, output)
         scanned = scanned + 1
         if scanned % 60 == 0 then task.wait() end
 
-        local amount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
+        local cardText = decodeText(card)
+        -- Read the displayed value first: tier cards may carry data-value="0",
+        -- which is a placeholder and must never become a numeric price.
+        local amount = tonumber(cardText:match("Value%s*%-%s*([%d%.]+)"))
+        local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
+        if not amount and not tierText then
+            local dataAmount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
+            if dataAmount and dataAmount > 0 then amount = dataAmount end
+        end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
         local origin = decodeText(card:match('class="itemorigin">([^<]*)<') or "")
-        if amount and amount < 500000 and nameMarkup and not origin:find("Deletion", 1, true) then
+        if (amount or tierText) and (not amount or amount < 500000)
+            and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
                 table.insert(output, {
                     c = category,
                     n = name,
                     v = amount,
+                    t = tierText,
                     y = card:match('data%-year="(%d%d%d%d)'),
                     e = card:match('data%-event="([^"]+)"'),
                     o = origin ~= "" and origin or nil,
@@ -178,10 +202,11 @@ local function parseCategory(category, html, output)
                     dm = card:match('data%-demand="(%d+)"')
                 })
                 count = count + 1
+                if tierText then tierCount = tierCount + 1 end
             end
         end
     end
-    return count
+    return count, tierCount
 end
 
 local function loadGameDatabase()
@@ -243,7 +268,8 @@ local function buildMapping(entries, database)
     for entryIndex, value in ipairs(entries) do
         if entryIndex % 150 == 0 then task.wait() end
         local category, amount = value.c, tonumber(value.v)
-        if type(category) ~= "string" or not amount then continue end
+        local tierText = clean(value.t)
+        if type(category) ~= "string" or (not amount and tierText == "") then continue end
 
         local name, kind = tostring(value.n or ""), nil
         local baseName, suffix = name:match("^(.-)%s*%((%a+)%)%s*$")
@@ -266,10 +292,8 @@ local function buildMapping(entries, database)
         if wrapping then table.insert(aliases, "Box of " .. wrapping .. " Wrapping Paper") end
         if name == "Ultra Wrap" then table.insert(aliases, "Box of Ultra Wrapping Paper") end
         if name:sub(-1) == "s" then table.insert(aliases, name:sub(1, -2)) end
-        if category == "legendaries" then
-            local short = name:match("^%S+%s+(.+)$")
-            if short then table.insert(aliases, short) end
-        end
+        -- Do not strip the first word from legendary names: that can
+        -- collide with a different weapon and assign its value incorrectly.
 
         local matches = {}
         for _, alias in ipairs(aliases) do
@@ -321,46 +345,58 @@ local function buildMapping(entries, database)
             for _, candidate in ipairs(matches) do
                 if predicate(candidate.item) then table.insert(filtered, candidate) end
             end
-            if #filtered > 0 then matches = filtered end
+            -- A supplied discriminator that does not match must reject the
+            -- candidate set; never silently fall back to a different skin.
+            matches = filtered
         end
 
         if kind then filterMatches(function(item) return item.ItemType == kind end) end
-        if #matches > 1 and value.cl then
+        if value.cl then
             filterMatches(function(item) return item.Rarity == value.cl end)
         end
-        if #matches > 1 then
-            local previous = #matches
-            if year then
-                filterMatches(function(item) return tostring(item.Year or "") == tostring(year) end)
-            end
-            if #matches == previous then
-                filterMatches(function(item) return not item.Year end)
-            end
+        -- Year/Event are useful discriminators when MM2 exposes them, but
+        -- many valid database records omit these fields. Missing metadata
+        -- must not erase an otherwise exact name/category match.
+        if year then
+            filterMatches(function(item)
+                local itemYear = item.Year
+                return itemYear == nil or tostring(itemYear) == ""
+                    or tostring(itemYear) == tostring(year)
+            end)
         end
-        if #matches > 1 then
-            local previous = #matches
-            if value.e then
-                filterMatches(function(item) return tostring(item.Event or "") == tostring(value.e) end)
-            end
-            if #matches == previous then
-                filterMatches(function(item) return not item.Event end)
-            end
+        if value.e then
+            filterMatches(function(item)
+                local itemEvent = item.Event
+                return itemEvent == nil or tostring(itemEvent) == ""
+                    or tostring(itemEvent) == tostring(value.e)
+            end)
         end
 
-        for _, candidate in ipairs(matches) do
+        -- Never fan one Supreme value out to several MM2 records. Ambiguous
+        -- names remain unvalued until metadata makes the match unique.
+        if #matches == 1 then
+            local candidate = matches[1]
             local idKey = candidate.kind .. ":" .. candidate.id
-            local previous = byKey[idKey]
-            if not previous then mappedCount = mappedCount + 1 end
-            if not previous or previous.n >= #matches then
-                byKey[idKey] = {v = amount, n = #matches, name = name, category = category}
+            if not byKey[idKey] then
+                mappedCount = mappedCount + 1
+                byKey[idKey] = {
+                    v = amount,
+                    t = tierText ~= "" and tierText or nil,
+                    n = 1,
+                    name = name,
+                    category = category
+                }
             end
         end
     end
 
-    local icon, chromaOf, byName = {}, {}, {}
+    local icon, iconCandidates, chromaOf, byName = {}, {}, {}, {}
     local function addIcon(item, idKey)
         local image = assetId(item.Image)
-        if image and not icon[image] then icon[image] = idKey end
+        if image then
+            iconCandidates[image] = iconCandidates[image] or {}
+            table.insert(iconCandidates[image], idKey)
+        end
     end
 
     for id, item in pairs(weapons) do
@@ -369,11 +405,24 @@ local function buildMapping(entries, database)
     for id, item in pairs(weapons) do
         if type(item) == "table" and not item.Chroma and item.ItemID then
             local imageId = tostring(item.ItemID)
-            if not icon[imageId] then icon[imageId] = "i:" .. tostring(id) end
+            iconCandidates[imageId] = iconCandidates[imageId] or {}
+            table.insert(iconCandidates[imageId], "i:" .. tostring(id))
         end
     end
     for id, item in pairs(pets) do
         if type(item) == "table" then addIcon(item, "p:" .. tostring(id)) end
+    end
+    -- Only unique asset IDs are safe for icon-based identification.
+    for image, candidates in pairs(iconCandidates) do
+        local unique = {}
+        for _, idKey in ipairs(candidates) do
+            if not unique[idKey] then unique[idKey] = true end
+        end
+        local onlyKey, count = nil, 0
+        for idKey in pairs(unique) do
+            onlyKey, count = idKey, count + 1
+        end
+        if count == 1 then icon[image] = onlyKey end
     end
 
     for _, group in ipairs({
@@ -429,23 +478,34 @@ local function valueOf(tile, name)
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
+
+    -- Prefer an exact visible item name. A shared/reused icon can otherwise
+    -- make one skin inherit another skin's value.
+    local namedMatches = {}
+    local normalizedName = normalize(name)
+    if normalizedName ~= "" then
+        for _, candidate in ipairs(mapped.byName[normalizedName] or {}) do
+            if candidate.chroma == chroma and mapped.byKey[candidate.key] then
+                table.insert(namedMatches, candidate)
+            end
+        end
+    end
+    if #namedMatches == 1 then
+        local entry = mapped.byKey[namedMatches[1].key]
+        return entry.v, entry.name, entry.t
+    end
+
+    -- Fall back to image matching only when the asset ID is globally unique.
     local container = tile and tile:FindFirstChild("Container")
     local iconObject = container and container:FindFirstChild("Icon")
     local id = iconObject and assetId(iconObject.Image)
     local idKey = id and mapped.icon[id]
-
     if idKey and chroma then
         idKey = mapped.chromaOf[idKey] or idKey
     end
     if idKey and mapped.byKey[idKey] then
-        return mapped.byKey[idKey].v, mapped.byKey[idKey].name
-    end
-
-    for _, candidate in ipairs(mapped.byName[normalize(name)] or {}) do
-        if candidate.chroma == chroma and mapped.byKey[candidate.key] then
-            local entry = mapped.byKey[candidate.key]
-            return entry.v, entry.name
-        end
+        local entry = mapped.byKey[idKey]
+        return entry.v, entry.name, entry.t
     end
     return nil
 end
@@ -458,7 +518,7 @@ local function loadValues(force)
     task.spawn(function()
         local ok, err = pcall(function()
             local entries = {}
-            local pageCount, parsedPages, entryCount = 0, 0, 0
+            local pageCount, parsedPages, entryCount, tierEntryCount = 0, 0, 0, 0
             local failed, methods = {}, {}
             local categoryCounts = {}
 
@@ -470,10 +530,11 @@ local function loadValues(force)
                 else
                     pageCount = pageCount + 1
                     methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
-                    local count = parseCategory(category, html, entries)
+                    local count, tierCount = parseCategory(category, html, entries)
                     categoryCounts[category] = count
                     if count > 0 then parsedPages = parsedPages + 1 end
                     entryCount = entryCount + count
+                    tierEntryCount = tierEntryCount + (tierCount or 0)
                     local minimum = MINIMUM[category] or 1
                     if count < minimum then
                         table.insert(failed, category .. ": only " .. tostring(count)
@@ -486,6 +547,7 @@ local function loadValues(force)
             state.pageCount = pageCount
             state.parsedPages = parsedPages
             state.entryCount = entryCount
+            state.tierEntryCount = tierEntryCount
             state.failedPages = failed
             state.fetchMethods = methods
             state.categoryCounts = categoryCounts
@@ -539,6 +601,25 @@ local function itemData(tile)
     return name, quantity, label
 end
 
+local function recordUnmatched(tile, name, quantity, target)
+    if type(target) ~= "table" then return end
+    local container = tile and tile:FindFirstChild("Container")
+    local iconObject = container and container:FindFirstChild("Icon")
+    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local tags = tile and tile:FindFirstChild("Tags")
+    local chromaTag = tags and tags:FindFirstChild("Chroma")
+    local chroma = chromaTag ~= nil and chromaTag.Visible == true
+    local itemName = clean(name)
+    if itemName == "" then itemName = "NO_NAME" end
+    local key = normalize(itemName) .. "|" .. tostring(imageId) .. "|" .. tostring(chroma)
+    local entry = target[key]
+    if not entry then
+        entry = {name = itemName, image = tostring(imageId), chroma = chroma, count = 0}
+        target[key] = entry
+    end
+    entry.count = entry.count + math.max(1, tonumber(quantity) or 1)
+end
+
 local function getTiles(root)
     if not root then return {} end
     local now = os.clock()
@@ -584,55 +665,100 @@ local function makeLabel(parent, name, group)
     return label
 end
 
-local function updateTileBadge(tile, value, quantity, group)
+local function updateTileBadge(tile, value, quantity, group, tierText)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
     local label = container:FindFirstChild("__SupremeItemValue")
-    if value == nil then
+    if value == nil and not tierText then
         if label and label:IsA("TextLabel") then
             label.Text = "?"
             label.Visible = true
         end
         return
     end
+
     label = makeLabel(container, "__SupremeItemValue", group)
-    local shown = tostring(math.floor(value + 0.5))
-    local text = shown
-    if quantity and quantity > 1 then
-        text = text .. " x" .. tostring(quantity) .. " = " .. tostring(math.floor(value * quantity + 0.5))
+    quantity = math.max(1, tonumber(quantity) or 1)
+    local text
+    if tierText then
+        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+        if units then
+            local perItem = tonumber(units) or 0
+            text = "x" .. tostring(perItem) .. " " .. tier .. " " .. rarity
+            if quantity > 1 then
+                text = text .. " x" .. tostring(quantity)
+                    .. " = x" .. tostring(perItem * quantity) .. " " .. tier .. " " .. rarity
+            end
+        else
+            text = tierText .. (quantity > 1 and " x" .. tostring(quantity) or "")
+        end
+    else
+        text = formatValue(value)
+        if quantity > 1 then
+            text = text .. " x" .. tostring(quantity) .. " = " .. formatValue(value * quantity)
+        end
     end
-    local height = math.clamp(math.floor(container.AbsoluteSize.Y * 0.19 + 0.5), 14, 24)
+
+    local isTier = tierText ~= nil and tierText ~= ""
+    local width = math.max(60, container.AbsoluteSize.X - 6)
+    local height
+    if isTier then
+        -- Keep long tier equivalents inside each inventory card. The first
+        -- line is the per-item value; the second is the duplicate quantity total.
+        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+        if units and quantity > 1 then
+            text = "x" .. units .. " " .. tier .. " " .. rarity
+                .. "\n" .. tostring(quantity) .. " items = x"
+                .. tostring((tonumber(units) or 0) * quantity) .. " " .. tier .. " " .. rarity
+        end
+        height = quantity > 1 and 38 or 24
+        label.TextWrapped = true
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextSize = 11
+        label.Size = UDim2.fromOffset(width, height)
+    else
+        height = math.clamp(math.floor(container.AbsoluteSize.Y * 0.19 + 0.5), 18, 24)
+        label.TextWrapped = false
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextSize = math.max(11, math.floor(height * 0.72))
+        label.Size = UDim2.fromOffset(math.clamp(math.max(70, #text * height * 0.48 + 12), 70, width), height)
+    end
     label.Position = UDim2.fromOffset(3, 3)
-    label.Size = UDim2.fromOffset(math.max(height * 2, #text * height * 0.55 + 12), height)
-    label.TextSize = math.max(10, math.floor(height * 0.82))
     label.Text = " " .. text
     label.Visible = true
 end
 
 local function scanRoot(root, group)
-    local total, known, count = 0, 0, 0
-    if not root then return total, known, count end
+    local total, known, count, tierCount = 0, 0, 0, 0
+    if not root then return total, known, count, tierCount end
 
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value = valueOf(tile, name)
+        local value, _, tierText = valueOf(tile, name)
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
+        elseif tierText then
+            known = known + quantity
+            tierCount = tierCount + quantity
         end
         count = count + quantity
-        updateTileBadge(tile, value, quantity, group)
+        if value == nil and not tierText and group == "inventory" then
+            recordUnmatched(tile, name, quantity, state.unmatchedInventory)
+        end
+        updateTileBadge(tile, value, quantity, group, tierText)
     end
-    return total, known, count
+    return total, known, count, tierCount
 end
 
 -- Some mobile MM2 builds omit ItemName nodes from the inventory list and expose
 -- only an image card. Resolve the nearest card from its Container.Icon instead.
 local function scanImageCards(root, group)
-    if not root then return 0, 0, 0 end
+    if not root then return 0, 0, 0, 0 end
     local seen = {}
-    local total, known, count = 0, 0, 0
+    local total, known, count, tierCount = 0, 0, 0, 0
 
     -- This helper is local here because the shared visible() helper is declared
     -- later in the file, after the trade-offer scanner.
@@ -669,8 +795,8 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
-        local value = valueOf(card, name)
-        if value == nil then
+        local value, _, tierText = valueOf(card, name)
+        if value == nil and not tierText then
             local amountNode = card:FindFirstChild("Container")
                 and card.Container:FindFirstChild("Amount")
             local rawAmount = amountNode and tonumber(tostring(amountNode.Text):match("%d+"))
@@ -679,11 +805,17 @@ local function scanImageCards(root, group)
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
+        elseif tierText then
+            known = known + quantity
+            tierCount = tierCount + quantity
         end
         count = count + quantity
-        updateTileBadge(card, value, quantity, group)
+        if value == nil and not tierText and group == "inventory" then
+            recordUnmatched(card, name, quantity, state.unmatchedInventory)
+        end
+        updateTileBadge(card, value, quantity, group, tierText)
     end
-    return total, known, count
+    return total, known, count, tierCount
 end
 
 local function visible(object)
@@ -714,38 +846,50 @@ end
 
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
-    if not container then return {}, 0, 0, 0 end
+    if not container then return {}, 0, 0, 0, 0 end
 
-    local items, total, known, count = {}, 0, 0, 0
+    local items, total, known, count, tierCount = {}, 0, 0, 0, 0
     local seen = {}
     for _, tile in ipairs(container:GetChildren()) do
         if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
-            local value, resolvedName = valueOf(tile, name)
-            if name or value ~= nil then
-                table.insert(items, {name = resolvedName or name or "Unknown item", value = value, quantity = quantity})
+            local value, resolvedName, tierText = valueOf(tile, name)
+            if name or value ~= nil or tierText then
+                table.insert(items, {
+                    name = resolvedName or name or "Unknown item",
+                    value = value,
+                    tier = tierText,
+                    quantity = quantity
+                })
                 count = count + quantity
                 if value ~= nil then
                     total = total + value * quantity
                     known = known + quantity
+                elseif tierText then
+                    known = known + quantity
+                    tierCount = tierCount + quantity
                 end
-                updateTileBadge(tile, value, quantity, group)
+                if value == nil and not tierText then
+                    recordUnmatched(tile, name, quantity, state.unmatchedTrade)
+                end
+                updateTileBadge(tile, value, quantity, group, tierText)
             end
         end
     end
-    return items, total, known, count
+    return items, total, known, count, tierCount
 end
 
-local function setSummary(parent, name, title, total, known, count, group)
+local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
     local label = makeLabel(parent, name, group)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(130, 22)
-    label.TextSize = 13
+    label.Size = UDim2.fromOffset(210, 22)
+    label.TextSize = 12
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.Text = title .. " " .. tostring(math.floor(total + 0.5))
+    label.Text = title .. " " .. formatValue(total)
+        .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " +?" or "")
     label.Visible = count > 0
 end
@@ -759,6 +903,7 @@ local function getVerdict(give, get)
 end
 
 local function scanTrade()
+    state.unmatchedTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
         state.latestTrade = "No active trade detected."
@@ -770,21 +915,27 @@ local function scanTrade()
     if not yours and container then yours = container:FindFirstChild("YourOffer", true) end
     if not theirs and container then theirs = container:FindFirstChild("TheirOffer", true) end
 
-    local yourItems, yourTotal, yourKnown, yourCount = scanOffer(yours, "trade")
-    local theirItems, theirTotal, theirKnown, theirCount = scanOffer(theirs, "trade")
-    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade")
-    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade")
+    local yourItems, yourTotal, yourKnown, yourCount, yourTierCount = scanOffer(yours, "trade")
+    local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
+    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
+    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
 
     local lines = {
-        "YOUR OFFER: " .. tostring(math.floor(yourTotal + 0.5))
-            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " valued)",
-        "THEIR OFFER: " .. tostring(math.floor(theirTotal + 0.5))
-            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " valued)"
+        "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
+            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " recognized, "
+            .. tostring(yourTierCount) .. " tier)",
+        "THEIR OFFER NUMERIC: " .. formatValue(theirTotal)
+            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " recognized, "
+            .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
-        local verdict, difference = getVerdict(yourTotal, theirTotal)
-        table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
-            .. (difference > 0 and "+" or "") .. tostring(math.floor(difference + 0.5)))
+        if yourTierCount > 0 or theirTierCount > 0 then
+            table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
+        else
+            local verdict, difference = getVerdict(yourTotal, theirTotal)
+            table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
+                .. (difference > 0 and "+" or "") .. formatValue(difference))
+        end
     else
         table.insert(lines, "RESULT: Waiting for both sides of the trade.")
     end
@@ -795,7 +946,9 @@ local function scanTrade()
         yourKnown = yourKnown,
         theirKnown = theirKnown,
         yourCount = yourCount,
-        theirCount = theirCount
+        theirCount = theirCount,
+        yourTierCount = yourTierCount,
+        theirTierCount = theirTierCount
     }
 end
 
@@ -845,7 +998,7 @@ local function scanModuleInventory()
     end
 
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
-    local total, known, count, frameCount = 0, 0, 0, 0
+    local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
     local seen = {}
 
@@ -873,13 +1026,19 @@ local function scanModuleInventory()
                 if type(entry.Amount) == "number" and quantity <= 1 then
                     quantity = math.max(1, math.floor(entry.Amount))
                 end
-                local resolvedValue = valueOf(tile, name)
+                local resolvedValue, _, tierText = valueOf(tile, name)
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
+                elseif tierText then
+                    known = known + quantity
+                    tierCount = tierCount + quantity
                 end
                 count = count + quantity
-                updateTileBadge(tile, resolvedValue, quantity, "inventory")
+                if resolvedValue == nil and not tierText then
+                    recordUnmatched(tile, name, quantity, state.unmatchedInventory)
+                end
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText)
             end
         end
     end
@@ -898,7 +1057,8 @@ local function scanModuleInventory()
         label.Position = UDim2.new(0, 8, 0, 8)
         label.Size = UDim2.fromOffset(250, 26)
         label.TextSize = 12
-        label.Text = "INV " .. tostring(math.floor(total + 0.5))
+        label.Text = "INV " .. formatValue(total)
+            .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
             .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
         label.Visible = count > 0
     end
@@ -917,17 +1077,20 @@ local function scanModuleInventory()
         label.Position = UDim2.new(0, 4, 1, -5)
         label.Size = UDim2.fromOffset(290, 28)
         label.TextSize = 12
-        label.Text = "INV " .. tostring(math.floor(total + 0.5))
+        label.Text = "INV " .. formatValue(total)
+            .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
             .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
         label.Visible = count > 0
     end
 
-    return total, known, count, visibleFrames, myInventory
+    return total, known, count, visibleFrames, myInventory, tierCount
 end
 
 local function scanInventory()
+    state.unmatchedInventory = {}
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
-    local moduleTotal, moduleKnown, moduleCount, moduleVisible = scanModuleInventory()
+    local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
+    local weaponTierCount = moduleTierCount or 0
     weaponTotal, weaponKnown, weaponCount, visibleFrames = moduleTotal, moduleKnown, moduleCount, moduleVisible
 
     -- Fallback for UI-only builds where InventoryModule does not expose frames.
@@ -944,15 +1107,17 @@ local function scanInventory()
                     local pets = main and main:FindFirstChild("Pets")
                     local weaponRoot = weapons and weapons:FindFirstChild("Items")
                     local petRoot = pets and pets:FindFirstChild("Items")
-                    local a,b,c = scanRoot(weaponRoot, "inventory")
-                    local d,e,f = scanRoot(petRoot, "inventory")
+                    local a,b,c,at = scanRoot(weaponRoot, "inventory")
+                    local d,e,f,dt = scanRoot(petRoot, "inventory")
                     weaponTotal, weaponKnown, weaponCount = a+d, b+e, c+f
+                    weaponTierCount = (at or 0) + (dt or 0)
                     local label = makeLabel(inventory, "__SupremeInventoryTotal", "inventory")
                     label.AnchorPoint = Vector2.new(0, 1)
                     label.Position = UDim2.new(0, 4, 1, -5)
                     label.Size = UDim2.fromOffset(290, 28)
                     label.TextSize = 12
-                    label.Text = "INV " .. tostring(math.floor(weaponTotal + 0.5))
+                    label.Text = "INV " .. formatValue(weaponTotal)
+                        .. (weaponTierCount > 0 and " + TIER(" .. tostring(weaponTierCount) .. ")" or "")
                         .. " | KNOWN " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
                     label.Visible = weaponCount > 0
                     state.inventoryGuiPath = guiName .. ".Game.Inventory"
@@ -1011,7 +1176,8 @@ local function scanInventory()
         .. " | Groups: " .. tostring(state.inventoryGroups)
         .. " | GUI: " .. tostring(state.inventoryGuiPath)
         .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
-        .. " | Total: " .. tostring(math.floor(weaponTotal + 0.5))
+        .. " | Numeric total: " .. formatValue(weaponTotal)
+        .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
@@ -1133,6 +1299,28 @@ local function copyText(text)
     return false
 end
 
+local function formatUnmatchedItems(items)
+    local rows = {}
+    for _, entry in pairs(items or {}) do
+        table.insert(rows, entry)
+    end
+    table.sort(rows, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return a.name < b.name
+    end)
+    local output = {}
+    for index = 1, math.min(#rows, 25) do
+        local entry = rows[index]
+        table.insert(output, entry.name .. " [x" .. tostring(entry.count)
+            .. ", icon=" .. tostring(entry.image)
+            .. (entry.chroma and ", chroma" or "") .. "]")
+    end
+    if #rows > 25 then
+        table.insert(output, "... +" .. tostring(#rows - 25) .. " more unique items")
+    end
+    return #output > 0 and table.concat(output, " | ") or "none"
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
@@ -1142,6 +1330,7 @@ local function buildDiagnostic()
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
         "Pages parsed: " .. tostring(state.parsedPages),
         "Supreme entries: " .. tostring(state.entryCount),
+        "Supreme tier entries: " .. tostring(state.tierEntryCount or 0),
         "Category counts: " .. HttpService:JSONEncode(state.categoryCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "MM2 weapon records: " .. tostring(state.dbItems),
@@ -1156,7 +1345,9 @@ local function buildDiagnostic()
         tostring(state.latestTrade),
         "",
         "CURRENT INVENTORY:",
-        tostring(state.latestInventory)
+        tostring(state.latestInventory),
+        "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
+        "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
     return table.concat(lines, "\n")
 end
