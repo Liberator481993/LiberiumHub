@@ -1006,9 +1006,9 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
-        -- Text cards were already handled by scanRoot; this pass is only
-        -- for image-only cards to avoid processing the same tile twice.
-        if name then continue end
+        -- Cards with an ItemName node were handled by scanRoot, even while
+        -- the text is temporarily blank or still says Loading.
+        if card:FindFirstChild("ItemName", true) then continue end
         local value, _, tierText, category = valueOf(card, name)
         if value == nil and not tierText then
             local amountNode = card:FindFirstChild("Container")
