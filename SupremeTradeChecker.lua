@@ -103,6 +103,14 @@ local function normalize(value)
     return string.lower(tostring(value or "")):gsub("[^%w]", "")
 end
 
+-- Supreme's origin text sometimes says "Valentines Event 2026", while
+-- MM2's Database.Sync stores the matching Event as "Valentines".
+-- Canonicalize only the trailing generic word "Event"; keep the actual
+-- event name intact so unrelated seasonal items cannot cross-match.
+local function normalizeEvent(value)
+    return normalize(value):gsub("event$", "")
+end
+
 -- Supreme Values contains fractional values for many low-tier items.
 -- Keep up to four decimals instead of rounding each item to a whole number.
 local function formatValue(value)
@@ -460,14 +468,15 @@ local function buildMapping(entries, database)
             end)
         end
 
-        local function preferExactMetadata(field, wanted)
+        local function preferExactMetadata(field, wanted, normalizer)
             if not wanted or clean(wanted) == "" then return end
+            normalizer = normalizer or normalize
             local exact, unknown = {}, {}
             for _, candidate in ipairs(matches) do
                 local actual = clean(candidate.item[field])
                 if actual == "" then
                     table.insert(unknown, candidate)
-                elseif normalize(actual) == normalize(wanted) then
+                elseif normalizer(actual) == normalizer(wanted) then
                     table.insert(exact, candidate)
                 end
             end
@@ -478,7 +487,7 @@ local function buildMapping(entries, database)
             end
         end
         preferExactMetadata("Year", year)
-        preferExactMetadata("Event", event)
+        preferExactMetadata("Event", event, normalizeEvent)
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
@@ -751,13 +760,15 @@ end
 
 local function itemData(tile)
     if not tile then return nil, 1, nil end
-    local nameNode = tile:FindFirstChild("ItemName")
+    -- Inventory and trade cards are not identical across MM2 desktop/mobile
+    -- layouts; ItemName and Amount can be nested one or more levels down.
+    local nameNode = tile:FindFirstChild("ItemName", true)
     local label = nameNode and (nameNode:FindFirstChild("Label", true) or nameNode)
     local name = label and (label:IsA("TextLabel") or label:IsA("TextButton")) and clean(label.Text) or ""
     if name == "" or name:find("^Loading") then name = nil end
 
     local container = tile:FindFirstChild("Container")
-    local amountNode = container and container:FindFirstChild("Amount")
+    local amountNode = container and container:FindFirstChild("Amount", true)
     local quantity = 1
     if amountNode and (amountNode:IsA("TextLabel") or amountNode:IsA("TextButton")) then
         quantity = tonumber(tostring(amountNode.Text):match("%d+")) or 1
@@ -1067,8 +1078,13 @@ local function scanOffer(offer, group)
 
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
     local seen = {}
-    for _, tile in ipairs(container:GetChildren()) do
-        if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
+    -- Some trade layouts place NewItem cards inside an extra scrolling/frame
+    -- wrapper. Walk descendants, but accept only the actual card that owns
+    -- Container.Icon so a nested layout is not counted as a separate item.
+    for _, tile in ipairs(container:GetDescendants()) do
+        local cardContainer = tile:IsA("GuiObject") and tile:FindFirstChild("Container")
+        local cardIcon = cardContainer and cardContainer:FindFirstChild("Icon")
+        if cardContainer and cardIcon and visible(tile) and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
             local value, resolvedName, tierText, category = valueOf(tile, name)
