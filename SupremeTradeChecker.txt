@@ -678,10 +678,32 @@ local function updateTileBadge(tile, value, quantity, group, tierText)
         end
     end
 
-    local height = math.clamp(math.floor(container.AbsoluteSize.Y * 0.19 + 0.5), 14, 24)
+    local isTier = tierText ~= nil and tierText ~= ""
+    local width = math.max(60, container.AbsoluteSize.X - 6)
+    local height
+    if isTier then
+        -- Keep long tier equivalents inside each inventory card. The first
+        -- line is the per-item value; the second is the duplicate quantity total.
+        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+        if units and quantity > 1 then
+            text = "x" .. units .. " " .. tier .. " " .. rarity
+                .. "\n" .. tostring(quantity) .. " items = x"
+                .. tostring((tonumber(units) or 0) * quantity) .. " " .. tier .. " " .. rarity
+        end
+        height = quantity > 1 and 38 or 24
+        label.TextWrapped = true
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextSize = 11
+        label.Size = UDim2.fromOffset(width, height)
+    else
+        height = math.clamp(math.floor(container.AbsoluteSize.Y * 0.19 + 0.5), 18, 24)
+        label.TextWrapped = false
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextSize = math.max(11, math.floor(height * 0.72))
+        label.Size = UDim2.fromOffset(math.clamp(math.max(70, #text * height * 0.48 + 12), 70, width), height)
+    end
     label.Position = UDim2.fromOffset(3, 3)
-    label.Size = UDim2.fromOffset(math.clamp(math.max(height * 2, #text * height * 0.55 + 12), 60, 300), height)
-    label.TextSize = math.max(10, math.floor(height * 0.82))
     label.Text = " " .. text
     label.Visible = true
 end
