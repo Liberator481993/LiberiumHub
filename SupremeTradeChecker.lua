@@ -845,9 +845,10 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     -- Stack totals are calculated in the inventory/trade summary instead.
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 24)
+    label.TextStrokeTransparency = 0.42
     for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UICorner") or child:IsA("UIStroke") or child:IsA("UIGradient") then
+        if child:IsA("UICorner") or child:IsA("UIStroke") then
             child:Destroy()
         end
     end
@@ -858,16 +859,29 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         accent = Color3.fromRGB(255, 82, 82)
     end
 
-    label.TextColor3 = accent
-    label.Font = Enum.Font.GothamBold
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if not gradient then
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeTextGradient"
+        gradient.Rotation = 90
+        gradient.Parent = label
+    end
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0.45, accent:Lerp(Color3.new(1, 1, 1), 0.28)),
+        ColorSequenceKeypoint.new(1, accent)
+    })
+
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = Enum.Font.GothamBlack
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextScaled = true
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.TextXAlignment = Enum.TextXAlignment.Right
-    label.TextSize = 12
+    label.TextSize = 13
     local width = math.max(24, container.AbsoluteSize.X - 6)
-    label.Size = UDim2.fromOffset(width, 16)
+    label.Size = UDim2.fromOffset(width, 17)
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
     label.Text = text
@@ -1031,20 +1045,68 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
     label.Size = UDim2.fromOffset(210, 22)
-    label.TextSize = 12
+    label.BackgroundTransparency = 1
+    label.TextSize = 13
+    label.Font = Enum.Font.GothamBlack
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 24)
+    label.TextStrokeTransparency = 0.4
     label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if not gradient then
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeTextGradient"
+        gradient.Parent = label
+    end
+    gradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(105, 190, 255))
     label.Text = title .. " " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " +?" or "")
     label.Visible = count > 0
 end
 
-local function getVerdict(give, get)
-    local difference = get - give
-    if math.abs(difference) <= math.max(0.02 * math.max(give, get), 0.005) then
-        return "FAIR", difference
+local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
+    if not trade then return end
+    local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
+    label.AnchorPoint = Vector2.new(0.5, 1)
+    label.Position = UDim2.new(0.5, 0, 1, -5)
+    label.Size = UDim2.fromOffset(190, 25)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBlack
+    label.TextSize = 15
+    label.TextScaled = true
+    label.TextWrapped = false
+    label.TextStrokeColor3 = Color3.fromRGB(8, 10, 18)
+    label.TextStrokeTransparency = 0.3
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextYAlignment = Enum.TextYAlignment.Center
+
+    local verdict, difference, caption, color
+    if yourCount == 0 or theirCount == 0 then
+        caption, color = "WAITING FOR BOTH OFFERS", Color3.fromRGB(190, 198, 215)
+    elseif yourTierCount > 0 or theirTierCount > 0 then
+        caption, color = "TIER ITEMS — NO NUMERIC VERDICT", Color3.fromRGB(255, 190, 105)
+    elseif yourKnown < yourCount or theirKnown < theirCount then
+        caption, color = "PARTIAL VALUES — CHECK UNKNOWN ITEMS", Color3.fromRGB(255, 190, 105)
+    else
+        verdict, difference = getVerdict(yourTotal, theirTotal)
+        local sign = difference > 0 and "+" or ""
+        caption = verdict .. "  " .. sign .. formatValue(difference)
+        color = verdict == "WIN" and Color3.fromRGB(90, 235, 160)
+            or verdict == "LOSE" and Color3.fromRGB(255, 100, 115)
+            or Color3.fromRGB(110, 190, 255)
     end
-    return difference > 0 and "WIN" or "LOSE", difference
+
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if not gradient then
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeTextGradient"
+        gradient.Parent = label
+    end
+    gradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), color)
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Text = caption
+    label.Visible = true
 end
 
 local function scanTrade()
@@ -1064,6 +1126,8 @@ local function scanTrade()
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
     setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
     setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
+    setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
+        yourCount, theirCount, yourTierCount, theirTierCount)
 
     local lines = {
         "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
