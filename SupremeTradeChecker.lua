@@ -817,27 +817,36 @@ local function makeLabel(parent, name, group)
     return label
 end
 
-local BADGE_COLORS = {
+local VALUE_TEXT_COLORS = {
     uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
     chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
     vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
-    rares = Color3.fromRGB(104, 174, 255), uncommons = Color3.fromRGB(94, 220, 171),
+    -- Swap the two low-tier accents to match the in-game item color mapping.
+    rares = Color3.fromRGB(94, 220, 171), uncommons = Color3.fromRGB(104, 174, 255),
     commons = Color3.fromRGB(174, 190, 210), pets = Color3.fromRGB(116, 225, 210),
     misc = Color3.fromRGB(190, 190, 205)
 }
 
-local function updateTileBadge(tile, value, quantity, group, tierText, category)
+local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
     local label = container:FindFirstChild("__SupremeItemValue")
     if value == nil and not tierText then
-        if label and label:IsA("TextLabel") then
-            label.Visible = false
-        end
+        if label and label:IsA("TextLabel") then label.Visible = false end
         return
     end
 
     label = makeLabel(container, "__SupremeItemValue", group)
+    -- Values are plain text over the item art: no badge, panel, border, or gradient.
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.TextStrokeTransparency = 1
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UICorner") or child:IsA("UIStroke") or child:IsA("UIGradient") then
+            child:Destroy()
+        end
+    end
+
     quantity = math.max(1, tonumber(quantity) or 1)
     local text
     if tierText then
@@ -853,48 +862,28 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category)
             text = tierText .. (quantity > 1 and " x" .. tostring(quantity) or "")
         end
     else
+        -- Keep the per-item value and duplicate stack total numeric-only.
         text = formatValue(value)
         if quantity > 1 then
-            text = text .. " x" .. tostring(quantity) .. " = " .. formatValue(value * quantity)
+            text = text .. " / " .. formatValue(value * quantity)
         end
     end
 
-    local isTier = tierText ~= nil and tierText ~= ""
-    local accent = BADGE_COLORS[category] or (isTier and Color3.fromRGB(255, 190, 105) or Color3.fromRGB(112, 190, 255))
-    label.TextColor3 = Color3.fromRGB(250, 252, 255)
-    label.BackgroundColor3 = accent:Lerp(Color3.fromRGB(18, 22, 36), 0.72)
-    local stroke = label:FindFirstChild("SupremeStroke")
-    if stroke and stroke:IsA("UIStroke") then stroke.Color = accent end
-    local gradient = label:FindFirstChild("SupremeGradient")
-    if gradient and gradient:IsA("UIGradient") then
-        gradient.Color = ColorSequence.new(accent:Lerp(Color3.fromRGB(30, 35, 54), 0.42), Color3.fromRGB(18, 22, 36))
+    local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 245, 255)
+    if normalize(itemName) == "emberbow" then
+        accent = Color3.fromRGB(255, 82, 82)
     end
-    local width = math.max(60, container.AbsoluteSize.X - 6)
-    local height
-    if isTier then
-        -- Keep long tier equivalents inside each inventory card. The first
-        -- line is the per-item value; the second is the duplicate quantity total.
-        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
-        if units and quantity > 1 then
-            text = "x" .. units .. " " .. tier .. " " .. rarity
-                .. "\n" .. tostring(quantity) .. " items = x"
-                .. tostring((tonumber(units) or 0) * quantity) .. " " .. tier .. " " .. rarity
-        end
-        height = quantity > 1 and 38 or 24
-        label.TextWrapped = true
-        label.TextYAlignment = Enum.TextYAlignment.Center
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.TextSize = 11
-        label.Size = UDim2.fromOffset(width, height)
-    else
-        height = math.clamp(math.floor(container.AbsoluteSize.Y * 0.19 + 0.5), 18, 24)
-        label.TextWrapped = false
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.TextSize = math.max(11, math.floor(height * 0.72))
-        label.Size = UDim2.fromOffset(math.clamp(math.max(70, #text * height * 0.48 + 12), 70, width), height)
-    end
+    label.TextColor3 = accent
+    label.Font = Enum.Font.GothamBold
+    label.TextWrapped = false
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.TextXAlignment = Enum.TextXAlignment.Right
+    label.TextSize = 13
+    local width = math.max(34, math.min(container.AbsoluteSize.X - 4, #text * 8 + 8))
+    local height = 18
+    label.Size = UDim2.fromOffset(width, height)
     label.AnchorPoint = Vector2.new(1, 0)
-    label.Position = UDim2.new(1, -4, 0, 4)
+    label.Position = UDim2.new(1, -3, 0, 3)
     label.Text = text
     label.Visible = true
 end
@@ -918,7 +907,7 @@ local function scanRoot(root, group)
         if value == nil and not tierText and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(tile, value, quantity, group, tierText, category)
+        updateTileBadge(tile, value, quantity, group, tierText, category, name)
     end
     return total, known, count, tierCount
 end
@@ -983,7 +972,7 @@ local function scanImageCards(root, group)
         if value == nil and not tierText and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(card, value, quantity, group, tierText, category)
+        updateTileBadge(card, value, quantity, group, tierText, category, name)
     end
     return total, known, count, tierCount
 end
@@ -1043,7 +1032,7 @@ local function scanOffer(offer, group)
                 if value == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedTrade)
                 end
-                updateTileBadge(tile, value, quantity, group, tierText, category)
+                updateTileBadge(tile, value, quantity, group, tierText, category, name)
             end
         end
     end
