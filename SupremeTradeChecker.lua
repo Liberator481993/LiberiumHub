@@ -138,57 +138,68 @@ end
 
 local function fetchPage(url)
     local errors = {}
-    local function attempt(fn, label)
-        if type(fn) ~= "function" then return nil end
-        local ok, response = pcall(fn, {
-            Url = url,
-            Method = "GET",
-            Headers = {
-                ["User-Agent"] = "Mozilla/5.0",
-                ["Accept"] = "text/html,application/xhtml+xml"
-            }
-        })
-        if not ok then
-            table.insert(errors, label .. ": error")
+    -- Some Supreme category routes intermittently reject the clean route while
+    -- the legacy .php route still serves the same page.
+    local urls = {url}
+    if not url:match("%.php$") then table.insert(urls, url .. ".php") end
+    for _, targetUrl in ipairs(urls) do
+        local function attempt(fn, label)
+            if type(fn) ~= "function" then return nil end
+            local ok, response = pcall(fn, {
+                Url = targetUrl,
+                Method = "GET",
+                Headers = {
+                    ["User-Agent"] = "Mozilla/5.0",
+                    ["Accept"] = "text/html,application/xhtml+xml"
+                }
+            })
+            if not ok then
+                table.insert(errors, label .. ": error")
+                return nil
+            end
+
+            local statusCode
+            if type(response) == "table" then
+                statusCode = tonumber(response.StatusCode or response.Status or response.status_code)
+                response = response.Body or response.body or response.ResponseBody
+            end
+            if type(response) == "string" and #response > 1500
+                and response:find("<html", 1, true)
+                and (response:find("itemcolumn", 1, true)
+                    or response:find("Supreme Values", 1, true))
+                and (not statusCode or (statusCode >= 200 and statusCode < 300)) then
+                return response, label
+            end
+            table.insert(errors, label .. ": invalid/empty page")
             return nil
         end
 
-        local statusCode
-        if type(response) == "table" then
-            statusCode = tonumber(response.StatusCode or response.Status or response.status_code)
-            response = response.Body or response.body or response.ResponseBody
+        local body, method = attempt(request, "request")
+        if body then return body, method end
+
+        body, method = attempt(http_request, "http_request")
+        if body then return body, method end
+
+        local synRequest = type(syn) == "table" and syn.request or nil
+        body, method = attempt(synRequest, "syn.request")
+        if body then return body, method end
+
+        local httpRequest = type(http) == "table" and http.request or nil
+        body, method = attempt(httpRequest, "http.request")
+        if body then return body, method end
+
+        local ok, gameBody = pcall(function()
+            return game:HttpGet(targetUrl)
+        end)
+        if ok and type(gameBody) == "string" and #gameBody > 1500
+            and gameBody:find("<html", 1, true)
+            and (gameBody:find("itemcolumn", 1, true)
+                or gameBody:find("Supreme Values", 1, true)) then
+            return gameBody, "game:HttpGet"
         end
-        if type(response) == "string" and #response > 5000
-            and response:find("itemcolumn", 1, true)
-            and (not statusCode or (statusCode >= 200 and statusCode < 300)) then
-            return response, label
-        end
-        table.insert(errors, label .. ": invalid/empty page")
-        return nil
+        table.insert(errors, "game:HttpGet: invalid/empty page")
+        task.wait(0.2)
     end
-
-    local body, method = attempt(request, "request")
-    if body then return body, method end
-
-    body, method = attempt(http_request, "http_request")
-    if body then return body, method end
-
-    local synRequest = type(syn) == "table" and syn.request or nil
-    body, method = attempt(synRequest, "syn.request")
-    if body then return body, method end
-
-    local httpRequest = type(http) == "table" and http.request or nil
-    body, method = attempt(httpRequest, "http.request")
-    if body then return body, method end
-
-    local ok, gameBody = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if ok and type(gameBody) == "string" and #gameBody > 5000
-        and gameBody:find("itemcolumn", 1, true) then
-        return gameBody, "game:HttpGet"
-    end
-    table.insert(errors, "game:HttpGet: invalid/empty page")
     return nil, table.concat(errors, "; ")
 end
 
@@ -690,6 +701,7 @@ local function loadValues(force)
             local pageCount, parsedPages, entryCount, tierEntryCount = 0, 0, 0, 0
             local failed, methods = {}, {}
             local categoryCounts, referenceValueCounts, categoryCardCounts = {}, {}, {}
+            local requiredPageCount = 0
 
             -- Four concurrent workers reduce the sequential network wait without
             -- flooding the executor with all 14 requests at once.
@@ -725,9 +737,15 @@ local function loadValues(force)
                 local result = fetched[index]
                 local html, fetchInfo = result and result.html, result and result.info
                 if not html then
-                    table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
+                    -- Sets, Evos and Untradables are reference-only pages; they
+                    -- do not contain individual tradable values and must not
+                    -- prevent the actual value database from loading.
+                    if VALUE_CATEGORIES[category] then
+                        table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
+                    end
                 else
                     pageCount = pageCount + 1
+                    if VALUE_CATEGORIES[category] then requiredPageCount = requiredPageCount + 1 end
                     methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
                     local pageEntries = {}
                     local count, tierCount = parseCategory(category, html, pageEntries)
@@ -763,8 +781,12 @@ local function loadValues(force)
             state.referenceValueCounts = referenceValueCounts
             state.categoryCardCounts = categoryCardCounts
 
-            if #failed > 0 or pageCount ~= #CATEGORIES then
-                error("Supreme pages incomplete; refusing to publish partial values")
+            local requiredCategoryCount = 0
+            for category in pairs(VALUE_CATEGORIES) do
+                requiredCategoryCount = requiredCategoryCount + 1
+            end
+            if #failed > 0 or requiredPageCount ~= requiredCategoryCount then
+                error("Supreme value pages incomplete; refusing to publish partial values")
             end
 
             local database, dbSource = loadGameDatabase()
