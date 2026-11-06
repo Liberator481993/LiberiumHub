@@ -831,13 +831,18 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
     local label = container:FindFirstChild("__SupremeItemValue")
-    if value == nil and not tierText then
+
+    -- Tier values (for example "x1 T1 Rare") are rankings, not numeric
+    -- currency. Keep them in trade diagnostics/tier counts, but never print
+    -- those long labels over weapon art.
+    if value == nil then
         if label and label:IsA("TextLabel") then label.Visible = false end
         return
     end
 
     label = makeLabel(container, "__SupremeItemValue", group)
-    -- Values are plain text over the item art: no badge, panel, border, or gradient.
+    -- Numeric value only: no badge background and no duplicate-stack suffix.
+    -- Stack totals are calculated in the inventory/trade summary instead.
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
     label.TextStrokeTransparency = 1
@@ -847,41 +852,22 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         end
     end
 
-    quantity = math.max(1, tonumber(quantity) or 1)
-    local text
-    if tierText then
-        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
-        if units then
-            local perItem = tonumber(units) or 0
-            text = "x" .. tostring(perItem) .. " " .. tier .. " " .. rarity
-            if quantity > 1 then
-                text = text .. " x" .. tostring(quantity)
-                    .. " = x" .. tostring(perItem * quantity) .. " " .. tier .. " " .. rarity
-            end
-        else
-            text = tierText .. (quantity > 1 and " x" .. tostring(quantity) or "")
-        end
-    else
-        -- Keep the per-item value and duplicate stack total numeric-only.
-        text = formatValue(value)
-        if quantity > 1 then
-            text = text .. " / " .. formatValue(value * quantity)
-        end
-    end
-
+    local text = formatValue(value)
     local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 245, 255)
     if normalize(itemName) == "emberbow" then
         accent = Color3.fromRGB(255, 82, 82)
     end
+
     label.TextColor3 = accent
     label.Font = Enum.Font.GothamBold
     label.TextWrapped = false
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.TextScaled = true
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.TextXAlignment = Enum.TextXAlignment.Right
-    label.TextSize = 13
-    local width = math.max(34, math.min(container.AbsoluteSize.X - 4, #text * 8 + 8))
-    local height = 18
-    label.Size = UDim2.fromOffset(width, height)
+    label.TextSize = 12
+    local width = math.max(24, container.AbsoluteSize.X - 6)
+    label.Size = UDim2.fromOffset(width, 16)
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
     label.Text = text
