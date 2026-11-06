@@ -291,6 +291,39 @@ local function buildMapping(entries, database)
     local pets = type(database.Pets) == "table" and database.Pets or {}
     local index, petEntries = {}, {}
     local dbByName, dbByImage = {}, {}
+    local supremeByName = {}
+    for _, value in ipairs(entries) do
+        local key = normalize(value.n)
+        if key ~= "" then
+            supremeByName[key] = supremeByName[key] or {}
+            table.insert(supremeByName[key], {
+                category = tostring(value.c or ""),
+                title = tostring(value.n or ""),
+                imageAlt = tostring(value.im or ""),
+                year = tostring(value.y or ""),
+                event = tostring(value.e or ""),
+                origin = tostring(value.o or ""),
+                class = tostring(value.cl or ""),
+                value = tostring(value.v or ""),
+                tier = tostring(value.t or "")
+            })
+        end
+        local altKey = normalize(value.im)
+        if altKey ~= "" and altKey ~= key then
+            supremeByName[altKey] = supremeByName[altKey] or {}
+            table.insert(supremeByName[altKey], {
+                category = tostring(value.c or ""),
+                title = tostring(value.n or ""),
+                imageAlt = tostring(value.im or ""),
+                year = tostring(value.y or ""),
+                event = tostring(value.e or ""),
+                origin = tostring(value.o or ""),
+                class = tostring(value.cl or ""),
+                value = tostring(value.v or ""),
+                tier = tostring(value.t or "")
+            })
+        end
+    end
 
     local function addDiagnosticCandidate(item, id, kind)
         local name = normalize(item.ItemName or item.Name or "")
@@ -588,6 +621,7 @@ local function buildMapping(entries, database)
         chromaOf = chromaOf,
         dbByName = dbByName,
         dbByImage = dbByImage,
+        supremeByName = supremeByName,
         byName = byName,
         n = mappedCount,
         iconCount = iconCount,
@@ -819,6 +853,23 @@ local function recordUnmatched(tile, name, quantity, target)
         end
         entry.dbNameMatches = summarize(nameCandidates)
         entry.dbImageMatches = summarize(imageCandidates)
+        local supremeCandidates = mapped and mapped.supremeByName
+            and mapped.supremeByName[normalize(itemName)] or {}
+        local supremeSummary = {}
+        for index = 1, math.min(#supremeCandidates, 6) do
+            local candidate = supremeCandidates[index]
+            table.insert(supremeSummary, candidate.category .. ":" .. candidate.title
+                .. "{alt=" .. candidate.imageAlt
+                .. ",year=" .. candidate.year
+                .. ",event=" .. candidate.event
+                .. ",origin=" .. candidate.origin
+                .. ",class=" .. candidate.class
+                .. ",value=" .. candidate.value
+                .. (candidate.tier ~= "" and ",tier=" .. candidate.tier or "")
+                .. "}")
+        end
+        entry.supremeMatches = #supremeSummary > 0
+            and table.concat(supremeSummary, "; ") or "none"
         target[key] = entry
     end
     entry.count = entry.count + math.max(1, tonumber(quantity) or 1)
@@ -1636,7 +1687,8 @@ local function formatUnmatchedItems(items)
             .. ", icon=" .. tostring(entry.image)
             .. (entry.chroma and ", chroma" or "")
             .. ", DB-name={" .. tostring(entry.dbNameMatches or "not-scanned") .. "}"
-            .. ", DB-icon={" .. tostring(entry.dbImageMatches or "not-scanned") .. "}]")
+            .. ", DB-icon={" .. tostring(entry.dbImageMatches or "not-scanned") .. "}"
+            .. ", Supreme={" .. tostring(entry.supremeMatches or "not-scanned") .. "}]")
     end
     if #rows > 25 then
         table.insert(output, "... +" .. tostring(#rows - 25) .. " more unique items")
