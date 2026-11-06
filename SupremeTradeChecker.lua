@@ -830,49 +830,12 @@ local VALUE_TEXT_COLORS = {
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
-    local label = container:FindFirstChild("__SupremeItemValue")
 
-    -- Tier values (for example "x1 T1 Rare") are rankings, not numeric
-    -- currency. Keep them in trade diagnostics/tier counts, but never print
-    -- those long labels over weapon art.
-    if value == nil then
-        if label and label:IsA("TextLabel") then label.Visible = false end
-        return
-    end
-
-    label = makeLabel(container, "__SupremeItemValue", group)
-    -- Numeric value only: no badge background and no duplicate-stack suffix.
-    -- Stack totals are calculated in the inventory/trade summary instead.
+    local label = makeLabel(container, "__SupremeItemValue", group)
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
-    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 24)
-    label.TextStrokeTransparency = 0.42
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UICorner") or child:IsA("UIStroke") then
-            child:Destroy()
-        end
-    end
-
-    local text = formatValue(value)
-    local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 245, 255)
-    if normalize(itemName) == "emberbow" then
-        accent = Color3.fromRGB(255, 82, 82)
-    end
-
-    local gradient = label:FindFirstChild("SupremeTextGradient")
-    if not gradient then
-        gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeTextGradient"
-        gradient.Rotation = 90
-        gradient.Parent = label
-    end
-    gradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.45, accent:Lerp(Color3.new(1, 1, 1), 0.28)),
-        ColorSequenceKeypoint.new(1, accent)
-    })
-
-    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
+    label.TextStrokeTransparency = 0.14
     label.Font = Enum.Font.GothamBlack
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
@@ -881,10 +844,33 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.TextXAlignment = Enum.TextXAlignment.Right
     label.TextSize = 13
     local width = math.max(24, container.AbsoluteSize.X - 6)
-    label.Size = UDim2.fromOffset(width, 17)
+    label.Size = UDim2.fromOffset(width, 18)
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
-    label.Text = text
+
+    -- Use solid, high-contrast text. A white-to-accent gradient was making
+    -- trade values look muddy/dark on mobile.
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if gradient then gradient:Destroy() end
+
+    local accent
+    if value ~= nil then
+        accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
+        if normalize(itemName) == "emberbow" then
+            accent = Color3.fromRGB(255, 75, 75)
+        end
+        label.Text = formatValue(value)
+    elseif tierText and tierText ~= "" then
+        accent = Color3.fromRGB(255, 190, 75)
+        label.Text = tostring(tierText):gsub("^[x×]%d+%s*", ""):upper()
+    else
+        -- Explicitly mark items with no Supreme numeric match instead of
+        -- leaving their cards blank or showing a fabricated value.
+        accent = Color3.fromRGB(235, 235, 242)
+        label.Text = "N/A"
+    end
+
+    label.TextColor3 = accent
     label.Visible = true
 end
 
@@ -1046,19 +1032,14 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.Position = UDim2.new(0.5, 0, 0, 5)
     label.Size = UDim2.fromOffset(210, 22)
     label.BackgroundTransparency = 1
-    label.TextSize = 13
+    label.TextSize = 14
     label.Font = Enum.Font.GothamBlack
-    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 24)
-    label.TextStrokeTransparency = 0.4
+    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
+    label.TextStrokeTransparency = 0.14
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextColor3 = Color3.fromRGB(245, 250, 255)
     local gradient = label:FindFirstChild("SupremeTextGradient")
-    if not gradient then
-        gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeTextGradient"
-        gradient.Parent = label
-    end
-    gradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(105, 190, 255))
+    if gradient then gradient:Destroy() end
     label.Text = title .. " " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " +?" or "")
@@ -1070,41 +1051,36 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -5)
-    label.Size = UDim2.fromOffset(190, 25)
+    label.Size = UDim2.fromOffset(210, 27)
     label.BackgroundTransparency = 1
     label.Font = Enum.Font.GothamBlack
-    label.TextSize = 15
+    label.TextSize = 16
     label.TextScaled = true
     label.TextWrapped = false
-    label.TextStrokeColor3 = Color3.fromRGB(8, 10, 18)
-    label.TextStrokeTransparency = 0.3
+    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
+    label.TextStrokeTransparency = 0.12
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
-        caption, color = "WAITING FOR BOTH OFFERS", Color3.fromRGB(190, 198, 215)
+        caption, color = "WAITING FOR BOTH OFFERS", Color3.fromRGB(225, 232, 245)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS — NO NUMERIC VERDICT", Color3.fromRGB(255, 190, 105)
+        caption, color = "TIER ITEMS — NO NUMERIC VERDICT", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "PARTIAL VALUES — CHECK UNKNOWN ITEMS", Color3.fromRGB(255, 190, 105)
+        caption, color = "PARTIAL VALUES — CHECK N/A ITEMS", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
         caption = verdict .. "  " .. sign .. formatValue(difference)
-        color = verdict == "WIN" and Color3.fromRGB(90, 235, 160)
-            or verdict == "LOSE" and Color3.fromRGB(255, 100, 115)
-            or Color3.fromRGB(110, 190, 255)
+        color = verdict == "WIN" and Color3.fromRGB(45, 255, 135)
+            or verdict == "LOSE" and Color3.fromRGB(255, 65, 85)
+            or Color3.fromRGB(75, 195, 255)
     end
 
     local gradient = label:FindFirstChild("SupremeTextGradient")
-    if not gradient then
-        gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeTextGradient"
-        gradient.Parent = label
-    end
-    gradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), color)
-    label.TextColor3 = Color3.new(1, 1, 1)
+    if gradient then gradient:Destroy() end
+    label.TextColor3 = color
     label.Text = caption
     label.Visible = true
 end
