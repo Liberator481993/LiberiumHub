@@ -1089,6 +1089,12 @@ end
 local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
     local label = makeLabel(parent, name, group)
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UIGradient") or child:IsA("UIStroke")
+            or child:IsA("UICorner") then
+            child:Destroy()
+        end
+    end
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
     label.Size = UDim2.fromOffset(210, 22)
@@ -1121,10 +1127,17 @@ end
 local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
     if not trade then return end
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UIGradient") or child:IsA("UIStroke")
+            or child:IsA("UICorner") then
+            child:Destroy()
+        end
+    end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -5)
-    label.Size = UDim2.fromOffset(210, 27)
+    label.Position = UDim2.new(0.5, 0, 1, -35)
+    label.Size = UDim2.fromOffset(190, 25)
     label.BackgroundTransparency = 1
+    label.ZIndex = 150
     label.Font = Enum.Font.GothamBlack
     label.TextSize = 16
     label.TextScaled = true
