@@ -573,7 +573,7 @@ local function valueOf(tile, name)
             local candidate = databaseMatches[1]
             local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
             local entry = mapped.byKey[key]
-            if entry then return entry.v, entry.name, entry.t end
+            if entry then return entry.v, entry.name, entry.t, entry.category end
         end
     end
     return nil
@@ -828,8 +828,7 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category)
     local label = container:FindFirstChild("__SupremeItemValue")
     if value == nil and not tierText then
         if label and label:IsA("TextLabel") then
-            label.Text = "?"
-            label.Visible = true
+            label.Visible = false
         end
         return
     end
