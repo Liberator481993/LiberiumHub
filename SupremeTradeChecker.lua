@@ -194,7 +194,8 @@ local function parseCategory(category, html, output)
         local cardText = decodeText(card)
         -- Read the displayed value first: tier cards may carry data-value="0",
         -- which is a placeholder and must never become a numeric price.
-        local amount = tonumber(cardText:match("Value%s*%-%s*([%d%.]+)"))
+        local amountText = cardText:match("Value%s*%-%s*([%d,%.]+)")
+        local amount = amountText and tonumber((amountText:gsub(",", ""))) or nil
         local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
         if not amount and not tierText then
             local dataAmount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
@@ -582,7 +583,7 @@ end
 
 local function valueOf(tile, name)
     local mapped = state.mapped
-    if not mapped then return nil end
+    if not mapped or state.status ~= "ok" then return nil end
 
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
@@ -595,7 +596,11 @@ local function valueOf(tile, name)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
-        if chroma then iconKey = mapped.chromaOf[iconKey] or iconKey end
+        if chroma then
+            iconKey = mapped.chromaOf[iconKey]
+            -- Never price a Chroma item with its non-Chroma counterpart.
+            if not iconKey then return nil end
+        end
         local entry = mapped.byKey[iconKey]
         -- The icon identifies the exact MM2 record. Do not fall through to a
         -- different same-name item when Supreme has no value for this record.
@@ -1422,12 +1427,9 @@ local function scanInventory()
                 local list = itemRoot:FindFirstChild(category)
                 if list and list:IsA("GuiObject") and visible(list) then
                     local _, _, namedCount = scanRoot(list, "tradeInventory")
-                    if namedCount == 0 then
-                        scanImageCards(list, "tradeInventory")
-                    else
-                        -- Supplement text-based cards with image-only cards.
-                        scanImageCards(list, "tradeInventory")
-                    end
+                    -- Supplement text-based cards with image-only cards.
+                    -- scanImageCards has its own per-pass deduplication.
+                    scanImageCards(list, "tradeInventory")
                 end
             end
         end
@@ -1661,7 +1663,7 @@ title.InputBegan:Connect(function(input)
     end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
+local inputChangedConnection = UserInputService.InputChanged:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
@@ -1683,6 +1685,10 @@ end
 
 textGui.Destroying:Connect(function()
     stopped = true
+    if inputChangedConnection then
+        inputChangedConnection:Disconnect()
+        inputChangedConnection = nil
+    end
 end)
 
 task.spawn(function()
