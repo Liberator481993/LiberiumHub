@@ -53,7 +53,9 @@ local state = {
     inventoryScreenList = "not scanned",
     busy = false,
     latestTrade = "No active trade detected.",
-    latestInventory = "Inventory not scanned yet."
+    latestInventory = "Inventory not scanned yet.",
+    unmatchedInventory = {},
+    unmatchedTrade = {}
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -599,6 +601,25 @@ local function itemData(tile)
     return name, quantity, label
 end
 
+local function recordUnmatched(tile, name, quantity, target)
+    if type(target) ~= "table" then return end
+    local container = tile and tile:FindFirstChild("Container")
+    local iconObject = container and container:FindFirstChild("Icon")
+    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local tags = tile and tile:FindFirstChild("Tags")
+    local chromaTag = tags and tags:FindFirstChild("Chroma")
+    local chroma = chromaTag ~= nil and chromaTag.Visible == true
+    local itemName = clean(name)
+    if itemName == "" then itemName = "NO_NAME" end
+    local key = normalize(itemName) .. "|" .. tostring(imageId) .. "|" .. tostring(chroma)
+    local entry = target[key]
+    if not entry then
+        entry = {name = itemName, image = tostring(imageId), chroma = chroma, count = 0}
+        target[key] = entry
+    end
+    entry.count = entry.count + math.max(1, tonumber(quantity) or 1)
+end
+
 local function getTiles(root)
     if not root then return {} end
     local now = os.clock()
@@ -724,6 +745,9 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
+        if value == nil and not tierText and group == "inventory" then
+            recordUnmatched(tile, name, quantity, state.unmatchedInventory)
+        end
         updateTileBadge(tile, value, quantity, group, tierText)
     end
     return total, known, count, tierCount
@@ -786,6 +810,9 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
+        if value == nil and not tierText and group == "inventory" then
+            recordUnmatched(card, name, quantity, state.unmatchedInventory)
+        end
         updateTileBadge(card, value, quantity, group, tierText)
     end
     return total, known, count, tierCount
@@ -843,6 +870,9 @@ local function scanOffer(offer, group)
                     known = known + quantity
                     tierCount = tierCount + quantity
                 end
+                if value == nil and not tierText then
+                    recordUnmatched(tile, name, quantity, state.unmatchedTrade)
+                end
                 updateTileBadge(tile, value, quantity, group, tierText)
             end
         end
@@ -873,6 +903,7 @@ local function getVerdict(give, get)
 end
 
 local function scanTrade()
+    state.unmatchedTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
         state.latestTrade = "No active trade detected."
@@ -1004,6 +1035,9 @@ local function scanModuleInventory()
                     tierCount = tierCount + quantity
                 end
                 count = count + quantity
+                if resolvedValue == nil and not tierText then
+                    recordUnmatched(tile, name, quantity, state.unmatchedInventory)
+                end
                 updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText)
             end
         end
@@ -1053,6 +1087,7 @@ local function scanModuleInventory()
 end
 
 local function scanInventory()
+    state.unmatchedInventory = {}
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
     local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
     local weaponTierCount = moduleTierCount or 0
@@ -1264,6 +1299,28 @@ local function copyText(text)
     return false
 end
 
+local function formatUnmatchedItems(items)
+    local rows = {}
+    for _, entry in pairs(items or {}) do
+        table.insert(rows, entry)
+    end
+    table.sort(rows, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return a.name < b.name
+    end)
+    local output = {}
+    for index = 1, math.min(#rows, 25) do
+        local entry = rows[index]
+        table.insert(output, entry.name .. " [x" .. tostring(entry.count)
+            .. ", icon=" .. tostring(entry.image)
+            .. (entry.chroma and ", chroma" or "") .. "]")
+    end
+    if #rows > 25 then
+        table.insert(output, "... +" .. tostring(#rows - 25) .. " more unique items")
+    end
+    return #output > 0 and table.concat(output, " | ") or "none"
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
@@ -1288,7 +1345,9 @@ local function buildDiagnostic()
         tostring(state.latestTrade),
         "",
         "CURRENT INVENTORY:",
-        tostring(state.latestInventory)
+        tostring(state.latestInventory),
+        "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
+        "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
     return table.concat(lines, "\n")
 end
