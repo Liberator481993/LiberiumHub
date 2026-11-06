@@ -40,6 +40,7 @@ local state = {
     status = "loading",
     mapped = nil,
     updated = 0,
+    loadDuration = 0,
     lastUpdate = "Not loaded",
     source = "",
     pageCount = 0,
@@ -553,7 +554,7 @@ local function valueOf(tile, name)
         local entry = mapped.byKey[iconKey]
         -- The icon identifies the exact MM2 record. Do not fall through to a
         -- different same-name item when Supreme has no value for this record.
-        if entry then return entry.v, entry.name, entry.t end
+        if entry then return entry.v, entry.name, entry.t, entry.category end
         return nil
     end
 
@@ -584,50 +585,69 @@ local function loadValues(force)
     state.busy = true
     state.status = "loading"
     task.spawn(function()
+        local loadStarted = os.clock()
         local ok, err = pcall(function()
             local entries = {}
             local pageCount, parsedPages, entryCount, tierEntryCount = 0, 0, 0, 0
             local failed, methods = {}, {}
             local categoryCounts, referenceValueCounts, categoryCardCounts = {}, {}, {}
 
-            for _, category in ipairs(CATEGORIES) do
+            -- Four concurrent workers reduce the sequential network wait without
+            -- flooding the executor with all 14 requests at once.
+            local fetched = {}
+            local nextIndex = 1
+            for worker = 1, 4 do
+                task.spawn(function()
+                    while not stopped do
+                        local index = nextIndex
+                        nextIndex = nextIndex + 1
+                        local category = CATEGORIES[index]
+                        if not category then break end
+                        local html, fetchInfo = fetchPage(BASE .. category)
+                        fetched[index] = {html = html, info = fetchInfo}
+                    end
+                end)
+            end
+            while not stopped do
+                local complete = true
+                for index = 1, #CATEGORIES do
+                    if fetched[index] == nil then complete = false break end
+                end
+                if complete then break end
+                task.wait(0.05)
+            end
+
+            for index, category in ipairs(CATEGORIES) do
                 if stopped then return end
-                local html, fetchInfo = fetchPage(BASE .. category)
+                local result = fetched[index]
+                local html, fetchInfo = result and result.html, result and result.info
                 if not html then
-                    table.insert(failed, category .. ": " .. tostring(fetchInfo))
+                    table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
                 else
                     pageCount = pageCount + 1
                     methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
-
                     local pageEntries = {}
                     local count, tierCount = parseCategory(category, html, pageEntries)
                     local cardCount = countItemCards(html)
                     categoryCardCounts[category] = cardCount
-
                     if cardCount > 0 then parsedPages = parsedPages + 1 end
                     if VALUE_CATEGORIES[category] then
                         categoryCounts[category] = count
-                        for _, entry in ipairs(pageEntries) do
-                            table.insert(entries, entry)
-                        end
+                        for _, entry in ipairs(pageEntries) do table.insert(entries, entry) end
                         entryCount = entryCount + count
                         tierEntryCount = tierEntryCount + (tierCount or 0)
-
                         local minimum = MINIMUM[category] or 1
                         if count < minimum then
                             table.insert(failed, category .. ": only " .. tostring(count)
                                 .. " value cards parsed (expected at least " .. tostring(minimum) .. ")")
                         end
                     else
-                        -- These pages are scanned for completeness but their
-                        -- set/evolution/cosmetic entries are not weapon values.
                         referenceValueCounts[category] = count
                         if cardCount < 1 then
                             table.insert(failed, category .. ": no reference cards detected")
                         end
                     end
                 end
-                task.wait(0.15)
             end
 
             state.pageCount = pageCount
@@ -660,6 +680,7 @@ local function loadValues(force)
             state.status = "ok"
             state.source = dbSource
             state.updated = os.clock()
+            state.loadDuration = state.updated - loadStarted
             state.lastUpdate = os.date("%H:%M:%S")
         end)
 
@@ -669,6 +690,7 @@ local function loadValues(force)
         else
             state.lastError = nil
         end
+        state.loadDuration = os.clock() - loadStarted
         state.busy = false
     end)
 end
@@ -761,22 +783,46 @@ local function makeLabel(parent, name, group)
     if not label then
         label = Instance.new("TextLabel")
         label.Name = name
-        label.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
-        label.BackgroundTransparency = 0.15
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextStrokeTransparency = 0.45
-        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.BackgroundColor3 = Color3.fromRGB(25, 30, 48)
+        label.BackgroundTransparency = 0.12
+        label.TextColor3 = Color3.fromRGB(248, 250, 255)
+        label.TextStrokeTransparency = 1
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.TextYAlignment = Enum.TextYAlignment.Center
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 12
+        label.TextSize = 11
         label.BorderSizePixel = 0
         label.ZIndex = 90
         label.Parent = parent
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = label
+        local stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Thickness = 1
+        stroke.Transparency = 0.2
+        stroke.Color = Color3.fromRGB(112, 145, 255)
+        stroke.Parent = label
+        local gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Rotation = 90
+        gradient.Color = ColorSequence.new(Color3.fromRGB(48, 56, 88), Color3.fromRGB(20, 24, 40))
+        gradient.Parent = label
     end
     label:SetAttribute("SupremeOwner", group)
     return label
 end
 
-local function updateTileBadge(tile, value, quantity, group, tierText)
+local BADGE_COLORS = {
+    uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
+    chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
+    vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
+    rares = Color3.fromRGB(104, 174, 255), uncommons = Color3.fromRGB(94, 220, 171),
+    commons = Color3.fromRGB(174, 190, 210), pets = Color3.fromRGB(116, 225, 210),
+    misc = Color3.fromRGB(190, 190, 205)
+}
+
+local function updateTileBadge(tile, value, quantity, group, tierText, category)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
     local label = container:FindFirstChild("__SupremeItemValue")
@@ -811,6 +857,15 @@ local function updateTileBadge(tile, value, quantity, group, tierText)
     end
 
     local isTier = tierText ~= nil and tierText ~= ""
+    local accent = BADGE_COLORS[category] or (isTier and Color3.fromRGB(255, 190, 105) or Color3.fromRGB(112, 190, 255))
+    label.TextColor3 = Color3.fromRGB(250, 252, 255)
+    label.BackgroundColor3 = accent:Lerp(Color3.fromRGB(18, 22, 36), 0.72)
+    local stroke = label:FindFirstChild("SupremeStroke")
+    if stroke and stroke:IsA("UIStroke") then stroke.Color = accent end
+    local gradient = label:FindFirstChild("SupremeGradient")
+    if gradient and gradient:IsA("UIGradient") then
+        gradient.Color = ColorSequence.new(accent:Lerp(Color3.fromRGB(30, 35, 54), 0.42), Color3.fromRGB(18, 22, 36))
+    end
     local width = math.max(60, container.AbsoluteSize.X - 6)
     local height
     if isTier then
@@ -835,8 +890,9 @@ local function updateTileBadge(tile, value, quantity, group, tierText)
         label.TextSize = math.max(11, math.floor(height * 0.72))
         label.Size = UDim2.fromOffset(math.clamp(math.max(70, #text * height * 0.48 + 12), 70, width), height)
     end
-    label.Position = UDim2.fromOffset(3, 3)
-    label.Text = " " .. text
+    label.AnchorPoint = Vector2.new(1, 0)
+    label.Position = UDim2.new(1, -4, 0, 4)
+    label.Text = text
     label.Visible = true
 end
 
@@ -847,7 +903,7 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value, _, tierText = valueOf(tile, name)
+        local value, _, tierText, category = valueOf(tile, name)
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
@@ -859,7 +915,7 @@ local function scanRoot(root, group)
         if value == nil and not tierText and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(tile, value, quantity, group, tierText)
+        updateTileBadge(tile, value, quantity, group, tierText, category)
     end
     return total, known, count, tierCount
 end
@@ -906,7 +962,7 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
-        local value, _, tierText = valueOf(card, name)
+        local value, _, tierText, category = valueOf(card, name)
         if value == nil and not tierText then
             local amountNode = card:FindFirstChild("Container")
                 and card.Container:FindFirstChild("Amount")
@@ -924,7 +980,7 @@ local function scanImageCards(root, group)
         if value == nil and not tierText and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(card, value, quantity, group, tierText)
+        updateTileBadge(card, value, quantity, group, tierText, category)
     end
     return total, known, count, tierCount
 end
@@ -965,7 +1021,7 @@ local function scanOffer(offer, group)
         if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
-            local value, resolvedName, tierText = valueOf(tile, name)
+            local value, resolvedName, tierText, category = valueOf(tile, name)
             if name or value ~= nil or tierText then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
@@ -984,7 +1040,7 @@ local function scanOffer(offer, group)
                 if value == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedTrade)
                 end
-                updateTileBadge(tile, value, quantity, group, tierText)
+                updateTileBadge(tile, value, quantity, group, tierText, category)
             end
         end
     end
@@ -1137,7 +1193,7 @@ local function scanModuleInventory()
                 if type(entry.Amount) == "number" and quantity <= 1 then
                     quantity = math.max(1, math.floor(entry.Amount))
                 end
-                local resolvedValue, _, tierText = valueOf(tile, name)
+                local resolvedValue, _, tierText, category = valueOf(tile, name)
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
@@ -1149,7 +1205,7 @@ local function scanModuleInventory()
                 if resolvedValue == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText)
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
             end
         end
     end
@@ -1439,6 +1495,7 @@ local function buildDiagnostic()
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
         "Status: " .. tostring(state.status),
+        "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
         "Values source: " .. BASE,
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
         "Pages parsed: " .. tostring(state.parsedPages),
