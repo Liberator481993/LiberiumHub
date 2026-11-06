@@ -160,8 +160,8 @@ local function fetchPage(url)
     return nil, table.concat(errors, "; ")
 end
 
--- Supreme Values stores the exact item amount in data-value and the item title
--- in itemhead. This is the same card-level parser used by PulseHub.
+-- Supreme Values item cards expose numeric or tier-based values as visible text.
+-- Parse the displayed value first; data-value is only a numeric fallback.
 local function parseCategory(category, html, output)
     local count, tierCount, cursor, scanned = 0, 0, 1, 0
     while true do
@@ -868,10 +868,12 @@ local function scanTrade()
     setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
 
     local lines = {
-        "YOUR OFFER: " .. formatValue(yourTotal)
-            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " valued)",
-        "THEIR OFFER: " .. formatValue(theirTotal)
-            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " valued)"
+        "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
+            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " recognized, "
+            .. tostring(yourTierCount) .. " tier)",
+        "THEIR OFFER NUMERIC: " .. formatValue(theirTotal)
+            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " recognized, "
+            .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
