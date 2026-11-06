@@ -542,33 +542,38 @@ local function valueOf(tile, name)
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
 
-    -- Prefer an exact visible item name. A shared/reused icon can otherwise
-    -- make one skin inherit another skin's value.
-    local namedMatches = {}
-    local normalizedName = normalize(name)
-    if normalizedName ~= "" then
-        for _, candidate in ipairs(mapped.byName[normalizedName] or {}) do
-            if candidate.chroma == chroma and mapped.byKey[candidate.key] then
-                table.insert(namedMatches, candidate)
-            end
-        end
-    end
-    if #namedMatches == 1 then
-        local entry = mapped.byKey[namedMatches[1].key]
-        return entry.v, entry.name, entry.t
-    end
-
-    -- Fall back to image matching only when the asset ID is globally unique.
+    -- A globally unique database icon is the strongest identifier. Resolve it
+    -- before the visible name because seasonal skins often share one label.
     local container = tile and tile:FindFirstChild("Container")
     local iconObject = container and container:FindFirstChild("Icon")
-    local id = iconObject and assetId(iconObject.Image)
-    local idKey = id and mapped.icon[id]
-    if idKey and chroma then
-        idKey = mapped.chromaOf[idKey] or idKey
+    local imageId = iconObject and assetId(iconObject.Image)
+    local iconKey = imageId and mapped.icon[imageId]
+    if iconKey then
+        if chroma then iconKey = mapped.chromaOf[iconKey] or iconKey end
+        local entry = mapped.byKey[iconKey]
+        -- The icon identifies the exact MM2 record. Do not fall through to a
+        -- different same-name item when Supreme has no value for this record.
+        if entry then return entry.v, entry.name, entry.t end
+        return nil
     end
-    if idKey and mapped.byKey[idKey] then
-        local entry = mapped.byKey[idKey]
-        return entry.v, entry.name, entry.t
+
+    -- Use a name only when it identifies exactly one database record after
+    -- applying the visible Chroma state. A unique mapped-name candidate alone
+    -- is insufficient: other same-name skins may simply be unmapped.
+    local normalizedName = normalize(name)
+    if normalizedName ~= "" then
+        local databaseMatches = {}
+        for _, candidate in ipairs(mapped.dbByName[normalizedName] or {}) do
+            if candidate.chroma == chroma then
+                table.insert(databaseMatches, candidate)
+            end
+        end
+        if #databaseMatches == 1 then
+            local candidate = databaseMatches[1]
+            local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
+            local entry = mapped.byKey[key]
+            if entry then return entry.v, entry.name, entry.t end
+        end
     end
     return nil
 end
