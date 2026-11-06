@@ -108,7 +108,13 @@ end
 -- Canonicalize only the trailing generic word "Event"; keep the actual
 -- event name intact so unrelated seasonal items cannot cross-match.
 local function normalizeEvent(value)
-    return normalize(value):gsub("event$", "")
+    -- data-event can contain the season year (e.g. "Valentines 2026"),
+    -- while Database.Sync stores only "Valentines". The visible origin may
+    -- instead append the generic word "Event". Strip only these suffixes.
+    local normalized = normalize(value)
+    normalized = normalized:gsub("%d%d%d%d$", "")
+    normalized = normalized:gsub("event$", "")
+    return normalized
 end
 
 -- Supreme Values contains fractional values for many low-tier items.
