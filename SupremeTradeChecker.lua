@@ -1006,6 +1006,9 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
+        -- Text cards were already handled by scanRoot; this pass is only
+        -- for image-only cards to avoid processing the same tile twice.
+        if name then continue end
         local value, _, tierText, category = valueOf(card, name)
         if value == nil and not tierText then
             local amountNode = card:FindFirstChild("Container")
@@ -1049,14 +1052,17 @@ local function findTrade()
             -- Fallback for layouts where the Trade frame is nested or renamed.
             local yourOffer = screen:FindFirstChild("YourOffer", true)
             local theirOffer = screen:FindFirstChild("TheirOffer", true)
-            if yourOffer or theirOffer then return screen, container or screen, screen end
+            if (yourOffer and visible(yourOffer)) or (theirOffer and visible(theirOffer)) then
+                return screen, container or screen, screen
+            end
         end
     end
     return nil
 end
 
 local function scanOffer(offer, group)
-    local container = offer and offer:FindFirstChild("Container")
+    if not offer or not visible(offer) then return {}, 0, 0, 0, 0 end
+    local container = offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
 
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
@@ -1175,13 +1181,29 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     label.Visible = true
 end
 
+local lastTradeRoot
+local function clearTradeLabels(root)
+    if not root then return end
+    for _, node in ipairs(root:GetDescendants()) do
+        if node.Name == "__SupremeOfferTotal" or node.Name == "__SupremeTradeVerdict" then
+            node:Destroy()
+        end
+    end
+end
+
 local function scanTrade()
     state.unmatchedTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
+        clearTradeLabels(lastTradeRoot)
+        lastTradeRoot = nil
         state.latestTrade = "No active trade detected."
         return nil
     end
+    if lastTradeRoot and lastTradeRoot ~= trade then
+        clearTradeLabels(lastTradeRoot)
+    end
+    lastTradeRoot = trade
 
     local yours = trade:FindFirstChild("YourOffer", true)
     local theirs = trade:FindFirstChild("TheirOffer", true)
@@ -1426,7 +1448,7 @@ local function scanInventory()
             for _, category in ipairs({"Weapons", "Pets"}) do
                 local list = itemRoot:FindFirstChild(category)
                 if list and list:IsA("GuiObject") and visible(list) then
-                    local _, _, namedCount = scanRoot(list, "tradeInventory")
+                    scanRoot(list, "tradeInventory")
                     -- Supplement text-based cards with image-only cards.
                     -- scanImageCards has its own per-pass deduplication.
                     scanImageCards(list, "tradeInventory")
