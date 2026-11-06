@@ -60,6 +60,9 @@ local state = {
     inventoryModuleRetryAt = 0,
     inventoryFrames = 0,
     inventoryVisibleFrames = 0,
+    inventoryGuiFrames = 0,
+    inventoryGuiValued = 0,
+    inventoryGuiItems = 0,
     inventoryDataEntries = 0,
     inventoryGroups = 0,
     inventoryGuiPath = "unknown",
@@ -199,6 +202,10 @@ local function parseCategory(category, html, output)
         end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
         local origin = decodeText(card:match('class="itemorigin">([^<]*)<') or "")
+        local imageAlt = card:match('<img[^>]-alt="([^"]*)"')
+            or card:match("<img[^>]-alt='([^']*)'")
+        imageAlt = decodeText(imageAlt or "")
+        local pageEvent = card:match('data%-event="([^"]+)"')
         if (amount or tierText) and (not amount or amount < 500000)
             and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
@@ -206,10 +213,11 @@ local function parseCategory(category, html, output)
                 table.insert(output, {
                     c = category,
                     n = name,
+                    im = imageAlt,
                     v = amount,
                     t = tierText,
                     y = card:match('data%-year="(%d%d%d%d)'),
-                    e = card:match('data%-event="([^"]+)"'),
+                    e = pageEvent,
                     o = origin ~= "" and origin or nil,
                     cl = card:match("Class %- <b>([^<]+)</b>"),
                     dm = card:match('data%-demand="(%d+)"')
@@ -333,16 +341,48 @@ local function buildMapping(entries, database)
         local tierText = clean(value.t)
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
 
-        local name, kind = tostring(value.n or ""), nil
-        local baseName, suffix = name:match("^(.-)%s*%((%a+)%)%s*$")
-        if baseName and (suffix == "Knife" or suffix == "Gun") then
-            name, kind = baseName, suffix
+        -- Parse both the value title and image label; the image label often
+        -- carries the exact weapon type/year while the value title is generic.
+        local function splitVariant(raw)
+            local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
+            local year
+            local base, suffix = text:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
+            if base then text, year = clean(base), suffix end
+
+            local kind
+            base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
+            if base and (suffix == "Knife" or suffix == "Gun") then
+                text, kind = clean(base), suffix
+            else
+                base, suffix = text:match("^(.-)%s+(%a+)$")
+                if base and (suffix == "Knife" or suffix == "Gun") then
+                    text, kind = clean(base), suffix
+                end
+            end
+            return text, kind, year
         end
 
-        local year = value.y
-        baseName, suffix = name:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
-        if baseName then name, year = baseName, suffix end
+        local name, kind, titleYear = splitVariant(value.n)
+        local year = value.y or titleYear
+        if value.y and titleYear and tostring(value.y) ~= tostring(titleYear) then
+            continue
+        end
         if not year and value.o then year = tostring(value.o):match("(20%d%d)") end
+
+        local altName, altKind, altYear = splitVariant(value.im)
+        if altKind then
+            if kind and kind ~= altKind then continue end
+            kind = altKind
+        end
+        if altYear then
+            if year and tostring(year) ~= tostring(altYear) then continue end
+            year = altYear
+        end
+
+        local event = clean(value.e)
+        if event == "" and value.o then
+            event = clean(tostring(value.o):match("^(.-)%s+20%d%d") or "")
+        end
 
         local chroma = category == "chromas"
         if chroma then
@@ -414,25 +454,30 @@ local function buildMapping(entries, database)
 
         if kind then filterMatches(function(item) return item.ItemType == kind end) end
         if value.cl then
-            filterMatches(function(item) return item.Rarity == value.cl end)
-        end
-        -- Year/Event are useful discriminators when MM2 exposes them, but
-        -- many valid database records omit these fields. Missing metadata
-        -- must not erase an otherwise exact name/category match.
-        if year then
             filterMatches(function(item)
-                local itemYear = item.Year
-                return itemYear == nil or tostring(itemYear) == ""
-                    or tostring(itemYear) == tostring(year)
+                return normalize(item.Rarity) == normalize(value.cl)
             end)
         end
-        if value.e then
-            filterMatches(function(item)
-                local itemEvent = item.Event
-                return itemEvent == nil or tostring(itemEvent) == ""
-                    or tostring(itemEvent) == tostring(value.e)
-            end)
+
+        local function preferExactMetadata(field, wanted)
+            if not wanted or clean(wanted) == "" then return end
+            local exact, unknown = {}, {}
+            for _, candidate in ipairs(matches) do
+                local actual = clean(candidate.item[field])
+                if actual == "" then
+                    table.insert(unknown, candidate)
+                elseif normalize(actual) == normalize(wanted) then
+                    table.insert(exact, candidate)
+                end
+            end
+            if #exact > 0 then
+                matches = exact
+            else
+                matches = unknown
+            end
         end
+        preferExactMetadata("Year", year)
+        preferExactMetadata("Event", event)
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
@@ -766,7 +811,19 @@ local function getTiles(root)
         local seen = {}
         for _, node in ipairs(root:GetDescendants()) do
             if node.Name == "ItemName" then
-                local tile = node.Parent
+                local current = node.Parent
+                local tile
+                while current and current ~= root do
+                    if current:IsA("GuiObject") then
+                        local container = current:FindFirstChild("Container")
+                        if container and container:FindFirstChild("Icon") then
+                            tile = current
+                            break
+                        end
+                    end
+                    current = current.Parent
+                end
+                tile = tile or node.Parent
                 if tile and tile:FindFirstChild("Container") and not seen[tile] then
                     seen[tile] = true
                     table.insert(cached.tiles, tile)
@@ -831,11 +888,17 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
 
+    local existing = container:FindFirstChild("__SupremeItemValue")
+    local hasTier = type(tierText) == "string" and tierText ~= ""
+    if value == nil and not hasTier then
+        -- Don't clutter the inventory with "N/A" or fake zero values.
+        if existing and existing:IsA("TextLabel") then existing.Visible = false end
+        return
+    end
+
     local label = makeLabel(container, "__SupremeItemValue", group)
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
-    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
-    label.TextStrokeTransparency = 0.14
     label.Font = Enum.Font.GothamBlack
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
@@ -843,34 +906,32 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.TextXAlignment = Enum.TextXAlignment.Right
     label.TextSize = 13
-    local width = math.max(24, container.AbsoluteSize.X - 6)
-    label.Size = UDim2.fromOffset(width, 18)
+    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
+    label.TextStrokeTransparency = 0.12
+    label.ZIndex = 100
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
+    label.Size = UDim2.new(1, -6, 0, 18)
 
-    -- Use solid, high-contrast text. A white-to-accent gradient was making
-    -- trade values look muddy/dark on mobile.
-    local gradient = label:FindFirstChild("SupremeTextGradient")
-    if gradient then gradient:Destroy() end
+    -- Remove the previous dark background treatment and use crisp text only.
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UICorner") or child:IsA("UIStroke")
+            or child:IsA("UIGradient") then
+            child:Destroy()
+        end
+    end
 
-    local accent
     if value ~= nil then
-        accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
+        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
         if normalize(itemName) == "emberbow" then
             accent = Color3.fromRGB(255, 75, 75)
         end
         label.Text = formatValue(value)
-    elseif tierText and tierText ~= "" then
-        accent = Color3.fromRGB(255, 190, 75)
-        label.Text = tostring(tierText):gsub("^[x×]%d+%s*", ""):upper()
+        label.TextColor3 = accent
     else
-        -- Explicitly mark items with no Supreme numeric match instead of
-        -- leaving their cards blank or showing a fabricated value.
-        accent = Color3.fromRGB(235, 235, 242)
-        label.Text = "N/A"
+        label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
+        label.TextColor3 = Color3.fromRGB(255, 190, 75)
     end
-
-    label.TextColor3 = accent
     label.Visible = true
 end
 
@@ -1046,6 +1107,17 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.Visible = count > 0
 end
 
+local function getVerdict(giveValue, receiveValue)
+    local give = tonumber(giveValue) or 0
+    local receive = tonumber(receiveValue) or 0
+    local difference = receive - give
+    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.005)
+    if math.abs(difference) <= tolerance then
+        return "FAIR", difference
+    end
+    return difference > 0 and "WIN" or "LOSE", difference
+end
+
 local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
     if not trade then return end
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
@@ -1116,6 +1188,8 @@ local function scanTrade()
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
             table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
+        elseif yourKnown < yourCount or theirKnown < theirCount then
+            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -1231,6 +1305,20 @@ local function scanModuleInventory()
     scanCollection(data.Weapons, "Weapons")
     scanCollection(data.Pets, "Pets")
 
+    local guiInstance = typeof(gui) == "Instance" and gui or nil
+    if guiInstance then
+        local guiTiles = getTiles(guiInstance)
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
+        scanImageCards(guiInstance, "inventoryOverlay")
+        state.inventoryGuiFrames = #guiTiles
+        state.inventoryGuiValued = guiKnown or 0
+        state.inventoryGuiItems = guiCount or 0
+    else
+        state.inventoryGuiFrames = 0
+        state.inventoryGuiValued = 0
+        state.inventoryGuiItems = 0
+    end
+
     -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
     -- Put the running total on the visible inventory page when available.
     local guiInstance = typeof(gui) == "Instance" and gui or nil
@@ -1254,19 +1342,6 @@ local function scanModuleInventory()
     state.inventoryGroups = groupCount
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
-
-    local guiInstance = typeof(gui) == "Instance" and gui or nil
-    if guiInstance and guiInstance:IsA("GuiObject") and visible(guiInstance) then
-        local label = makeLabel(guiInstance, "__SupremeInventoryTotal", "inventory")
-        label.AnchorPoint = Vector2.new(0, 1)
-        label.Position = UDim2.new(0, 4, 1, -5)
-        label.Size = UDim2.fromOffset(290, 28)
-        label.TextSize = 12
-        label.Text = "INV " .. formatValue(total)
-            .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
-            .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
-        label.Visible = count > 0
-    end
 
     return total, known, count, visibleFrames, myInventory, tierCount
 end
@@ -1358,6 +1433,8 @@ local function scanInventory()
         .. " | Data entries: " .. tostring(state.inventoryDataEntries)
         .. " | Frames: " .. tostring(state.inventoryFrames)
         .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
+        .. " | GUI cards: " .. tostring(state.inventoryGuiFrames)
+        .. " | GUI valued: " .. tostring(state.inventoryGuiValued) .. "/" .. tostring(state.inventoryGuiItems)
         .. " | Groups: " .. tostring(state.inventoryGroups)
         .. " | GUI: " .. tostring(state.inventoryGuiPath)
         .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
