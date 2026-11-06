@@ -603,8 +603,12 @@ local function loadValues(force)
                         nextIndex = nextIndex + 1
                         local category = CATEGORIES[index]
                         if not category then break end
-                        local html, fetchInfo = fetchPage(BASE .. category)
-                        fetched[index] = {html = html, info = fetchInfo}
+                        local ok, html, fetchInfo = pcall(fetchPage, BASE .. category)
+                        if not ok then
+                            fetched[index] = {html = nil, info = "request worker error: " .. tostring(html)}
+                        else
+                            fetched[index] = {html = html, info = fetchInfo}
+                        end
                     end
                 end)
             end
