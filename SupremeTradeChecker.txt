@@ -11,18 +11,28 @@ local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- Every category linked from the current Supreme Values MM2 menu.
+-- Only VALUE_CATEGORIES are individual tradable-item value sources.
+-- Sets are aggregate values; Evos and Untradables are reference-only pages.
 local CATEGORIES = {
-    "godlies", "chromas", "ancients", "legendaries", "rares",
-    "uncommons", "commons", "vintages", "misc", "pets"
+    "sets", "uniques", "evos", "ancients", "vintages", "chromas",
+    "godlies", "legendaries", "rares", "uncommons", "commons",
+    "pets", "misc", "untradables"
+}
+local VALUE_CATEGORIES = {
+    uniques = true,
+    ancients = true, vintages = true, chromas = true, godlies = true,
+    legendaries = true, rares = true, uncommons = true, commons = true,
+    pets = true, misc = true
 }
 local MINIMUM = {
     godlies = 80, chromas = 30, commons = 150, uncommons = 100,
-    rares = 80, legendaries = 40, ancients = 8, pets = 40
+    rares = 80, legendaries = 40, ancients = 8, pets = 40, uniques = 1
 }
 local RARITIES = {
     godlies = "Godly", ancients = "Ancient", legendaries = "Legendary",
     rares = "Rare", uncommons = "Uncommon", commons = "Common",
-    vintages = "Classic"
+    vintages = "Classic", uniques = "Unique"
 }
 local BASE = "https://www.supremevalues.com/mm2/"
 
@@ -41,6 +51,8 @@ local state = {
     dbPets = 0,
     mappedCount = 0,
     tierEntryCount = 0,
+    categoryCardCounts = {},
+    referenceValueCounts = {},
     iconCount = 0,
     inventoryModuleStatus = "not checked",
     inventoryModule = nil,
@@ -207,6 +219,19 @@ local function parseCategory(category, html, output)
         end
     end
     return count, tierCount
+end
+
+-- Count every visible item card on a page, including reference-only cards
+-- that intentionally have no tradable value (Evos and Untradables).
+local function countItemCards(html)
+    local count, cursor = 0, 1
+    while true do
+        local first = html:find('<div class="itemcolumn"', cursor, true)
+        if not first then break end
+        count = count + 1
+        cursor = first + 23
+    end
+    return count
 end
 
 local function loadGameDatabase()
@@ -520,7 +545,7 @@ local function loadValues(force)
             local entries = {}
             local pageCount, parsedPages, entryCount, tierEntryCount = 0, 0, 0, 0
             local failed, methods = {}, {}
-            local categoryCounts = {}
+            local categoryCounts, referenceValueCounts, categoryCardCounts = {}, {}, {}
 
             for _, category in ipairs(CATEGORIES) do
                 if stopped then return end
@@ -530,15 +555,33 @@ local function loadValues(force)
                 else
                     pageCount = pageCount + 1
                     methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
-                    local count, tierCount = parseCategory(category, html, entries)
-                    categoryCounts[category] = count
-                    if count > 0 then parsedPages = parsedPages + 1 end
-                    entryCount = entryCount + count
-                    tierEntryCount = tierEntryCount + (tierCount or 0)
-                    local minimum = MINIMUM[category] or 1
-                    if count < minimum then
-                        table.insert(failed, category .. ": only " .. tostring(count)
-                            .. " cards parsed (expected at least " .. tostring(minimum) .. ")")
+
+                    local pageEntries = {}
+                    local count, tierCount = parseCategory(category, html, pageEntries)
+                    local cardCount = countItemCards(html)
+                    categoryCardCounts[category] = cardCount
+
+                    if cardCount > 0 then parsedPages = parsedPages + 1 end
+                    if VALUE_CATEGORIES[category] then
+                        categoryCounts[category] = count
+                        for _, entry in ipairs(pageEntries) do
+                            table.insert(entries, entry)
+                        end
+                        entryCount = entryCount + count
+                        tierEntryCount = tierEntryCount + (tierCount or 0)
+
+                        local minimum = MINIMUM[category] or 1
+                        if count < minimum then
+                            table.insert(failed, category .. ": only " .. tostring(count)
+                                .. " value cards parsed (expected at least " .. tostring(minimum) .. ")")
+                        end
+                    else
+                        -- These pages are scanned for completeness but their
+                        -- set/evolution/cosmetic entries are not weapon values.
+                        referenceValueCounts[category] = count
+                        if cardCount < 1 then
+                            table.insert(failed, category .. ": no reference cards detected")
+                        end
                     end
                 end
                 task.wait(0.15)
@@ -551,6 +594,8 @@ local function loadValues(force)
             state.failedPages = failed
             state.fetchMethods = methods
             state.categoryCounts = categoryCounts
+            state.referenceValueCounts = referenceValueCounts
+            state.categoryCardCounts = categoryCardCounts
 
             if #failed > 0 or pageCount ~= #CATEGORIES then
                 error("Supreme pages incomplete; refusing to publish partial values")
@@ -1331,7 +1376,10 @@ local function buildDiagnostic()
         "Pages parsed: " .. tostring(state.parsedPages),
         "Supreme entries: " .. tostring(state.entryCount),
         "Supreme tier entries: " .. tostring(state.tierEntryCount or 0),
-        "Category counts: " .. HttpService:JSONEncode(state.categoryCounts or {}),
+        "Value entries by category: " .. HttpService:JSONEncode(state.categoryCounts or {}),
+        "Reference-page value cards (not mapped as single items): "
+            .. HttpService:JSONEncode(state.referenceValueCounts or {}),
+        "All page card counts: " .. HttpService:JSONEncode(state.categoryCardCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
