@@ -266,6 +266,40 @@ local function buildMapping(entries, database)
     local weapons = database.Item
     local pets = type(database.Pets) == "table" and database.Pets or {}
     local index, petEntries = {}, {}
+    local dbByName, dbByImage = {}, {}
+
+    local function addDiagnosticCandidate(item, id, kind)
+        local name = normalize(item.ItemName or item.Name or "")
+        if name ~= "" then
+            dbByName[name] = dbByName[name] or {}
+            table.insert(dbByName[name], {
+                id = tostring(id),
+                kind = kind,
+                name = tostring(item.ItemName or item.Name or ""),
+                itemType = tostring(item.ItemType or ""),
+                rarity = tostring(item.Rarity or ""),
+                chroma = item.Chroma == true,
+                year = tostring(item.Year or ""),
+                event = tostring(item.Event or ""),
+                image = assetId(item.Image) or "",
+                itemId = tostring(item.ItemID or "")
+            })
+        end
+        local image = assetId(item.Image)
+        if image then
+            dbByImage[image] = dbByImage[image] or {}
+            table.insert(dbByImage[image], {
+                id = tostring(id),
+                kind = kind,
+                name = tostring(item.ItemName or item.Name or ""),
+                itemType = tostring(item.ItemType or ""),
+                rarity = tostring(item.Rarity or ""),
+                chroma = item.Chroma == true,
+                year = tostring(item.Year or ""),
+                event = tostring(item.Event or "")
+            })
+        end
+    end
 
     local function addIndex(name, entry)
         if name == "" then return end
@@ -277,6 +311,7 @@ local function buildMapping(entries, database)
         if type(item) ~= "table" then continue end
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
+        addDiagnosticCandidate(item, id, "Item")
         addIndex(normalize(name), entry)
         local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
         if withoutYear ~= name then addIndex(normalize(withoutYear), entry) end
@@ -285,6 +320,7 @@ local function buildMapping(entries, database)
     for id, item in pairs(pets) do
         if type(item) ~= "table" then continue end
         local entry = {kind = "p", id = tostring(id), item = item}
+        addDiagnosticCandidate(item, id, "Pet")
         addIndex("pet:" .. normalize(item.Name), entry)
         table.insert(petEntries, entry)
     end
@@ -488,6 +524,8 @@ local function buildMapping(entries, database)
         byKey = byKey,
         icon = icon,
         chromaOf = chromaOf,
+        dbByName = dbByName,
+        dbByImage = dbByImage,
         byName = byName,
         n = mappedCount,
         iconCount = iconCount,
@@ -660,6 +698,29 @@ local function recordUnmatched(tile, name, quantity, target)
     local entry = target[key]
     if not entry then
         entry = {name = itemName, image = tostring(imageId), chroma = chroma, count = 0}
+        local mapped = state.mapped
+        local nameCandidates = mapped and mapped.dbByName and mapped.dbByName[normalize(itemName)] or {}
+        local imageCandidates = mapped and mapped.dbByImage and mapped.dbByImage[tostring(imageId)] or {}
+        local function summarize(candidates)
+            local result = {}
+            for index = 1, math.min(#candidates, 8) do
+                local candidate = candidates[index]
+                table.insert(result, candidate.kind .. ":" .. candidate.id
+                    .. "=" .. candidate.name
+                    .. "{type=" .. candidate.itemType
+                    .. ",rarity=" .. candidate.rarity
+                    .. ",chroma=" .. tostring(candidate.chroma)
+                    .. (candidate.year ~= "" and ",year=" .. candidate.year or "")
+                    .. (candidate.event ~= "" and ",event=" .. candidate.event or "")
+                    .. "}")
+            end
+            if #candidates > 8 then
+                table.insert(result, "...+" .. tostring(#candidates - 8))
+            end
+            return #result > 0 and table.concat(result, "; ") or "none"
+        end
+        entry.dbNameMatches = summarize(nameCandidates)
+        entry.dbImageMatches = summarize(imageCandidates)
         target[key] = entry
     end
     entry.count = entry.count + math.max(1, tonumber(quantity) or 1)
@@ -1358,7 +1419,9 @@ local function formatUnmatchedItems(items)
         local entry = rows[index]
         table.insert(output, entry.name .. " [x" .. tostring(entry.count)
             .. ", icon=" .. tostring(entry.image)
-            .. (entry.chroma and ", chroma" or "") .. "]")
+            .. (entry.chroma and ", chroma" or "")
+            .. ", DB-name={" .. tostring(entry.dbNameMatches or "not-scanned") .. "}"
+            .. ", DB-icon={" .. tostring(entry.dbImageMatches or "not-scanned") .. "}]")
     end
     if #rows > 25 then
         table.insert(output, "... +" .. tostring(#rows - 25) .. " more unique items")
