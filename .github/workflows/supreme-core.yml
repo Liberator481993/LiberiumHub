@@ -50,9 +50,22 @@ jobs:
         run: |
           test -s data/SupremeTradeChecker.mapping.json
           cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- total data/SupremeTradeChecker.mapping.json tools/supreme-core/examples/items.json >/tmp/supreme-total-smoke.json || true
-          grep -q '"schema_version": 1' data/SupremeTradeChecker.mapping.json
-          grep -q '"by_name"' data/SupremeTradeChecker.mapping.json
-          grep -q '"by_image_alt"' data/SupremeTradeChecker.mapping.json
+          jq -e '
+            .schema_version == 1 and
+            .entry_count >= 300 and
+            (.entries | length) >= 300 and
+            (.by_name | type == "object") and
+            (.by_image_alt | type == "object") and
+            (.category_counts.godlies // 0) >= 80 and
+            (.category_counts.chromas // 0) >= 30 and
+            (.category_counts.commons // 0) >= 150 and
+            (.category_counts.uncommons // 0) >= 100 and
+            (.category_counts.rares // 0) >= 80 and
+            (.category_counts.legendaries // 0) >= 40 and
+            (.category_counts.ancients // 0) >= 8 and
+            (.category_counts.pets // 0) >= 40 and
+            (.category_counts.uniques // 0) >= 1
+          ' data/SupremeTradeChecker.mapping.json
       - name: Checkout data publication branch
         uses: actions/checkout@v4
         with:
