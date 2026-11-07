@@ -1,0 +1,54 @@
+name: Supreme Trade Core
+
+on:
+  push:
+    paths:
+      - "tools/supreme-core/**"
+      - ".github/workflows/supreme-core.yml"
+  pull_request:
+    paths:
+      - "tools/supreme-core/**"
+      - ".github/workflows/supreme-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/supreme-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test
+      - run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+      - run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
+
+  publish-supreme-snapshot:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch and parse all Supreme Values categories with Rust
+        working-directory: tools/supreme-core
+        run: cargo run --release -- fetch ../../SupremeTradeChecker.mapping.json
+      - name: Publish immutable data branch snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan supreme-values-data
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data
+          mv SupremeTradeChecker.mapping.json data/SupremeTradeChecker.mapping.json
+          git add data/SupremeTradeChecker.mapping.json
+          git commit -m "Publish Supreme Values snapshot"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:supreme-values-data
