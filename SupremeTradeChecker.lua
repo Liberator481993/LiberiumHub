@@ -1753,8 +1753,8 @@ local function scanModuleInventory()
     local mappedIds = state.mapped and state.mapped.dbIds or nil
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
-    -- The previous scanner stopped one level too early and counted only the
-    -- category/group tables (5 in the user's diagnostic), not item entries.
+    -- itemKey is the exact key in Database.Sync.Item/Pets, so resolve
+    -- inventory values directly instead of guessing from icon or UI text.
     local function scanCollection(collection, collectionName)
         if type(collection) ~= "table" then return end
         for subgroupName, subgroup in pairs(collection) do
@@ -1819,7 +1819,23 @@ local function scanModuleInventory()
                 if type(entry.Amount) == "number" and quantity <= 1 then
                     quantity = math.max(1, math.floor(entry.Amount))
                 end
-                local resolvedValue, _, tierText, category = valueOf(tile, name)
+
+                local exactPrefix = dbKind == "Pet" and "p:"
+                    or dbKind == "Item" and "i:"
+                    or (collectionName == "Pets" and "p:" or "i:")
+                local exactValue = mappedIds and state.mapped
+                    and state.mapped.byKey[exactPrefix .. keyText] or nil
+                local resolvedValue, resolvedName, tierText, category
+                if exactValue then
+                    resolvedValue = exactValue.v
+                    resolvedName = exactValue.name
+                    tierText = exactValue.t
+                    category = exactValue.category
+                elseif not dbKind then
+                    -- Unknown keys may come from a UI-specific data wrapper;
+                    -- only those use the cautious icon/name resolver fallback.
+                    resolvedValue, resolvedName, tierText, category = valueOf(tile, name)
+                end
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
@@ -1831,7 +1847,8 @@ local function scanModuleInventory()
                 if resolvedValue == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
+                    resolvedName or name)
             end
         end
     end
@@ -1842,28 +1859,52 @@ local function scanModuleInventory()
     local guiInstance = typeof(gui) == "Instance" and gui or nil
     if guiInstance then
         local guiTiles = getTiles(guiInstance)
-        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-        scanImageCards(guiInstance, "inventoryOverlay")
         state.inventoryGuiFrames = #guiTiles
-        state.inventoryGuiValued = guiKnown or 0
-        state.inventoryGuiItems = guiCount or 0
+
+        if frameCount > 0 then
+            -- InventoryModule.Data frames were already resolved by their exact
+            -- database keys above. Do not rescan and hide those badges using
+            -- the less reliable display-name/icon resolver.
+            state.inventoryGuiValued = known
+            state.inventoryGuiItems = count
+        else
+            local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
+            scanImageCards(guiInstance, "inventoryOverlay")
+            state.inventoryGuiValued = guiKnown or 0
+            state.inventoryGuiItems = guiCount or 0
+        end
     else
         state.inventoryGuiFrames = 0
         state.inventoryGuiValued = 0
         state.inventoryGuiItems = 0
     end
 
-    -- MM2's GUI reference is gui.MyInventory.Main.Weapons.Items.
-    -- Put the running total on the visible inventory page when available.
-    local guiInstance = typeof(gui) == "Instance" and gui or nil
-    local main = guiInstance and guiInstance:FindFirstChild("Main")
-    local totalParent = main or guiInstance
-    if totalParent and totalParent:IsA("GuiObject") then
+    -- Attach the total to the actual visible inventory panel, including
+    -- mobile layouts where MyInventory is a ScreenGui rather than a Frame.
+    local totalParent
+    if guiInstance then
+        local main = guiInstance:FindFirstChild("Main", true)
+        if main and main:IsA("GuiObject") then
+            totalParent = main
+        elseif guiInstance:IsA("GuiObject") then
+            totalParent = guiInstance
+        else
+            for _, descendant in ipairs(guiInstance:GetDescendants()) do
+                if descendant:IsA("Frame") and descendant.Visible
+                    and descendant.AbsoluteSize.X > 0 and descendant.AbsoluteSize.Y > 0 then
+                    totalParent = descendant
+                    break
+                end
+            end
+        end
+    end
+    if totalParent then
         local label = makeLabel(totalParent, "__SupremeInventoryTotal", "inventory")
         label.AnchorPoint = Vector2.new(0, 0)
         label.Position = UDim2.new(0, 8, 0, 8)
         label.Size = UDim2.fromOffset(250, 26)
         label.TextSize = 12
+        label.ZIndex = 1000
         label.Text = "INV " .. formatValue(total)
             .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
             .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
