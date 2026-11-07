@@ -2154,7 +2154,8 @@ local function resolveTestItem(rawName)
     local quantity = 1
     local base, amount = name:match("^(.-)%s+[x×](%d+)$")
     if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
-    local normalizedInput = normalize(name)
+    local isChromaInput = name:lower():match("^chroma%s+") ~= nil
+    local normalizedInput = normalize(name:gsub("^[Cc][Hh][Rr][Oo][Mm][Aa]%s+", ""))
     local candidates = state.mapped and state.mapped.byName[normalizedInput] or nil
     local matches = {}
     local rejectedNames = {}
@@ -2162,13 +2163,12 @@ local function resolveTestItem(rawName)
         local entry = state.mapped.byKey[candidate.key]
         if entry and tonumber(entry.v) ~= nil then
             local mappedName = normalize(entry.name)
-            -- The MM2 key and Supreme title must agree with what the user typed.
-            -- This prevents a bad upstream mapping (for example Harvester -> GingerScope)
-            -- from silently producing a plausible but completely wrong verdict.
-            if mappedName == normalizedInput
-                or mappedName == normalizedInput:gsub("^chroma%s+", "") then
+            -- Plain names resolve only to regular items; an explicit "Chroma"
+            -- prefix resolves only to Chroma records. The inventory name index
+            -- stores the shared base name for both variants.
+            if mappedName == normalizedInput and candidate.chroma == isChromaInput then
                 table.insert(matches, {entry = entry, key = candidate.key})
-            else
+            elseif mappedName ~= normalizedInput then
                 rejectedNames[mappedName] = true
             end
         end
