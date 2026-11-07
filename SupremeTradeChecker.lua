@@ -136,6 +136,44 @@ local function assetId(value)
     return result
 end
 
+local function isImageNode(node)
+    return node and (node:IsA("ImageLabel") or node:IsA("ImageButton"))
+end
+
+-- Item cards vary between desktop/mobile and trade/inventory screens.
+-- Prefer Container.Icon, but support ImageLabels that are the item slot itself.
+local function findTileIcon(tile)
+    if not tile then return nil end
+
+    local container = tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon", true)
+    if isImageNode(icon) and assetId(icon.Image) then return icon end
+
+    if isImageNode(tile) and assetId(tile.Image) then return tile end
+
+    for _, preferredName in ipairs({"Icon", "ItemIcon", "ItemImage", "Image"}) do
+        local candidate = tile:FindFirstChild(preferredName, true)
+        if isImageNode(candidate) and assetId(candidate.Image) then
+            return candidate
+        end
+    end
+
+    for _, candidate in ipairs(tile:GetDescendants()) do
+        if isImageNode(candidate) and assetId(candidate.Image) then
+            return candidate
+        end
+    end
+    return nil
+end
+
+local function hasChromaTag(tile)
+    if not tile then return false end
+    local tags = tile:FindFirstChild("Tags", true)
+    local tag = tags and tags:FindFirstChild("Chroma", true)
+    if not tag then tag = tile:FindFirstChild("Chroma", true) end
+    return tag ~= nil and tag:IsA("GuiObject") and tag.Visible == true
+end
+
 local function fetchPage(url)
     local errors = {}
     -- Some Supreme category routes intermittently reject the clean route while
@@ -645,14 +683,12 @@ local function valueOf(tile, name)
     local mapped = state.mapped
     if not mapped or state.status ~= "ok" then return nil end
 
-    local tags = tile and tile:FindFirstChild("Tags")
-    local chromaTag = tags and tags:FindFirstChild("Chroma")
-    local chroma = chromaTag ~= nil and chromaTag.Visible == true
+    local chroma = hasChromaTag(tile)
 
     -- A globally unique database icon is the strongest identifier. Resolve it
     -- before the visible name because seasonal skins often share one label.
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
+    -- NewItem slots can be ImageLabels themselves, without Container.Icon.
+    local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
@@ -840,12 +876,9 @@ end
 
 local function recordUnmatched(tile, name, quantity, target)
     if type(target) ~= "table" then return end
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
+    local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
-    local tags = tile and tile:FindFirstChild("Tags")
-    local chromaTag = tags and tags:FindFirstChild("Chroma")
-    local chroma = chromaTag ~= nil and chromaTag.Visible == true
+    local chroma = hasChromaTag(tile)
     local itemName = clean(name)
     if itemName == "" then itemName = "NO_NAME" end
     local key = normalize(itemName) .. "|" .. tostring(imageId) .. "|" .. tostring(chroma)
@@ -981,9 +1014,10 @@ local VALUE_TEXT_COLORS = {
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
     local container = tile and tile:FindFirstChild("Container")
-    if not container then return end
+    local badgeParent = container or tile
+    if not badgeParent or not badgeParent:IsA("GuiObject") then return end
 
-    local existing = container:FindFirstChild("__SupremeItemValue")
+    local existing = badgeParent:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
     if value == nil and not hasTier then
         -- Don't clutter the inventory with "N/A" or fake zero values.
@@ -991,7 +1025,7 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         return
     end
 
-    local label = makeLabel(container, "__SupremeItemValue", group)
+    local label = makeLabel(badgeParent, "__SupremeItemValue", group)
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
     label.Font = Enum.Font.GothamBlack
@@ -1078,8 +1112,18 @@ local function scanImageCards(root, group)
         while current and current ~= root do
             if current:IsA("GuiObject") then
                 local container = current:FindFirstChild("Container")
-                local icon = container and container:FindFirstChild("Icon")
-                if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+                local icon = container and container:FindFirstChild("Icon", true)
+                if isImageNode(icon) and assetId(icon.Image) then
+                    return current
+                end
+
+                -- Trade/inventory slots such as NewItem1 can be the image node.
+                if current.Name:match("^NewItem%d+$") and findTileIcon(current) then
+                    return current
+                end
+
+                local hasName = current:FindFirstChild("ItemName", true) ~= nil
+                if hasName and findTileIcon(current) then
                     return current
                 end
             end
@@ -1157,36 +1201,39 @@ local function scanOffer(offer, group)
 
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
     local seen = {}
-    -- Some trade layouts place NewItem cards inside an extra scrolling/frame
-    -- wrapper. Walk descendants, but accept only the actual card that owns
-    -- Container.Icon so a nested layout is not counted as a separate item.
+    -- Normal MM2 cards own Container.Icon. In the compact offer layout,
+    -- NewItem1..NewItem3 may be the ImageLabel/ImageButton themselves.
     for _, tile in ipairs(container:GetDescendants()) do
-        local cardContainer = tile:IsA("GuiObject") and tile:FindFirstChild("Container")
-        local cardIcon = cardContainer and cardContainer:FindFirstChild("Icon")
-        if cardContainer and cardIcon and visible(tile) and not seen[tile] then
+        if not tile:IsA("GuiObject") or not visible(tile) or seen[tile] then continue end
+
+        local cardContainer = tile:FindFirstChild("Container")
+        local normalCard = cardContainer and findTileIcon(tile) ~= nil
+        local directSlot = tile.Name:match("^NewItem%d+$") ~= nil
+            and findTileIcon(tile) ~= nil
+
+        if normalCard or directSlot then
             seen[tile] = true
             local name, quantity = itemData(tile)
             local value, resolvedName, tierText, category = valueOf(tile, name)
-            if name or value ~= nil or tierText then
-                table.insert(items, {
-                    name = resolvedName or name or "Unknown item",
-                    value = value,
-                    tier = tierText,
-                    quantity = quantity
-                })
-                count = count + quantity
-                if value ~= nil then
-                    total = total + value * quantity
-                    known = known + quantity
-                elseif tierText then
-                    known = known + quantity
-                    tierCount = tierCount + quantity
-                end
-                if value == nil and not tierText then
-                    recordUnmatched(tile, name, quantity, state.unmatchedTrade)
-                end
-                updateTileBadge(tile, value, quantity, group, tierText, category, name)
+
+            table.insert(items, {
+                name = resolvedName or name or "Unknown item",
+                value = value,
+                tier = tierText,
+                quantity = quantity
+            })
+            count = count + quantity
+            if value ~= nil then
+                total = total + value * quantity
+                known = known + quantity
+            elseif tierText then
+                known = known + quantity
+                tierCount = tierCount + quantity
             end
+            if value == nil and not tierText then
+                recordUnmatched(tile, name, quantity, state.unmatchedTrade)
+            end
+            updateTileBadge(tile, value, quantity, group, tierText, category, name)
         end
     end
     return items, total, known, count, tierCount
