@@ -2154,19 +2154,39 @@ local function resolveTestItem(rawName)
     local quantity = 1
     local base, amount = name:match("^(.-)%s+[x×](%d+)$")
     if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
-    local candidates = state.mapped and state.mapped.byName[normalize(name)] or nil
+    local normalizedInput = normalize(name)
+    local candidates = state.mapped and state.mapped.byName[normalizedInput] or nil
     local matches = {}
+    local rejectedNames = {}
     for _, candidate in ipairs(candidates or {}) do
         local entry = state.mapped.byKey[candidate.key]
         if entry and tonumber(entry.v) ~= nil then
-            table.insert(matches, {entry = entry, key = candidate.key})
+            local mappedName = normalize(entry.name)
+            -- The MM2 key and Supreme title must agree with what the user typed.
+            -- This prevents a bad upstream mapping (for example Harvester -> GingerScope)
+            -- from silently producing a plausible but completely wrong verdict.
+            if mappedName == normalizedInput
+                or mappedName == normalizedInput:gsub("^chroma%s+", "") then
+                table.insert(matches, {entry = entry, key = candidate.key})
+            else
+                rejectedNames[mappedName] = true
+            end
         end
     end
     if #matches == 0 then
+        local rejected = {}
+        for rejectedName in pairs(rejectedNames) do
+            table.insert(rejected, rejectedName)
+        end
+        table.sort(rejected)
+        if #rejected > 0 then
+            return nil, name .. ": совпадение MM2/Supreme не подтверждено (найдено другое название: "
+                .. table.concat(rejected, ", ") .. "). Предмет не будет оценён."
+        end
         return nil, name .. ": нет числовой оценки Supreme (предмет не найден или у него только тир)"
     end
     if #matches > 1 then
-        return nil, name .. ": неоднозначное название. Уточни название предмета."
+        return nil, name .. ": найдено несколько вариантов. Уточни тип предмета (Knife/Gun) или год."
     end
     return {name = matches[1].entry.name, value = tonumber(matches[1].entry.v), quantity = quantity}
 end
