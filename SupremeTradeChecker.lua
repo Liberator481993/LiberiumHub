@@ -407,8 +407,8 @@ local function buildMapping(entries, database, rustIndexData)
                 itemId = tostring(item.ItemID or "")
             })
         end
-        local image = assetId(item.Image)
-        if image then
+        local function addImageCandidate(image)
+            if not image then return end
             dbByImage[image] = dbByImage[image] or {}
             table.insert(dbByImage[image], {
                 id = tostring(id),
@@ -421,6 +421,10 @@ local function buildMapping(entries, database, rustIndexData)
                 event = tostring(item.Event or "")
             })
         end
+        addImageCandidate(assetId(item.Image))
+        -- Some MM2 GUI builds expose ItemID as the card image asset instead
+        -- of Image; index both identifiers for the same database record.
+        addImageCandidate(assetId(item.ItemID))
     end
 
     local function addIndex(name, entry)
@@ -716,43 +720,82 @@ local function valueOf(tile, name)
     if not mapped or state.status ~= "ok" then return nil end
 
     local chroma = hasChromaTag(tile)
-
-    -- A globally unique database icon is the strongest identifier. Resolve it
-    -- before the visible name because seasonal skins often share one label.
-    -- NewItem slots can be ImageLabels themselves, without Container.Icon.
     local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
+
+    -- Prefer the exact, globally unique icon mapping, as PulseHub does.
+    -- Never fall through from a known-but-unvalued record to another skin.
     if iconKey then
         if chroma and not (mapped.chromaKeys and mapped.chromaKeys[iconKey]) then
             iconKey = mapped.chromaOf[iconKey]
-            -- Never price a Chroma item with its non-Chroma counterpart.
             if not iconKey then return nil end
         end
         local entry = mapped.byKey[iconKey]
-        -- The icon identifies the exact MM2 record. Do not fall through to a
-        -- different same-name item when Supreme has no value for this record.
         if entry then return entry.v, entry.name, entry.t, entry.category end
         return nil
     end
 
-    -- Use a name only when it identifies exactly one database record after
-    -- applying the visible Chroma state. A unique mapped-name candidate alone
-    -- is insufficient: other same-name skins may simply be unmapped.
-    local normalizedName = normalize(name)
+    -- Some MM2 skins share an image asset. In that case, intersect the icon
+    -- candidates with the visible card name instead of choosing the first
+    -- database entry (the unsafe behavior in the old PulseHub resolver).
+    local displayName = clean(name)
+    local explicitKind, explicitYear
+    local base, suffix = displayName:match("^(.-)%s*%((%a+)%)%s*$")
+    if base and (suffix == "Knife" or suffix == "Gun") then
+        displayName, explicitKind = clean(base), suffix
+    else
+        base, suffix = displayName:match("^(.-)%s+(%a+)$")
+        if base and (suffix == "Knife" or suffix == "Gun") then
+            displayName, explicitKind = clean(base), suffix
+        end
+    end
+    base, suffix = displayName:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
+    if base then displayName, explicitYear = clean(base), suffix end
+
+    local normalizedName = normalize(displayName)
+    local function eligible(candidate)
+        if candidate.chroma ~= chroma then return false end
+        if explicitKind and normalize(candidate.itemType) ~= normalize(explicitKind) then return false end
+        if explicitYear and tostring(candidate.year or "") ~= explicitYear then return false end
+        return true
+    end
+    local function mappedValue(candidate)
+        local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
+        local entry = mapped.byKey[key]
+        if entry then return entry.v, entry.name, entry.t, entry.category end
+        return nil
+    end
+
     if normalizedName ~= "" then
-        local databaseMatches = {}
-        for _, candidate in ipairs(mapped.dbByName[normalizedName] or {}) do
-            if candidate.chroma == chroma then
-                table.insert(databaseMatches, candidate)
+        local nameCandidates = mapped.dbByName[normalizedName] or {}
+        local imageCandidates = imageId and mapped.dbByImage and mapped.dbByImage[imageId] or nil
+
+        if imageCandidates and #imageCandidates > 0 then
+            local nameSet, matches = {}, {}
+            for _, candidate in ipairs(nameCandidates) do
+                if eligible(candidate) then
+                    nameSet[candidate.kind .. ":" .. candidate.id] = true
+                end
             end
+            for _, candidate in ipairs(imageCandidates) do
+                local key = candidate.kind .. ":" .. candidate.id
+                if nameSet[key] and eligible(candidate) then
+                    matches[key] = candidate
+                end
+            end
+            local only, count = nil, 0
+            for _, candidate in pairs(matches) do only, count = candidate, count + 1 end
+            if count == 1 then return mappedValue(only) end
         end
-        if #databaseMatches == 1 then
-            local candidate = databaseMatches[1]
-            local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
-            local entry = mapped.byKey[key]
-            if entry then return entry.v, entry.name, entry.t, entry.category end
+
+        -- Name-only fallback is allowed only when the complete MM2 database
+        -- leaves one candidate after Chroma/type/year filters.
+        local matches = {}
+        for _, candidate in ipairs(nameCandidates) do
+            if eligible(candidate) then table.insert(matches, candidate) end
         end
+        if #matches == 1 then return mappedValue(matches[1]) end
     end
     return nil
 end
