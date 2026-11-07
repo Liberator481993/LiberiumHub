@@ -966,7 +966,7 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.Position = UDim2.new(1, -3, 0, 3)
     label.Size = UDim2.new(1, -6, 0, 18)
 
-    -- Remove the previous dark background treatment and use crisp text only.
+    -- Keep the category accent, with the original white-to-accent value gradient.
     for _, child in ipairs(label:GetChildren()) do
         if child:IsA("UICorner") or child:IsA("UIStroke")
             or child:IsA("UIGradient") then
@@ -979,8 +979,17 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         if normalize(itemName) == "emberbow" then
             accent = Color3.fromRGB(255, 75, 75)
         end
+        local gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeTextGradient"
+        gradient.Rotation = 90
+        gradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.45, accent:Lerp(Color3.new(1, 1, 1), 0.28)),
+            ColorSequenceKeypoint.new(1, accent)
+        })
+        gradient.Parent = label
         label.Text = formatValue(value)
-        label.TextColor3 = accent
+        label.TextColor3 = Color3.new(1, 1, 1)
     else
         label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
         label.TextColor3 = Color3.fromRGB(255, 190, 75)
@@ -1157,9 +1166,14 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
     label.TextStrokeTransparency = 0.14
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextColor3 = Color3.fromRGB(245, 250, 255)
-    local gradient = label:FindFirstChild("SupremeTextGradient")
-    if gradient then gradient:Destroy() end
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local gradient = Instance.new("UIGradient")
+    gradient.Name = "SupremeTextGradient"
+    gradient.Color = ColorSequence.new(
+        Color3.fromRGB(255, 255, 255),
+        Color3.fromRGB(105, 190, 255)
+    )
+    gradient.Parent = label
     label.Text = title .. " " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " +?" or "")
