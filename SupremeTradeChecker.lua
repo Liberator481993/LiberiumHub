@@ -2163,10 +2163,10 @@ local function resolveTestItem(rawName)
         end
     end
     if #matches == 0 then
-        return nil, name .. ": no numeric Supreme value (tier-only/unmapped)"
+        return nil, name .. ": нет числовой оценки Supreme (предмет не найден или у него только тир)"
     end
     if #matches > 1 then
-        return nil, name .. ": ambiguous name; use a more exact item name"
+        return nil, name .. ": неоднозначное название. Уточни название предмета."
     end
     return {name = matches[1].entry.name, value = tonumber(matches[1].entry.v), quantity = quantity}
 end
@@ -2182,7 +2182,7 @@ local function parseTestOffer(textValue)
             total = total + item.value * item.quantity
         end
     end
-    if #items == 0 then return nil, nil, "Add at least one item to each side." end
+    if #items == 0 then return nil, nil, "Добавь хотя бы один предмет в каждую сторону." end
     return items, total
 end
 
