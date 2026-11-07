@@ -194,20 +194,36 @@ fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
     }
 
     // GitHub-hosted runners can be denied by the source site's edge firewall.
-    // Jina Reader acts as a text proxy; parse its stable item/value lines as a fallback.
-    let proxy_url = format!("https://r.jina.ai/http://www.supremevalues.com/mm2/{category}");
-    match client.get(&proxy_url)
-        .header("Accept", "text/plain")
-        .header("X-Return-Format", "markdown")
-        .send().and_then(|r| r.error_for_status()).and_then(|r| r.text()) {
-        Ok(markdown) if markdown.len() > 1000 && markdown.contains("Value -") => {
-            let (entries, cards) = parse_markdown_page(category, &markdown)?;
-            if !entries.is_empty() { return Ok((category.to_string(), entries, cards)); }
-            Err(format!("{category}: proxy returned text but no parseable value cards"))
+    // Try text and CORS relays; the in-game Luau scraper remains a fallback for clients.
+    let encoded = format!("https://www.supremevalues.com/mm2/{category}")
+        .replace(":", "%3A").replace("/", "%2F");
+    let proxies = [
+        format!("https://r.jina.ai/https://www.supremevalues.com/mm2/{category}"),
+        format!("https://r.jina.ai/https://www.supremevalues.com/mm2/{category}.php"),
+        format!("https://api.allorigins.win/raw?url={encoded}"),
+        format!("https://corsproxy.io/?url={encoded}"),
+    ];
+    let mut proxy_errors = Vec::new();
+    for proxy_url in proxies {
+        match client.get(&proxy_url)
+            .header("Accept", "text/plain,text/html,*/*")
+            .header("X-Return-Format", "markdown")
+            .send().and_then(|r| r.error_for_status()).and_then(|r| r.text()) {
+            Ok(body) if body.len() > 1000 => {
+                if body.contains("itemcolumn") {
+                    let (entries, cards) = parse_page(category, &body)?;
+                    if !entries.is_empty() { return Ok((category.to_string(), entries, cards)); }
+                }
+                let (entries, cards) = parse_markdown_page(category, &body)?;
+                if !entries.is_empty() { return Ok((category.to_string(), entries, cards)); }
+                proxy_errors.push(format!("{proxy_url}: no cards in response [{}]",
+                    body.chars().take(100).collect::<String>().replace('\n', " ")));
+            }
+            Ok(_) => proxy_errors.push(format!("{proxy_url}: short response")),
+            Err(error) => proxy_errors.push(format!("{proxy_url}: {error}")),
         }
-        Ok(_) => Err(format!("{category}: direct fetch failed ({last}); proxy returned no value cards")),
-        Err(error) => Err(format!("{category}: direct fetch failed ({last}); proxy failed: {error}")),
     }
+    Err(format!("{category}: direct fetch failed ({last}); proxies: {}", proxy_errors.join(" | ")))
 }
 
 fn fetch_all() -> Result<MappingFile, String> {
