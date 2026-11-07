@@ -68,6 +68,8 @@ local state = {
     inventoryGroups = 0,
     inventoryGuiPath = "unknown",
     inventoryScreenList = "not scanned",
+    inventoryFrameParents = "not scanned",
+    inventoryGuiStructure = "not scanned",
     busy = false,
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet.",
@@ -1339,7 +1341,19 @@ local function scanModuleInventory()
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
+    local parentedFrames, detachedFrames = 0, 0
+    local frameSamples = {}
     local seen = {}
+
+    local function instancePath(object, stopAt)
+        local names = {}
+        local current = object
+        while current and current ~= stopAt and #names < 7 do
+            table.insert(names, 1, current.Name)
+            current = current.Parent
+        end
+        return table.concat(names, ".")
+    end
 
     -- PulseHub's actual structure is Data.Weapons[group][itemId] = entry.
     -- The previous scanner stopped one level too early and counted only the
@@ -1356,8 +1370,21 @@ local function scanModuleInventory()
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
                 seen[tile] = true
                 frameCount = frameCount + 1
-                if not tile.Parent then continue end
-                if visible(tile) then visibleFrames = visibleFrames + 1 end
+                if not tile.Parent then
+                    detachedFrames = detachedFrames + 1
+                    if #frameSamples < 8 then
+                        table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
+                    end
+                    continue
+                end
+                parentedFrames = parentedFrames + 1
+                local tileIsVisible = visible(tile)
+                if tileIsVisible then
+                    visibleFrames = visibleFrames + 1
+                elseif #frameSamples < 8 then
+                    table.insert(frameSamples, tostring(itemKey) .. "=>" .. instancePath(tile, playerGui)
+                        .. "{Visible=" .. tostring(tile.Visible) .. "}")
+                end
 
                 -- Do not depend on ItemName text: PulseHub's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
@@ -1393,11 +1420,32 @@ local function scanModuleInventory()
         state.inventoryGuiFrames = #guiTiles
         state.inventoryGuiValued = guiKnown or 0
         state.inventoryGuiItems = guiCount or 0
+
+        local classCounts, samples = {}, {}
+        local descendants = guiInstance:GetDescendants()
+        for _, node in ipairs(descendants) do
+            classCounts[node.ClassName] = (classCounts[node.ClassName] or 0) + 1
+            if #samples < 18 and (node.Name == "ItemName" or node.Name == "Container"
+                or node.Name == "Icon" or node:IsA("ImageLabel") or node:IsA("ImageButton")) then
+                table.insert(samples, instancePath(node, guiInstance)
+                    .. (node:IsA("ImageLabel") or node:IsA("ImageButton")
+                        and ("=" .. tostring(assetId(node.Image) or "no-image")) or ""))
+            end
+        end
+        state.inventoryGuiStructure = "Type=" .. guiInstance.ClassName
+            .. " | Descendants=" .. tostring(#descendants)
+            .. " | Classes=" .. HttpService:JSONEncode(classCounts)
+            .. " | Samples=" .. table.concat(samples, "; ")
     else
         state.inventoryGuiFrames = 0
         state.inventoryGuiValued = 0
         state.inventoryGuiItems = 0
+        state.inventoryGuiStructure = "GUI reference type=" .. typeof(gui)
     end
+    state.inventoryFrameParents = "parented=" .. tostring(parentedFrames)
+        .. ", detached=" .. tostring(detachedFrames)
+        .. ", visible=" .. tostring(visibleFrames)
+        .. " | samples=" .. (#frameSamples > 0 and table.concat(frameSamples, "; ") or "none")
 
     -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
     -- Put the running total on the visible inventory page when available.
@@ -1518,6 +1566,8 @@ local function scanInventory()
         .. " | Groups: " .. tostring(state.inventoryGroups)
         .. " | GUI: " .. tostring(state.inventoryGuiPath)
         .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
+        .. " | Frame refs: " .. tostring(state.inventoryFrameParents)
+        .. " | GUI structure: " .. tostring(state.inventoryGuiStructure)
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
