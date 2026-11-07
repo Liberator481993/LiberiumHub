@@ -1428,7 +1428,7 @@ local function scanModuleInventory()
             if #samples < 18 and (node.Name == "ItemName" or node.Name == "Container"
                 or node.Name == "Icon" or node:IsA("ImageLabel") or node:IsA("ImageButton")) then
                 table.insert(samples, instancePath(node, guiInstance)
-                    .. (node:IsA("ImageLabel") or node:IsA("ImageButton")
+                    .. ((node:IsA("ImageLabel") or node:IsA("ImageButton"))
                         and ("=" .. tostring(assetId(node.Image) or "no-image")) or ""))
             end
         end
