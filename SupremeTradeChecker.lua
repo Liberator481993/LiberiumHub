@@ -943,6 +943,7 @@ local function loadValues(force)
             state.referenceValueCounts = referenceValueCounts
             state.categoryCardCounts = categoryCardCounts
 
+            state.supremeEntries = entries
             local database, dbSource = loadGameDatabase()
             if not database then error(dbSource) end
             local mapping, mapError = buildMapping(entries, database, rustPayload)
@@ -951,7 +952,6 @@ local function loadValues(force)
                 error("only " .. tostring(mapping.n) .. " MM2 records matched Supreme Values")
             end
 
-            state.supremeEntries = entries
             state.mapped = mapping
             state.dbItems = mapping.dbItems
             state.dbPets = mapping.dbPets
