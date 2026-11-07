@@ -119,7 +119,7 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
         entries.push(SupremeEntry {
             c: category.to_string(), n: name, im: image_alt,
             y: attr("data-year"), e: attr("data-event"), o: origin,
-            cl: String::new(), v: value, t: tier, dm: attr("data-demand"),
+            cl: class_re.captures(&text).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or_default(), v: value, t: tier, dm: attr("data-demand"),
         });
     }
     Ok((entries, cards))
