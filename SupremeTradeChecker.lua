@@ -35,7 +35,7 @@ local RARITIES = {
     vintages = "Classic", uniques = "Unique"
 }
 local BASE = "https://www.supremevalues.com/mm2/"
-local RUST_MAPPING_URL = "https://raw.githubusercontent.com/Liberator481993/LiberiumHub/supreme-trade-checker-rust-core/data/SupremeTradeChecker.mapping.json"
+local RUST_MAPPING_URL = "https://raw.githubusercontent.com/Liberator481993/LiberiumHub/supreme-values-data/data/SupremeTradeChecker.mapping.json"
 
 local state = {
     status = "loading",
