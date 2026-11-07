@@ -5,6 +5,7 @@ use std::{
     collections::BTreeMap,
     env, fs,
     process,
+    sync::{atomic::{AtomicUsize, Ordering}, mpsc, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -210,18 +211,53 @@ fn fetch_html(client: &reqwest::blocking::Client, category: &str) -> Result<Stri
 fn refresh() -> Result<MappingFile, String> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("Mozilla/5.0 (compatible; SupremeTradeChecker/1.0)")
-        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(6))
+        .timeout(std::time::Duration::from_secs(15))
         .build().map_err(|e| e.to_string())?;
+
+    // Four workers keep refresh time bounded without firing all category
+    // requests at the source simultaneously. Results are re-ordered by the
+    // canonical category list before building the JSON, so output is stable.
+    let next = Arc::new(AtomicUsize::new(0));
+    let (sender, receiver) = mpsc::channel();
+    let mut workers = Vec::new();
+    for _ in 0..4 {
+        let client = client.clone();
+        let next = Arc::clone(&next);
+        let sender = sender.clone();
+        workers.push(std::thread::spawn(move || loop {
+            let index = next.fetch_add(1, Ordering::Relaxed);
+            let Some(category) = CATEGORIES.get(index).copied() else { break };
+            let result = fetch_html(&client, category)
+                .map(|html| parse_category(category, &html));
+            if sender.send((index, result)).is_err() { break; }
+        }));
+    }
+    drop(sender);
+
+    let mut results: Vec<Option<Result<(usize, Vec<SupremeEntry>), String>>> =
+        std::iter::repeat_with(|| None).take(CATEGORIES.len()).collect();
+    for (index, result) in receiver {
+        if index < results.len() { results[index] = Some(result); }
+    }
+    for worker in workers {
+        worker.join().map_err(|_| "Supreme fetch worker panicked".to_string())?;
+    }
+
     let mut all_entries = Vec::new();
     let mut category_counts = BTreeMap::new();
     let mut page_card_counts = BTreeMap::new();
     let mut failures = Vec::new();
-    for category in CATEGORIES {
-        let html = match fetch_html(&client, category) {
+    for (index, category) in CATEGORIES.iter().enumerate() {
+        let result = results[index].take()
+            .unwrap_or_else(|| Err("fetch worker returned no result".to_string()));
+        let (cards, mut entries) = match result {
             Ok(value) => value,
-            Err(error) => { failures.push(format!("{category}: {error}")); continue; }
+            Err(error) => {
+                failures.push(format!("{category}: {error}"));
+                continue;
+            }
         };
-        let (cards, mut entries) = parse_category(category, &html);
         page_card_counts.insert((*category).to_string(), cards);
         if VALUE_CATEGORIES.contains(category) {
             let count = entries.len();
@@ -244,6 +280,7 @@ fn refresh() -> Result<MappingFile, String> {
     }
     Ok(build(all_entries, category_counts, page_card_counts))
 }
+
 fn resolve<'a>(map: &'a MappingFile, item: &RequestedItem) -> Result<&'a SupremeEntry, &'static str> {
     let key = normalize(&item.name);
     let ids = map.by_name.get(&key).or_else(|| map.by_image_alt.get(&key)).ok_or("not_found")?;
