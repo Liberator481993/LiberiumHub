@@ -1555,12 +1555,9 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     elseif yourKnown < yourCount or theirKnown < theirCount then
         caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        local tierVerdict = compareTierOffers(yourItems, theirItems)
-        caption = "TIER " .. tostring(tierVerdict)
-        color = tierVerdict == "WIN" and Color3.fromRGB(45, 255, 135)
-            or tierVerdict == "LOSE" and Color3.fromRGB(255, 65, 85)
-            or tierVerdict == "FAIR" and Color3.fromRGB(75, 195, 255)
-            or Color3.fromRGB(255, 190, 65)
+        -- Tier labels are classes, not numerical prices. Never invent a
+        -- numeric difference or issue a market verdict from tier counts.
+        caption, color = "NUMERIC VALUES NEEDED", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
@@ -1625,10 +1622,7 @@ local function scanTrade()
         if yourKnown < yourCount or theirKnown < theirCount then
             table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
         elseif yourTierCount > 0 or theirTierCount > 0 then
-            local tierVerdict, tierReason, yourUnits, theirUnits = compareTierOffers(yourItems, theirItems)
-            table.insert(lines, "RESULT: TIER " .. tostring(tierVerdict) .. " — " .. tostring(tierReason))
-            table.insert(lines, "TIER UNITS YOU: " .. tostring(yourUnits))
-            table.insert(lines, "TIER UNITS THEM: " .. tostring(theirUnits))
+            table.insert(lines, "RESULT: NUMERIC VALUES NEEDED — tier labels are not prices")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -1976,10 +1970,23 @@ output.Text = "Connecting to Supreme Values..."
 output.ZIndex = 201
 output.Parent = panel
 
+local testButton = Instance.new("TextButton")
+testButton.Name = "OpenTradeTest"
+testButton.Size = UDim2.new(0, 82, 0, 32)
+testButton.Position = UDim2.new(0, 8, 1, -39)
+testButton.BackgroundColor3 = Color3.fromRGB(105, 75, 165)
+testButton.BorderSizePixel = 0
+testButton.Font = Enum.Font.GothamBold
+testButton.TextSize = 10
+testButton.TextColor3 = Color3.new(1, 1, 1)
+testButton.Text = "TEST TRADE"
+testButton.ZIndex = 205
+testButton.Parent = panel
+
 local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
-copyButton.Size = UDim2.new(0, 130, 0, 32)
-copyButton.Position = UDim2.new(0, 10, 1, -39)
+copyButton.Size = UDim2.new(0, 88, 0, 32)
+copyButton.Position = UDim2.new(0, 96, 1, -39)
 copyButton.BackgroundColor3 = Color3.fromRGB(35, 125, 145)
 copyButton.BorderSizePixel = 0
 copyButton.Font = Enum.Font.GothamBold
@@ -1991,8 +1998,8 @@ copyButton.Parent = panel
 
 local exportButton = Instance.new("TextButton")
 exportButton.Name = "ExportSupremeData"
-exportButton.Size = UDim2.new(0, 130, 0, 32)
-exportButton.Position = UDim2.new(0, 150, 1, -39)
+exportButton.Size = UDim2.new(0, 88, 0, 32)
+exportButton.Position = UDim2.new(0, 190, 1, -39)
 exportButton.BackgroundColor3 = Color3.fromRGB(45, 115, 85)
 exportButton.BorderSizePixel = 0
 exportButton.Font = Enum.Font.GothamBold
@@ -2009,6 +2016,7 @@ local function setCollapsed(value)
     collapsed = value
     panel.Size = collapsed and collapsedSize or expandedSize
     output.Visible = not collapsed
+    testButton.Visible = not collapsed
     copyButton.Visible = not collapsed
     exportButton.Visible = not collapsed
     toggle.Text = collapsed and "+" or "−"
@@ -2038,6 +2046,179 @@ local function copyText(text)
     end
     return false
 end
+
+-- Offline trade simulator: resolves exact MM2 database names through the
+-- already-built Supreme mapping. Only numeric Supreme prices are accepted.
+local testFrame = Instance.new("Frame")
+testFrame.Name = "OfflineTradeSimulator"
+testFrame.Size = UDim2.fromOffset(310, 390)
+testFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+testFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+testFrame.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
+testFrame.BackgroundTransparency = 0.03
+testFrame.BorderSizePixel = 0
+testFrame.Visible = false
+testFrame.ZIndex = 400
+testFrame.Parent = textGui
+
+local testTitle = Instance.new("TextLabel")
+testTitle.Size = UDim2.new(1, -48, 0, 34)
+testTitle.Position = UDim2.fromOffset(12, 4)
+testTitle.BackgroundTransparency = 1
+testTitle.Font = Enum.Font.GothamBold
+testTitle.TextSize = 14
+testTitle.TextColor3 = Color3.fromRGB(120, 220, 255)
+testTitle.TextXAlignment = Enum.TextXAlignment.Left
+testTitle.Text = "OFFLINE TRADE TEST"
+testTitle.ZIndex = 401
+testTitle.Parent = testFrame
+
+local closeTest = Instance.new("TextButton")
+closeTest.Size = UDim2.fromOffset(32, 30)
+closeTest.Position = UDim2.new(1, -38, 0, 4)
+closeTest.BackgroundColor3 = Color3.fromRGB(80, 45, 55)
+closeTest.BorderSizePixel = 0
+closeTest.Font = Enum.Font.GothamBold
+closeTest.TextSize = 16
+closeTest.TextColor3 = Color3.new(1, 1, 1)
+closeTest.Text = "×"
+closeTest.ZIndex = 402
+closeTest.Parent = testFrame
+
+local function makeOfferInput(name, labelText, y)
+    local heading = Instance.new("TextLabel")
+    heading.Size = UDim2.new(1, -24, 0, 20)
+    heading.Position = UDim2.fromOffset(12, y)
+    heading.BackgroundTransparency = 1
+    heading.Font = Enum.Font.GothamBold
+    heading.TextSize = 11
+    heading.TextColor3 = Color3.fromRGB(210, 220, 238)
+    heading.TextXAlignment = Enum.TextXAlignment.Left
+    heading.Text = labelText
+    heading.ZIndex = 401
+    heading.Parent = testFrame
+
+    local box = Instance.new("TextBox")
+    box.Name = name
+    box.Size = UDim2.new(1, -24, 0, 82)
+    box.Position = UDim2.fromOffset(12, y + 22)
+    box.BackgroundColor3 = Color3.fromRGB(8, 11, 19)
+    box.BorderSizePixel = 0
+    box.ClearTextOnFocus = false
+    box.MultiLine = true
+    box.TextEditable = true
+    box.TextWrapped = true
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.TextYAlignment = Enum.TextYAlignment.Top
+    box.Font = Enum.Font.Code
+    box.TextSize = 12
+    box.TextColor3 = Color3.fromRGB(235, 240, 250)
+    box.PlaceholderColor3 = Color3.fromRGB(130, 140, 160)
+    box.PlaceholderText = "Laser x2\\nSeer"
+    box.Text = ""
+    box.ZIndex = 401
+    box.Parent = testFrame
+    return box
+end
+
+local yourTestInput = makeOfferInput("YourTestOffer", "YOU GIVE — one item per line", 42)
+local theirTestInput = makeOfferInput("TheirTestOffer", "YOU RECEIVE — one item per line", 150)
+
+local testResult = Instance.new("TextLabel")
+testResult.Size = UDim2.new(1, -24, 0, 58)
+testResult.Position = UDim2.fromOffset(12, 260)
+testResult.BackgroundColor3 = Color3.fromRGB(8, 11, 19)
+testResult.BorderSizePixel = 0
+testResult.Font = Enum.Font.GothamBold
+testResult.TextSize = 12
+testResult.TextWrapped = true
+testResult.TextColor3 = Color3.fromRGB(230, 235, 245)
+testResult.Text = "Enter exact item names from your MM2 inventory."
+testResult.ZIndex = 401
+testResult.Parent = testFrame
+
+local compareTest = Instance.new("TextButton")
+compareTest.Size = UDim2.new(1, -24, 0, 38)
+compareTest.Position = UDim2.fromOffset(12, 326)
+compareTest.BackgroundColor3 = Color3.fromRGB(65, 105, 155)
+compareTest.BorderSizePixel = 0
+compareTest.Font = Enum.Font.GothamBold
+compareTest.TextSize = 13
+compareTest.TextColor3 = Color3.new(1, 1, 1)
+compareTest.Text = "COMPARE OFFERS"
+compareTest.ZIndex = 402
+compareTest.Parent = testFrame
+
+local function resolveTestItem(rawName)
+    local name = clean(rawName)
+    local quantity = 1
+    local base, amount = name:match("^(.-)%s+[x×](%d+)$")
+    if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
+    local candidates = state.mapped and state.mapped.byName[normalize(name)] or nil
+    local matches = {}
+    for _, candidate in ipairs(candidates or {}) do
+        local entry = state.mapped.byKey[candidate.key]
+        if entry and tonumber(entry.v) ~= nil then
+            table.insert(matches, {entry = entry, key = candidate.key})
+        end
+    end
+    if #matches == 0 then
+        return nil, name .. ": no numeric Supreme value (tier-only/unmapped)"
+    end
+    if #matches > 1 then
+        return nil, name .. ": ambiguous name; use a more exact item name"
+    end
+    return {name = matches[1].entry.name, value = tonumber(matches[1].entry.v), quantity = quantity}
+end
+
+local function parseTestOffer(textValue)
+    local items, total = {}, 0
+    for line in tostring(textValue or ""):gmatch("[^\\r\\n]+") do
+        local raw = clean(line)
+        if raw ~= "" then
+            local item, err = resolveTestItem(raw)
+            if not item then return nil, nil, err end
+            table.insert(items, item)
+            total = total + item.value * item.quantity
+        end
+    end
+    if #items == 0 then return nil, nil, "Add at least one item to each side." end
+    return items, total
+end
+
+closeTest.Activated:Connect(function()
+    testFrame.Visible = false
+end)
+
+testButton.Activated:Connect(function()
+    testFrame.Visible = not testFrame.Visible
+end)
+
+compareTest.Activated:Connect(function()
+    if state.status ~= "ok" or type(state.mapped) ~= "table" then
+        testResult.Text = "Supreme data is still loading. Try again when READY."
+        return
+    end
+    local yourItems, yourTotal, yourError = parseTestOffer(yourTestInput.Text)
+    if not yourItems then
+        testResult.Text = "YOU GIVE: " .. tostring(yourError)
+        return
+    end
+    local theirItems, theirTotal, theirError = parseTestOffer(theirTestInput.Text)
+    if not theirItems then
+        testResult.Text = "YOU RECEIVE: " .. tostring(theirError)
+        return
+    end
+    local verdict, difference = getVerdict(yourTotal, theirTotal)
+    local sign = difference > 0 and "+" or ""
+    testResult.Text = verdict .. "  " .. sign .. formatValue(difference)
+        .. "\\nYOU: " .. formatValue(yourTotal)
+        .. "  |  THEM: " .. formatValue(theirTotal)
+    testResult.TextColor3 = verdict == "WIN" and Color3.fromRGB(65, 240, 145)
+        or verdict == "LOSE" and Color3.fromRGB(255, 90, 105)
+        or Color3.fromRGB(105, 195, 255)
+end)
+
 
 local function formatUnmatchedItems(items)
     local rows = {}
