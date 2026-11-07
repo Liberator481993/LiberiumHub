@@ -874,8 +874,9 @@ local function itemData(tile)
     local name = label and (label:IsA("TextLabel") or label:IsA("TextButton")) and clean(label.Text) or ""
     if name == "" or name:find("^Loading") then name = nil end
 
-    local container = tile:FindFirstChild("Container")
+    local container = tile:FindFirstChild("Container", true)
     local amountNode = container and container:FindFirstChild("Amount", true)
+    if not amountNode then amountNode = tile:FindFirstChild("Amount", true) end
     local quantity = 1
     if amountNode and (amountNode:IsA("TextLabel") or amountNode:IsA("TextButton")) then
         quantity = tonumber(tostring(amountNode.Text):match("%d+")) or 1
@@ -1022,7 +1023,7 @@ local VALUE_TEXT_COLORS = {
 }
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
-    local container = tile and tile:FindFirstChild("Container")
+    local container = tile and tile:FindFirstChild("Container", true)
     local badgeParent = container or tile
     if not badgeParent or not badgeParent:IsA("GuiObject") then return end
 
@@ -1154,8 +1155,9 @@ local function scanImageCards(root, group)
         if card:FindFirstChild("ItemName", true) then continue end
         local value, _, tierText, category = valueOf(card, name)
         if value == nil and not tierText then
-            local amountNode = card:FindFirstChild("Container")
-                and card.Container:FindFirstChild("Amount")
+            local amountContainer = card:FindFirstChild("Container", true)
+            local amountNode = amountContainer and amountContainer:FindFirstChild("Amount", true)
+            if not amountNode then amountNode = card:FindFirstChild("Amount", true) end
             local rawAmount = amountNode and tonumber(tostring(amountNode.Text):match("%d+"))
             quantity = rawAmount or quantity
         end
