@@ -3,13 +3,10 @@ name: Supreme Trade Core
 on:
   push:
     paths:
-      - "SupremeTradeChecker.lua"
-      - "data/supreme-export.json"
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
   pull_request:
     paths:
-      - "SupremeTradeChecker.lua"
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
   workflow_dispatch:
@@ -20,68 +17,38 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/supreme-core
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run Rust unit tests
-        run: cargo test --manifest-path tools/supreme-core/Cargo.toml
-      - name: Verify JSON build pipeline
-        run: |
-          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- build tools/supreme-core/examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
-          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- total /tmp/SupremeTradeChecker.mapping.json tools/supreme-core/examples/items.json
+      - run: cargo test
+      - run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+      - run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
 
-  refresh:
-    needs: test
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/supreme-trade-checker-rust-core' && (contains(join(github.event.head_commit.added, ','), 'data/supreme-export.json') || contains(join(github.event.head_commit.modified, ','), 'data/supreme-export.json')))
+  publish-supreme-snapshot:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build and validate Rust mapping from the Arceus X export
+      - name: Fetch and parse all Supreme Values categories with Rust
+        working-directory: tools/supreme-core
+        run: cargo run --release -- fetch ../../SupremeTradeChecker.mapping.json
+      - name: Publish immutable data branch snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          test -s data/supreme-export.json || { echo "Missing data/supreme-export.json. Export it from the Supreme Trade Checker in Arceus X, then commit/upload that JSON file."; exit 1; }
-          mkdir -p data
-          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- build data/supreme-export.json data/SupremeTradeChecker.mapping.json
-      - name: Validate published mapping size and schema
-        run: |
-          test -s data/SupremeTradeChecker.mapping.json
-          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- total data/SupremeTradeChecker.mapping.json tools/supreme-core/examples/items.json >/tmp/supreme-total-smoke.json || true
-          jq -e '
-            .schema_version == 1 and
-            .entry_count >= 300 and
-            (.entries | length) >= 300 and
-            (.by_name | type == "object") and
-            (.by_image_alt | type == "object") and
-            (.category_counts.godlies // 0) >= 80 and
-            (.category_counts.chromas // 0) >= 30 and
-            (.category_counts.commons // 0) >= 150 and
-            (.category_counts.uncommons // 0) >= 100 and
-            (.category_counts.rares // 0) >= 80 and
-            (.category_counts.legendaries // 0) >= 40 and
-            (.category_counts.ancients // 0) >= 8 and
-            (.category_counts.pets // 0) >= 40 and
-            (.category_counts.uniques // 0) >= 1
-          ' data/SupremeTradeChecker.mapping.json
-      - name: Checkout data publication branch
-        uses: actions/checkout@v4
-        with:
-          ref: supreme-values-data
-          path: publish
-      - name: Publish updated mapping
-        run: |
-          mkdir -p publish/data
-          cp data/SupremeTradeChecker.mapping.json publish/data/SupremeTradeChecker.mapping.json
-          cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan supreme-values-data
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data
+          mv SupremeTradeChecker.mapping.json data/SupremeTradeChecker.mapping.json
           git add data/SupremeTradeChecker.mapping.json
-          if git diff --cached --quiet; then
-            echo "Mapping is already current."
-          else
-            git commit -m "Update Supreme Values mapping"
-            git push
-          fi
+          git commit -m "Publish Supreme Values snapshot"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:supreme-values-data
