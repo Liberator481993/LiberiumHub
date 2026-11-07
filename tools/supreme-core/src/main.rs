@@ -96,6 +96,12 @@ fn now_unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 fn build(entries: Vec<SupremeEntry>, category_counts: BTreeMap<String, usize>, page_card_counts: BTreeMap<String, usize>) -> MappingFile {
+    let mut category_counts = category_counts;
+    if category_counts.is_empty() {
+        for entry in &entries {
+            *category_counts.entry(entry.c.clone()).or_insert(0) += 1;
+        }
+    }
     let mut by_name = BTreeMap::new();
     let mut by_image_alt = BTreeMap::new();
     for (id, entry) in entries.iter().enumerate() {
