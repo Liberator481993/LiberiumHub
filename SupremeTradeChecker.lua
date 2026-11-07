@@ -1414,6 +1414,20 @@ end
 local function parseTierUnit(tierText)
     local multiplier, tier, class = clean(tierText):match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
     if not multiplier or not tier or not class then return nil, nil end
+    -- Supreme's card text is not perfectly consistent about singular/plural
+    -- class names (for example, "T1 Rare" and "T1 Rares").
+    local classAliases = {
+        common = "Commons", commons = "Commons",
+        rare = "Rares", rares = "Rares",
+        uncommon = "Uncommons", uncommons = "Uncommons",
+        legendary = "Legendaries", legendaries = "Legendaries",
+        ancient = "Ancients", ancients = "Ancients",
+        godly = "Godlies", godlies = "Godlies",
+        vintage = "Vintages", vintages = "Vintages",
+        unique = "Uniques", uniques = "Uniques",
+        pet = "Pets", pets = "Pets"
+    }
+    class = classAliases[string.lower(class)] or class
     return tonumber(multiplier), tier .. " " .. class
 end
 
@@ -1498,7 +1512,8 @@ local function runTierSelfTests()
         {name = "fair", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Commons")}, expected = "FAIR"},
         {name = "different units", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Rares")}, expected = "UNCOMPARABLE"},
         {name = "mixed directions", yours = {item("x1 T1 Commons"), item("x3 T1 Rares")}, theirs = {item("x2 T1 Commons"), item("x2 T1 Rares")}, expected = "MIXED"},
-        {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "WIN"}
+        {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "WIN"},
+        {name = "singular/plural alias", yours = {item("x2 T1 Rare")}, theirs = {item("x2 T1 Rares")}, expected = "FAIR"}
     }
     for _, case in ipairs(cases) do
         local result = compareTierOffers(case.yours, case.theirs)
