@@ -38,6 +38,7 @@ local BASE = "https://www.supremevalues.com/mm2/"
 
 local state = {
     status = "loading",
+    cacheStatus = "not checked",
     mapped = nil,
     updated = 0,
     loadDuration = 0,
@@ -266,6 +267,46 @@ local function loadGameDatabase()
     end
     return data, "ReplicatedStorage.Database.Sync"
 end
+
+-- Cache parsed Supreme entries locally so temporary site/network failures do
+-- not leave the overlay without prices. Cache is data-only and expires in 7 days.
+local VALUES_CACHE_FILE = "SupremeTradeChecker_values.json"
+local VALUES_CACHE_TTL = 604800
+
+local function readValuesCache()
+    if type(readfile) ~= "function" then return nil end
+    if type(isfile) == "function" then
+        local ok, exists = pcall(isfile, VALUES_CACHE_FILE)
+        if not ok or not exists then return nil end
+    end
+    local ok, raw = pcall(readfile, VALUES_CACHE_FILE)
+    if not ok or type(raw) ~= "string" or raw == "" then return nil end
+    local decodedOk, decoded = pcall(function()
+        return HttpService:JSONDecode(raw)
+    end)
+    if not decodedOk or type(decoded) ~= "table" or type(decoded.items) ~= "table" then
+        return nil
+    end
+    local timestamp = tonumber(decoded.t)
+    if not timestamp or os.time() - timestamp > VALUES_CACHE_TTL or timestamp > os.time() + 300 then
+        return nil
+    end
+    if #decoded.items < 300 then return nil end
+    return decoded
+end
+
+local function writeValuesCache(entries)
+    if type(writefile) ~= "function" or type(entries) ~= "table" or #entries < 300 then
+        return false
+    end
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode({v = 1, t = os.time(), items = entries})
+    end)
+    if not ok or type(encoded) ~= "string" then return false end
+    local saved = pcall(writefile, VALUES_CACHE_FILE, encoded)
+    return saved
+end
+
 
 local function buildMapping(entries, database)
     if type(database) ~= "table" or type(database.Item) ~= "table" then
@@ -709,8 +750,17 @@ local function loadValues(force)
             state.referenceValueCounts = referenceValueCounts
             state.categoryCardCounts = categoryCardCounts
 
+            local cacheUsed = false
             if #failed > 0 or pageCount ~= #CATEGORIES then
-                error("Supreme pages incomplete; refusing to publish partial values")
+                local cached = readValuesCache()
+                if cached then
+                    entries = cached.items
+                    cacheUsed = true
+                    state.cacheStatus = "using local cache (" .. os.date("%Y-%m-%d", tonumber(cached.t)) .. ")"
+                else
+                    state.cacheStatus = "unavailable"
+                    error("Supreme pages incomplete and no valid local cache; refusing partial values")
+                end
             end
 
             local database, dbSource = loadGameDatabase()
@@ -727,7 +777,10 @@ local function loadValues(force)
             state.mappedCount = mapping.n
             state.iconCount = mapping.iconCount
             state.status = "ok"
-            state.source = dbSource
+            state.source = dbSource .. (cacheUsed and " (local Supreme cache)" or "")
+            if not cacheUsed then
+                state.cacheStatus = writeValuesCache(entries) and "saved" or "write unavailable"
+            end
             state.updated = os.clock()
             state.loadDuration = state.updated - loadStarted
             state.lastUpdate = os.date("%H:%M:%S")
@@ -1614,6 +1667,7 @@ local function buildDiagnostic()
             .. HttpService:JSONEncode(state.referenceValueCounts or {}),
         "All page card counts: " .. HttpService:JSONEncode(state.categoryCardCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
+        "Local values cache: " .. tostring(state.cacheStatus or "not checked"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
