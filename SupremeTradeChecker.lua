@@ -1,5 +1,5 @@
 -- MM2 Supreme Trade Checker
--- Inventory and trade value overlay adapted from the proven PulseHub MM2 reader.
+-- Inventory and trade value overlay adapted from the proven MM2 MM2 reader.
 -- Informational only: never accepts, declines, sends, or modifies trades.
 -- Value source: https://www.supremevalues.com/mm2/
 
@@ -1393,7 +1393,7 @@ local function scanTrade()
     }
 end
 
--- PulseHub does not guess the inventory ScreenGui name. It reads the
+-- MM2 does not guess the inventory ScreenGui name. It reads the
 -- live InventoryModule singleton and its MyInventory.Data.Weapons entries.
 local function getInventoryModule()
     if state.inventoryModule then return state.inventoryModule end
@@ -1443,7 +1443,7 @@ local function scanModuleInventory()
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
     local seen = {}
 
-    -- PulseHub's actual structure is Data.Weapons[group][itemId] = entry.
+    -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
     -- The previous scanner stopped one level too early and counted only the
     -- category/group tables (5 in the user's diagnostic), not item entries.
     local function scanCollection(collection, collectionName)
@@ -1461,7 +1461,7 @@ local function scanModuleInventory()
                 if not tile.Parent then continue end
                 if visible(tile) then visibleFrames = visibleFrames + 1 end
 
-                -- Do not depend on ItemName text: PulseHub's inventory tiles
+                -- Do not depend on ItemName text: MM2's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
                 if type(entry.Amount) == "number" and quantity <= 1 then
@@ -1501,7 +1501,7 @@ local function scanModuleInventory()
         state.inventoryGuiItems = 0
     end
 
-    -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
+    -- MM2's GUI reference is gui.MyInventory.Main.Weapons.Items.
     -- Put the running total on the visible inventory page when available.
     local guiInstance = typeof(gui) == "Instance" and gui or nil
     local main = guiInstance and guiInstance:FindFirstChild("Main")
@@ -1767,7 +1767,7 @@ end
 
 local function buildDiagnostic()
     local lines = {
-        "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
+        "SUPREME TRADE CHECKER — MM2 MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
         "Status: " .. tostring(state.status),
         "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
@@ -1873,4 +1873,4 @@ task.spawn(function()
     end
 end)
 
-print("[Supreme Trade Checker] PulseHub-style item mapping loaded.")
+print("[Supreme Trade Checker] MM2-style item mapping loaded.")
