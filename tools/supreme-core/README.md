@@ -1,61 +1,51 @@
 # Supreme Trade Core (Rust)
 
-A standalone Rust core for deterministic Supreme Values name normalization, lookup-index generation, ambiguity handling, and duplicate-quantity totals. The in-game interface remains Luau because Arceus X executes Luau; this crate is not a DLL and is not loaded inside Roblox.
+Rust is the data core for the MM2 Supreme Trade Checker. It fetches the official Supreme Values category pages, parses item cards, validates category coverage, normalizes names, and publishes a versioned JSON snapshot. The Roblox executor still runs the display and MM2 database matching layer in Luau; this project does not attempt to load a native DLL into Arceus X.
 
-## Input contract
+## Live pipeline
 
-The Rust CLI consumes a JSON export of the entries already parsed by the Luau scraper. Each entry uses the compact fields produced by the checker:
+1. GitHub Actions runs `supreme-trade-core refresh`.
+2. The Rust scraper fetches all 14 MM2 category pages from `https://supremevalues.com/mm2/{category}`.
+3. Tradable categories are parsed into entries using the value shown on each item card. Sets, evos and untradables are checked for page availability but are not mixed into single-item tradable values.
+4. Minimum card-count checks reject incomplete/changed pages rather than publishing a partial dataset.
+5. Rust writes `data/SupremeTradeChecker.mapping.json` with the raw entries, generated timestamp, category/page counts, and deterministic `by_name` / `by_image_alt` indexes.
+6. The Luau client downloads the JSON, validates schema version and age, uses Rust's indexes, then matches values to the live `ReplicatedStorage.Database.Sync` records and renders the badges.
+7. If the JSON endpoint is unavailable, Luau falls back to the previous in-game Supreme scraper.
 
-- `c`: category (for example `godlies` or `chromas`)
-- `n`: Supreme item name
-- `im`: image alt text
-- `v`: numeric value as a string, or null for tier-only values
-- `t`: tier label, if present
-- `y`, `e`, `o`, `cl`, `dm`: year, event, origin, class, demand
+GitHub Actions refreshes the dataset every six hours on the default branch. Pushes to the development branch also attempt an initial refresh and publish the first JSON file.
 
-Example `supreme-export.json`:
+## Build / test locally
 
-```json
-{
-  "schema_version": 1,
-  "entries": [
-    {"c":"godlies","n":"Lightbringer","im":"Lightbringer","v":"45","t":"","y":"","e":"","o":"","cl":"","dm":""},
-    {"c":"chromas","n":"Seer","im":"Seer","v":"15","t":"","y":"","e":"","o":"","cl":"","dm":""}
-  ]
-}
-```
-
-## Build the indexed mapping
-
-Install Rust via rustup, then run:
+Install Rust using rustup, then run:
 
 ```sh
-cd tools/supreme-core
-cargo test
-cargo run --release -- build supreme-export.json SupremeTradeChecker.mapping.json
+cargo test --manifest-path tools/supreme-core/Cargo.toml
+cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- refresh data/SupremeTradeChecker.mapping.json
 ```
 
-The mapping contains the original entries plus deterministic `by_name` and `by_image_alt` indexes. Duplicate names are retained as candidate lists; the core never silently chooses between ambiguous matches.
+A refresh requires network access to Supreme Values and deliberately fails if critical categories are missing or parsed counts fall below their guardrails.
 
-## Calculate a trade total
+## Offline JSON build and trade-total CLI
 
-Create `items.json`:
-
-```json
-[
-  {"name":"Lightbringer","quantity":2,"chroma":false},
-  {"name":"Seer","quantity":1,"chroma":true}
-]
-```
-
-Run:
+The core also supports fixture-based builds and a small independent total calculator:
 
 ```sh
-cargo run --release -- total SupremeTradeChecker.mapping.json items.json
+cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- build tools/supreme-core/examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- total /tmp/SupremeTradeChecker.mapping.json tools/supreme-core/examples/items.json
 ```
 
-The report includes per-item values, quantity subtotals, and a total only when every line resolves to a numeric value. Unknown, ambiguous, and tier-valued entries are explicitly reported instead of being counted as zero.
+The total report multiplies each item value by its quantity. Unknown, ambiguous and tier-only entries are reported explicitly; the overall total is omitted rather than silently treating unresolved lines as zero.
 
-## Runtime boundary
+## JSON contract (schema version 1)
 
-This is the first Rust-core milestone: a tested, portable data engine and stable JSON contract. It does **not** yet run in Arceus X. A later integration step must either publish a generated mapping JSON for the Luau client to fetch, or run this core behind a hosted API. Neither a Rust DLL nor native FFI is assumed to work in Arceus X.
+Top-level fields:
+
+- `schema_version`: currently `1`
+- `source`, `generated_at_unix`, `entry_count`
+- `category_counts`: parsed tradable value-card counts per category
+- `page_card_counts`: total item cards seen on each category page
+- `entries`: compact Supreme entries using `c,n,im,y,e,o,cl,v,t,dm`
+- `by_name`: normalized name to zero-based entry indexes
+- `by_image_alt`: normalized image alt text to zero-based entry indexes
+
+The executor accepts the mapping only when the schema matches, there are at least 300 entries, both Rust indexes exist, and the snapshot is no older than seven days.
