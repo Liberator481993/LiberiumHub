@@ -227,7 +227,7 @@ fn refresh() -> Result<MappingFile, String> {
             let count = entries.len();
             category_counts.insert((*category).to_string(), count);
             if let Some((_, minimum)) = MINIMUM.iter().find(|(name, _)| name == category) {
-                if count < minimum {
+                if count < *minimum {
                     failures.push(format!("{category}: parsed {count} valued cards, expected at least {minimum} (page cards: {cards})"));
                 }
             }
