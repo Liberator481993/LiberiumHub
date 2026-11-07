@@ -210,6 +210,54 @@ fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
     }
 }
 
+fn fetch_all() -> Result<MappingFile, String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (compatible; SupremeTradeChecker/0.2)")
+        .timeout(Duration::from_secs(35)).build().map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+    let mut category_counts = BTreeMap::new();
+    let mut page_card_counts = BTreeMap::new();
+    let mut failures = Vec::new();
+
+    // Keep the number of simultaneous source/proxy requests low to avoid rate limits.
+    for batch in CATEGORIES.chunks(4) {
+        let handles: Vec<_> = batch.iter().map(|&category| {
+            let client = client.clone();
+            thread::spawn(move || fetch_category(&client, category))
+        }).collect();
+        for (&category, handle) in batch.iter().zip(handles) {
+            match handle.join().map_err(|_| format!("{category}: fetch worker panicked"))? {
+                Ok((name, mut parsed, cards)) => {
+                    category_counts.insert(name.clone(), parsed.len());
+                    page_card_counts.insert(name, cards);
+                    if !matches!(category, "sets" | "evos" | "untradables") {
+                        entries.append(&mut parsed);
+                    }
+                }
+                Err(error) => {
+                    if matches!(category, "sets" | "evos" | "untradables") {
+                        category_counts.insert(category.to_string(), 0);
+                        page_card_counts.insert(category.to_string(), 0);
+                    } else {
+                        failures.push(error);
+                    }
+                }
+            }
+        }
+    }
+    let mut missing = Vec::new();
+    for (category, minimum) in MINIMUM {
+        let count = *category_counts.get(*category).unwrap_or(&0);
+        if count < *minimum { missing.push(format!("{category}: {count}/{minimum}")); }
+    }
+    if !failures.is_empty() || !missing.is_empty() {
+        return Err(format!("Refusing to publish incomplete Supreme snapshot. Failed pages: [{}]. Below minimum: [{}].",
+            failures.join(" | "), missing.join(", ")));
+    }
+    if entries.len() < 300 { return Err(format!("Only {} entries parsed; minimum is 300", entries.len())); }
+    Ok(build(entries, category_counts, page_card_counts))
+}
+
 fn resolve<'a>(map: &'a MappingFile, item: &RequestedItem) -> Result<&'a SupremeEntry, &'static str> {
     let key = normalize(&item.name);
     let ids = map.by_name.get(&key).or_else(|| map.by_image_alt.get(&key)).ok_or("not_found")?;
