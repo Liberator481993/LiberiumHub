@@ -2376,6 +2376,129 @@ local function formatUnmatchedItems(items)
     return #output > 0 and table.concat(output, " | ") or "none"
 end
 
+local function buildPhase1Dump()
+    local lines = {"PHASE 1 — MM2 DATABASE RECORD DUMP"}
+    local database, dbError = loadGameDatabase()
+    local ids = {
+        "SlouseClownGun", "Clown", "Clown_G_2024", "SlouseClown",
+        "Clown_G", "Carrot_K_2023", "Carrot_K_2024", "Carrot",
+        "Carrot_G_2024", "DefaultGun", "DefaultKnife"
+    }
+    if type(database) ~= "table" or type(database.Item) ~= "table" then
+        table.insert(lines, "Database unavailable: " .. tostring(dbError))
+    else
+        for _, id in ipairs(ids) do
+            local record = database.Item[id]
+            if type(record) ~= "table" then
+                table.insert(lines, id .. ": NOT FOUND")
+            else
+                local fields = {}
+                for key, value in pairs(record) do
+                    local valueType = typeof(value)
+                    local rendered
+                    if type(value) == "table" then
+                        local keys = {}
+                        for childKey in pairs(value) do
+                            table.insert(keys, tostring(childKey))
+                            if #keys >= 8 then break end
+                        end
+                        table.sort(keys)
+                        rendered = "table{" .. table.concat(keys, ",") .. "}"
+                    elseif valueType == "Instance" then
+                        rendered = "Instance(" .. value.ClassName .. ":" .. value.Name .. ")"
+                    else
+                        rendered = tostring(value)
+                    end
+                    table.insert(fields, tostring(key) .. "=" .. rendered)
+                end
+                table.sort(fields)
+                table.insert(lines, id .. ": " .. table.concat(fields, " | "))
+            end
+        end
+    end
+
+    table.insert(lines, "")
+    table.insert(lines, "PHASE 1 — TRADE CARD INTERNAL DATA")
+    local screen, container, trade = findTrade()
+    if not screen then
+        table.insert(lines, "No active trade. Open a trade and put at least one item into either offer before copying the report.")
+        return table.concat(lines, "\n")
+    end
+
+    local offers = {
+        {name = "YourOffer", root = trade:FindFirstChild("YourOffer", true)},
+        {name = "TheirOffer", root = trade:FindFirstChild("TheirOffer", true)}
+    }
+    local foundCard = false
+    for _, offerInfo in ipairs(offers) do
+        local offer = offerInfo.root
+        local offerContainer = offer and offer:FindFirstChild("Container")
+        if offerContainer then
+            for _, tile in ipairs(offerContainer:GetDescendants()) do
+                if tile:IsA("GuiObject") and visible(tile) then
+                    local icon = findTileIcon(tile)
+                    local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
+                    local normalCard = tile:FindFirstChild("Container") and icon ~= nil
+                    if directSlot or normalCard then
+                        foundCard = true
+                        table.insert(lines, offerInfo.name .. " card=" .. tile:GetFullName()
+                            .. " class=" .. tile.ClassName
+                            .. " displayName=" .. tostring((itemData(tile)))
+                            .. " icon=" .. tostring(icon and assetId(icon.Image) or "none"))
+                        local okAttributes, attributes = pcall(function() return tile:GetAttributes() end)
+                        if okAttributes then
+                            local attributeRows = {}
+                            for key, value in pairs(attributes) do
+                                table.insert(attributeRows, tostring(key) .. "=" .. tostring(value))
+                            end
+                            table.sort(attributeRows)
+                            table.insert(lines, "  ATTRIBUTES: " .. (#attributeRows > 0 and table.concat(attributeRows, " | ") or "none"))
+                        else
+                            table.insert(lines, "  ATTRIBUTES: read failed")
+                        end
+                        local valueRows, viewportRows = {}, {}
+                        for _, node in ipairs(tile:GetDescendants()) do
+                            if node:IsA("StringValue") or node:IsA("ObjectValue")
+                                or node:IsA("IntValue") or node:IsA("NumberValue") then
+                                local valueText = node:IsA("ObjectValue")
+                                    and (node.Value and node.Value:GetFullName() or "nil")
+                                    or tostring(node.Value)
+                                table.insert(valueRows, node.ClassName .. " " .. node.Name .. "=" .. valueText)
+                            elseif node:IsA("ViewportFrame") then
+                                local models = {}
+                                for _, nested in ipairs(node:GetDescendants()) do
+                                    if nested:IsA("Model") then
+                                        table.insert(models, nested.Name)
+                                    end
+                                end
+                                table.insert(viewportRows, node:GetFullName() .. " models={" .. table.concat(models, ",") .. "}")
+                            end
+                        end
+                        table.sort(valueRows)
+                        table.sort(viewportRows)
+                        table.insert(lines, "  VALUE OBJECTS: " .. (#valueRows > 0 and table.concat(valueRows, " | ") or "none"))
+                        table.insert(lines, "  VIEWPORTS: " .. (#viewportRows > 0 and table.concat(viewportRows, " | ") or "none"))
+                        table.insert(lines, "  CHILD TREE: " .. tile.Name .. "{" .. table.concat((function()
+                            local rows = {}
+                            for _, child in ipairs(tile:GetChildren()) do
+                                table.insert(rows, child.Name .. ":" .. child.ClassName)
+                            end
+                            table.sort(rows)
+                            return rows
+                        end)(), ",") .. "}")
+                        break
+                    end
+                end
+            end
+        end
+        if foundCard then break end
+    end
+    if not foundCard then
+        table.insert(lines, "Trade is open but no visible offer card found. Add one item to either side and copy again.")
+    end
+    return table.concat(lines, "\n")
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — MM2 MAPPING",
@@ -2409,6 +2532,7 @@ local function buildDiagnostic()
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
         "INVENTORY INTERNAL KEY AUDIT: " .. tostring(state.inventoryKeyStats),
+        buildPhase1Dump(),
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
         "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
