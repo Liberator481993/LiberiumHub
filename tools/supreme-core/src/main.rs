@@ -263,6 +263,16 @@ mod tests {
     fn entry(name: &str, category: &str, value: &str) -> SupremeEntry {
         SupremeEntry { c: category.into(), n: name.into(), im: String::new(), y: String::new(), e: String::new(), o: String::new(), cl: String::new(), v: Some(value.into()), t: String::new(), dm: String::new() }
     }
+    #[test] fn markdown_proxy_parser_extracts_name_value_and_origin() {
+        let markdown = "Image: Travelers Gun  | Traveler's Gun Value - 5,100\nOrigin - Halloween 2023 (Unboxed) Change in Value - (-100)\nDemand - 5 Rarity - 5";
+        let (entries, cards) = parse_markdown_page("godlies", markdown).unwrap();
+        assert_eq!(cards, 1);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].n, "Traveler's Gun");
+        assert_eq!(entries[0].v.as_deref(), Some("5100"));
+        assert_eq!(entries[0].y, "2023");
+        assert_eq!(entries[0].dm, "5");
+    }
     #[test] fn normalization_ignores_spaces_punctuation_and_case() { assert_eq!(normalize("  Lightbringer! "), "lightbringer"); }
     #[test] fn index_resolves_names() {
         let map = build(vec![entry("Lightbringer", "godlies", "45")], BTreeMap::new(), BTreeMap::new());
