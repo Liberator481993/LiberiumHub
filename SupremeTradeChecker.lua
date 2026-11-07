@@ -1408,7 +1408,110 @@ local function getVerdict(giveValue, receiveValue)
     return difference > 0 and "WIN" or "LOSE", difference
 end
 
-local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
+-- A tier expression is a quantity of a specific target class/tier, not a
+-- universal numeric price. Only compare offers when both sides use the same
+-- exact unit set (for example, T1 Commons on both sides).
+local function parseTierUnit(tierText)
+    local multiplier, tier, class = clean(tierText):match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+    if not multiplier or not tier or not class then return nil, nil end
+    return tonumber(multiplier), tier .. " " .. class
+end
+
+local function summarizeTierOffer(items)
+    local units, hasTier, hasNumeric, hasUnknown = {}, false, false, false
+    for _, item in ipairs(items or {}) do
+        local quantity = math.max(1, math.floor(tonumber(item.quantity) or 1))
+        if tonumber(item.value) ~= nil then
+            hasNumeric = true
+        elseif type(item.tier) == "string" and item.tier ~= "" then
+            local multiplier, unit = parseTierUnit(item.tier)
+            if multiplier and unit then
+                units[unit] = (units[unit] or 0) + multiplier * quantity
+                hasTier = true
+            else
+                hasUnknown = true
+            end
+        else
+            hasUnknown = true
+        end
+    end
+    return units, hasTier, hasNumeric, hasUnknown
+end
+
+local function formatTierUnits(units)
+    local keys = {}
+    for key in pairs(units or {}) do table.insert(keys, key) end
+    table.sort(keys)
+    local rows = {}
+    for _, key in ipairs(keys) do
+        table.insert(rows, tostring(units[key]) .. " " .. key)
+    end
+    return #rows > 0 and table.concat(rows, " + ") or "none"
+end
+
+local function compareTierOffers(yourItems, theirItems)
+    local yours, yourTier, yourNumeric, yourUnknown = summarizeTierOffer(yourItems)
+    local theirs, theirTier, theirNumeric, theirUnknown = summarizeTierOffer(theirItems)
+    local yourText, theirText = formatTierUnits(yours), formatTierUnits(theirs)
+
+    if yourUnknown or theirUnknown then
+        return "CHECK UNKNOWN", "At least one item has no resolved value", yourText, theirText
+    end
+    if yourNumeric or theirNumeric then
+        return "MIXED VALUES", "Numeric values and tier units cannot be added safely", yourText, theirText
+    end
+    if not yourTier or not theirTier then
+        return "NO TIER DATA", "Both offers need recognized tier values", yourText, theirText
+    end
+
+    local keys = {}
+    for key in pairs(yours) do keys[key] = true end
+    for key in pairs(theirs) do keys[key] = true end
+    for key in pairs(keys) do
+        if yours[key] == nil or theirs[key] == nil then
+            return "UNCOMPARABLE", "The offers use different tier units", yourText, theirText
+        end
+    end
+
+    local receivedMore, receivedLess = false, false
+    for key in pairs(keys) do
+        if theirs[key] > yours[key] then receivedMore = true end
+        if theirs[key] < yours[key] then receivedLess = true end
+    end
+    if receivedMore and receivedLess then
+        return "MIXED", "One side gains in some tier units and loses in others", yourText, theirText
+    elseif receivedMore then
+        return "WIN", "The received offer has more of every comparable tier unit", yourText, theirText
+    elseif receivedLess then
+        return "LOSE", "The received offer has less of every comparable tier unit", yourText, theirText
+    end
+    return "FAIR", "Both offers have equal comparable tier units", yourText, theirText
+end
+
+local function runTierSelfTests()
+    local function item(tier, quantity)
+        return {tier = tier, quantity = quantity or 1}
+    end
+    local cases = {
+        {name = "win", yours = {item("x2 T1 Commons")}, theirs = {item("x3 T1 Commons")}, expected = "WIN"},
+        {name = "lose", yours = {item("x3 T1 Commons")}, theirs = {item("x2 T1 Commons")}, expected = "LOSE"},
+        {name = "fair", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Commons")}, expected = "FAIR"},
+        {name = "different units", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Rares")}, expected = "UNCOMPARABLE"},
+        {name = "mixed directions", yours = {item("x1 T1 Commons"), item("x3 T1 Rares")}, theirs = {item("x2 T1 Commons"), item("x2 T1 Rares")}, expected = "MIXED"},
+        {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "WIN"}
+    }
+    for _, case in ipairs(cases) do
+        local result = compareTierOffers(case.yours, case.theirs)
+        if result ~= case.expected then
+            return "FAIL (" .. case.name .. ": expected " .. case.expected .. ", got " .. tostring(result) .. ")"
+        end
+    end
+    return "PASS (" .. tostring(#cases) .. " cases)"
+end
+
+local TIER_SELF_TEST = runTierSelfTests()
+
+local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount, yourItems, theirItems)
     if not trade then return end
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
     for _, child in ipairs(label:GetChildren()) do
@@ -1434,10 +1537,15 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
         caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
-    elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
         caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+    elseif yourTierCount > 0 or theirTierCount > 0 then
+        local tierVerdict = compareTierOffers(yourItems, theirItems)
+        caption = "TIER " .. tostring(tierVerdict)
+        color = tierVerdict == "WIN" and Color3.fromRGB(45, 255, 135)
+            or tierVerdict == "LOSE" and Color3.fromRGB(255, 65, 85)
+            or tierVerdict == "FAIR" and Color3.fromRGB(75, 195, 255)
+            or Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
@@ -1488,7 +1596,7 @@ local function scanTrade()
     setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
     setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
     setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
-        yourCount, theirCount, yourTierCount, theirTierCount)
+        yourCount, theirCount, yourTierCount, theirTierCount, yourItems, theirItems)
 
     local lines = {
         "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
@@ -1499,10 +1607,13 @@ local function scanTrade()
             .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
-        if yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
-        elseif yourKnown < yourCount or theirKnown < theirCount then
+        if yourKnown < yourCount or theirKnown < theirCount then
             table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+        elseif yourTierCount > 0 or theirTierCount > 0 then
+            local tierVerdict, tierReason, yourUnits, theirUnits = compareTierOffers(yourItems, theirItems)
+            table.insert(lines, "RESULT: TIER " .. tostring(tierVerdict) .. " — " .. tostring(tierReason))
+            table.insert(lines, "TIER UNITS YOU: " .. tostring(yourUnits))
+            table.insert(lines, "TIER UNITS THEM: " .. tostring(theirUnits))
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -1963,6 +2074,7 @@ local function buildDiagnostic()
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
         "Last error: " .. tostring(state.lastError or "none"),
+        "Tier comparator self-test: " .. TIER_SELF_TEST,
         "",
         "CURRENT TRADE:",
         tostring(state.latestTrade),
