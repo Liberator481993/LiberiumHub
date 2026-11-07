@@ -1,0 +1,26 @@
+name: Supreme Trade Core
+
+on:
+  push:
+    paths:
+      - "tools/supreme-core/**"
+      - ".github/workflows/supreme-core.yml"
+  pull_request:
+    paths:
+      - "tools/supreme-core/**"
+      - ".github/workflows/supreme-core.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/supreme-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+      - run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
