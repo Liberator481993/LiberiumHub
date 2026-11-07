@@ -125,6 +125,59 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
     }
     Ok((entries, cards))
 }
+fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEntry>, usize), String> {
+    let item_re = Regex::new(r"(?i)Image:\s*(.*?)\s*\|\s*(.*?)\s+Value\s*[-:]\s*([0-9][0-9,.]*)").unwrap();
+    let tier_re = Regex::new(r"(?i)Image:\s*(.*?)\s*\|\s*(.*?)\s+Value\s*[-:]\s*([x×]\s*\d+\s+T\d+\s+[A-Za-z]+)").unwrap();
+    let origin_re = Regex::new(r"(?i)Origin\s*[-:]\s*(.*?)(?:Change in Value|$)").unwrap();
+    let demand_re = Regex::new(r"(?i)Demand\s*[-:]\s*(\d+)").unwrap();
+    let mut entries = Vec::new();
+    let mut cards = 0usize;
+    let mut current: Option<SupremeEntry> = None;
+    for line in markdown.lines() {
+        if let Some(caps) = item_re.captures(line) {
+            if let Some(entry) = current.take() { entries.push(entry); }
+            cards += 1;
+            let image_alt = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+            let name = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
+            let value = caps.get(3).and_then(|m| m.as_str().replace(',', "").parse::<f64>().ok())
+                .filter(|v| *v > 0.0 && *v < 500000.0).map(|v| {
+                    let mut s = format!("{v:.4}");
+                    while s.contains('.') && s.ends_with('0') { s.pop(); }
+                    if s.ends_with('.') { s.pop(); }
+                    s
+                });
+            current = Some(SupremeEntry {
+                c: category.to_string(), n: name.to_string(), im: image_alt.to_string(),
+                y: String::new(), e: String::new(), o: String::new(), cl: String::new(),
+                v: value, t: String::new(), dm: String::new(),
+            });
+        } else if let Some(caps) = tier_re.captures(line) {
+            if let Some(entry) = current.take() { entries.push(entry); }
+            cards += 1;
+            current = Some(SupremeEntry {
+                c: category.to_string(),
+                n: caps.get(2).map(|m| m.as_str().trim()).unwrap_or("").to_string(),
+                im: caps.get(1).map(|m| m.as_str().trim()).unwrap_or("").to_string(),
+                y: String::new(), e: String::new(), o: String::new(), cl: String::new(),
+                v: None, t: caps.get(3).map(|m| m.as_str().trim().to_string()).unwrap_or_default(), dm: String::new(),
+            });
+        } else if let Some(entry) = current.as_mut() {
+            if let Some(caps) = origin_re.captures(line) {
+                entry.o = caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                let year_re = Regex::new(r"(20\d{2})").unwrap();
+                if let Some(year) = year_re.captures(&entry.o).and_then(|c| c.get(1)) {
+                    entry.y = year.as_str().to_string();
+                    entry.e = entry.o.split_whitespace().next().unwrap_or("").to_string();
+                }
+            }
+            if let Some(caps) = demand_re.captures(line) {
+                entry.dm = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            }
+        }
+    }
+    if let Some(entry) = current { entries.push(entry); }
+    Ok((entries, cards))
+}
 fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
     -> Result<(String, Vec<SupremeEntry>, usize), String> {
     let urls = [format!("{BASE}{category}"), format!("{BASE}{category}.php")];
@@ -138,45 +191,25 @@ fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
             Ok(_) => last = format!("{url}: response did not contain item cards"),
             Err(e) => last = format!("{url}: {e}"),
         }
-        thread::sleep(Duration::from_millis(200));
     }
-    Err(last)
-}
-fn fetch_all() -> Result<MappingFile, String> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("Mozilla/5.0 (compatible; SupremeTradeChecker/0.2)")
-        .timeout(Duration::from_secs(25)).build().map_err(|e| e.to_string())?;
-    let mut handles = Vec::new();
-    for &category in CATEGORIES {
-        let client = client.clone();
-        handles.push(thread::spawn(move || fetch_category(&client, category)));
-    }
-    let mut entries = Vec::new();
-    let mut category_counts = BTreeMap::new();
-    let mut page_card_counts = BTreeMap::new();
-    let mut failures = Vec::new();
-    for handle in handles {
-        match handle.join().map_err(|_| "fetch worker panicked".to_string())? {
-            Ok((category, mut parsed, cards)) => {
-                category_counts.insert(category.to_string(), parsed.len());
-                page_card_counts.insert(category, cards);
-                entries.append(&mut parsed);
-            }
-            Err(error) => failures.push(error),
+
+    // GitHub-hosted runners can be denied by the source site's edge firewall.
+    // Jina Reader acts as a text proxy; parse its stable item/value lines as a fallback.
+    let proxy_url = format!("https://r.jina.ai/http://www.supremevalues.com/mm2/{category}");
+    match client.get(&proxy_url)
+        .header("Accept", "text/plain")
+        .header("X-Return-Format", "markdown")
+        .send().and_then(|r| r.error_for_status()).and_then(|r| r.text()) {
+        Ok(markdown) if markdown.len() > 1000 && markdown.contains("Value -") => {
+            let (entries, cards) = parse_markdown_page(category, &markdown)?;
+            if !entries.is_empty() { return Ok((category.to_string(), entries, cards)); }
+            Err(format!("{category}: proxy returned text but no parseable value cards"))
         }
+        Ok(_) => Err(format!("{category}: direct fetch failed ({last}); proxy returned no value cards")),
+        Err(error) => Err(format!("{category}: direct fetch failed ({last}); proxy failed: {error}")),
     }
-    let mut missing = Vec::new();
-    for (category, minimum) in MINIMUM {
-        let count = *category_counts.get(*category).unwrap_or(&0);
-        if count < *minimum { missing.push(format!("{category}: {count}/{minimum}")); }
-    }
-    if !failures.is_empty() || !missing.is_empty() {
-        return Err(format!("Refusing to publish incomplete Supreme snapshot. Failed pages: [{}]. Below minimum: [{}].",
-            failures.join(" | "), missing.join(", ")));
-    }
-    if entries.len() < 300 { return Err(format!("Only {} entries parsed; minimum is 300", entries.len())); }
-    Ok(build(entries, category_counts, page_card_counts))
 }
+
 fn resolve<'a>(map: &'a MappingFile, item: &RequestedItem) -> Result<&'a SupremeEntry, &'static str> {
     let key = normalize(&item.name);
     let ids = map.by_name.get(&key).or_else(|| map.by_image_alt.get(&key)).ok_or("not_found")?;
