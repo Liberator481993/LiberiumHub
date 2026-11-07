@@ -1186,7 +1186,9 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         label.Text = formatValue(value)
         label.TextColor3 = accent
     else
-        label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
+        -- Keep the complete Supreme tier descriptor; reducing it to only T1
+        -- hides the multiplier and item class (for example, "x3 T1 Uncommons").
+        label.Text = tostring(tierText)
         label.TextColor3 = Color3.fromRGB(255, 190, 75)
     end
     label.Visible = true
@@ -1610,6 +1612,8 @@ local function scanModuleInventory()
                         .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
                         .. ",badge=" .. tostring(badge ~= nil)
                         .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
+                        .. ",badgeText=" .. tostring(badge and badge.Text or "none")
+                        .. ",nameText=" .. tostring(nameNode and (nameNode:IsA("TextLabel") and nameNode.Text or (nameNode:FindFirstChildWhichIsA("TextLabel", true) and nameNode:FindFirstChildWhichIsA("TextLabel", true).Text)) or "none")
                         .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
                         .. "}")
                 end
