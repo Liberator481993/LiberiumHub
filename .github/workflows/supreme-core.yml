@@ -33,7 +33,7 @@ jobs:
 
   refresh:
     needs: test
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/supreme-trade-checker-rust-core' && contains(join(github.event.head_commit.added, ','), 'data/supreme-export.json'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/supreme-trade-checker-rust-core' && (contains(join(github.event.head_commit.added, ','), 'data/supreme-export.json') || contains(join(github.event.head_commit.modified, ','), 'data/supreme-export.json')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
