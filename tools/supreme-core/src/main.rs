@@ -48,6 +48,7 @@ struct MappingFile {
     generated_at_unix: u64,
     entry_count: usize,
     category_counts: BTreeMap<String, usize>,
+    page_card_counts: BTreeMap<String, usize>,
     entries: Vec<SupremeEntry>,
     by_name: BTreeMap<String, Vec<usize>>,
     by_image_alt: BTreeMap<String, Vec<usize>>,
@@ -93,7 +94,7 @@ fn add(index: &mut BTreeMap<String, Vec<usize>>, key: String, id: usize) {
 fn now_unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
-fn build(entries: Vec<SupremeEntry>, category_counts: BTreeMap<String, usize>) -> MappingFile {
+fn build(entries: Vec<SupremeEntry>, category_counts: BTreeMap<String, usize>, page_card_counts: BTreeMap<String, usize>) -> MappingFile {
     let mut by_name = BTreeMap::new();
     let mut by_image_alt = BTreeMap::new();
     for (id, entry) in entries.iter().enumerate() {
@@ -109,6 +110,7 @@ fn build(entries: Vec<SupremeEntry>, category_counts: BTreeMap<String, usize>) -
         generated_at_unix: now_unix(),
         entry_count: entries.len(),
         category_counts,
+        page_card_counts,
         entries,
         by_name,
         by_image_alt,
@@ -212,6 +214,7 @@ fn refresh() -> Result<MappingFile, String> {
         .build().map_err(|e| e.to_string())?;
     let mut all_entries = Vec::new();
     let mut category_counts = BTreeMap::new();
+    let mut page_card_counts = BTreeMap::new();
     let mut failures = Vec::new();
     for category in CATEGORIES {
         let html = match fetch_html(&client, category) {
@@ -219,6 +222,7 @@ fn refresh() -> Result<MappingFile, String> {
             Err(error) => { failures.push(format!("{category}: {error}")); continue; }
         };
         let (cards, mut entries) = parse_category(category, &html);
+        page_card_counts.insert((*category).to_string(), cards);
         if VALUE_CATEGORIES.contains(category) {
             let count = entries.len();
             category_counts.insert((*category).to_string(), count);
@@ -238,7 +242,7 @@ fn refresh() -> Result<MappingFile, String> {
     if all_entries.len() < 300 {
         return Err(format!("Supreme refresh rejected: only {} entries parsed (minimum 300)", all_entries.len()));
     }
-    Ok(build(all_entries, category_counts))
+    Ok(build(all_entries, category_counts, page_card_counts))
 }
 fn resolve<'a>(map: &'a MappingFile, item: &RequestedItem) -> Result<&'a SupremeEntry, &'static str> {
     let key = normalize(&item.name);
@@ -269,7 +273,7 @@ fn run() -> Result<(), String> {
         Some("build") if args.len() == 4 => {
             let raw = fs::read_to_string(&args[2]).map_err(|e| e.to_string())?;
             let input: InputFile = serde_json::from_str(&raw).map_err(|e| format!("invalid input JSON: {e}"))?;
-            let mapping = build(input.entries, BTreeMap::new());
+            let mapping = build(input.entries, BTreeMap::new(), BTreeMap::new());
             let json = serde_json::to_string_pretty(&mapping).map_err(|e| e.to_string())?;
             fs::write(&args[3], json).map_err(|e| e.to_string())?;
             println!("Built {} entries; name keys: {}; image-alt keys: {}",
@@ -318,19 +322,19 @@ mod tests {
     }
     #[test]
     fn index_resolves_names_and_duplicate_quantities() {
-        let map = build(vec![entry("Lightbringer", "godlies", "45")], BTreeMap::new());
+        let map = build(vec![entry("Lightbringer", "godlies", "45")], BTreeMap::new(), BTreeMap::new());
         let item = RequestedItem { name: "LIGHT BRINGER".into(), quantity: 2, chroma: Some(false) };
         assert_eq!(resolve(&map, &item).unwrap().v.as_deref(), Some("45"));
     }
     #[test]
     fn chroma_filter_disambiguates_same_name() {
-        let map = build(vec![entry("Seer", "godlies", "1"), entry("Seer", "chromas", "15")], BTreeMap::new());
+        let map = build(vec![entry("Seer", "godlies", "1"), entry("Seer", "chromas", "15")], BTreeMap::new(), BTreeMap::new());
         let item = RequestedItem { name: "Seer".into(), quantity: 1, chroma: Some(true) };
         assert_eq!(resolve(&map, &item).unwrap().c, "chromas");
     }
     #[test]
     fn ambiguous_matches_are_not_guessed() {
-        let map = build(vec![entry("Seer", "godlies", "1"), entry("Seer", "rares", "2")], BTreeMap::new());
+        let map = build(vec![entry("Seer", "godlies", "1"), entry("Seer", "rares", "2")], BTreeMap::new(), BTreeMap::new());
         let item = RequestedItem { name: "Seer".into(), quantity: 1, chroma: None };
         assert_eq!(resolve(&map, &item).unwrap_err(), "ambiguous");
     }
