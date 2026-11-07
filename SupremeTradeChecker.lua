@@ -605,7 +605,9 @@ local function buildMapping(entries, database, rustIndexData)
                     t = tierText ~= "" and tierText or nil,
                     n = 1,
                     name = name,
-                    category = category
+                    category = category,
+                    itemType = tostring(candidate.item.ItemType or ""),
+                    year = tostring(candidate.item.Year or "")
                 }
             end
         end
@@ -681,7 +683,12 @@ local function buildMapping(entries, database, rustIndexData)
             end
             if byKey[idKey] then
                 byName[nameKey] = byName[nameKey] or {}
-                table.insert(byName[nameKey], {key = idKey, chroma = item.Chroma == true})
+                table.insert(byName[nameKey], {
+                    key = idKey,
+                    chroma = item.Chroma == true,
+                    itemType = tostring(item.ItemType or ""),
+                    year = tostring(item.Year or "")
+                })
             end
         end
     end
@@ -2154,8 +2161,32 @@ local function resolveTestItem(rawName)
     local quantity = 1
     local base, amount = name:match("^(.-)%s+[x×](%d+)$")
     if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
+
     local isChromaInput = name:lower():match("^chroma%s+") ~= nil
-    local normalizedInput = normalize(name:gsub("^[Cc][Hh][Rr][Oo][Mm][Aa]%s+", ""))
+    local lookupName = clean(name:gsub("^[Cc][Hh][Rr][Oo][Mm][Aa]%s+", ""))
+    local requestedType, requestedYear
+
+    -- Accept explicit discriminators so duplicate MM2 names can be resolved:
+    -- "Laser Gun", "Laser Knife", "Laser (Gun)", "Laser (Knife)", and years.
+    local yearBase, yearSuffix = lookupName:match("^(.-)%s*%((%d%d%d%d)%)$")
+    if yearBase then
+        lookupName, requestedYear = clean(yearBase), yearSuffix
+    else
+        local trailingYearBase, trailingYear = lookupName:match("^(.-)%s+(20%d%d)$")
+        if trailingYearBase then lookupName, requestedYear = clean(trailingYearBase), trailingYear end
+    end
+
+    local typeBase, typeSuffix = lookupName:match("^(.-)%s*%((%a+)%)$")
+    if typeBase and (typeSuffix == "Knife" or typeSuffix == "Gun") then
+        lookupName, requestedType = clean(typeBase), typeSuffix
+    else
+        local trailingTypeBase, trailingType = lookupName:match("^(.-)%s+(%a+)$")
+        if trailingTypeBase and (trailingType == "Knife" or trailingType == "Gun") then
+            lookupName, requestedType = clean(trailingTypeBase), trailingType
+        end
+    end
+
+    local normalizedInput = normalize(lookupName)
     local candidates = state.mapped and state.mapped.byName[normalizedInput] or nil
     local matches = {}
     local rejectedNames = {}
@@ -2163,10 +2194,11 @@ local function resolveTestItem(rawName)
         local entry = state.mapped.byKey[candidate.key]
         if entry and tonumber(entry.v) ~= nil then
             local mappedName = normalize(entry.name)
-            -- Plain names resolve only to regular items; an explicit "Chroma"
-            -- prefix resolves only to Chroma records. The inventory name index
-            -- stores the shared base name for both variants.
-            if mappedName == normalizedInput and candidate.chroma == isChromaInput then
+            local typeMatches = not requestedType or candidate.itemType == requestedType
+            local yearMatches = not requestedYear or candidate.year == requestedYear
+            if mappedName == normalizedInput
+                and candidate.chroma == isChromaInput
+                and typeMatches and yearMatches then
                 table.insert(matches, {entry = entry, key = candidate.key})
             elseif mappedName ~= normalizedInput then
                 rejectedNames[mappedName] = true
@@ -2183,10 +2215,15 @@ local function resolveTestItem(rawName)
             return nil, name .. ": совпадение MM2/Supreme не подтверждено (найдено другое название: "
                 .. table.concat(rejected, ", ") .. "). Предмет не будет оценён."
         end
+        if requestedType or requestedYear then
+            return nil, name .. ": вариант с указанным типом/годом не найден в числовых оценках Supreme."
+        end
         return nil, name .. ": нет числовой оценки Supreme (предмет не найден или у него только тир)"
     end
     if #matches > 1 then
-        return nil, name .. ": найдено несколько вариантов. Уточни тип предмета (Knife/Gun) или год."
+        local hint = "Уточни тип предмета: добавь Gun или Knife"
+        if requestedType then hint = "Уточни год, например 2023 или 2024" end
+        return nil, name .. ": найдено несколько вариантов. " .. hint .. "."
     end
     return {name = matches[1].entry.name, value = tonumber(matches[1].entry.v), quantity = quantity}
 end
