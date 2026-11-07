@@ -2114,7 +2114,7 @@ local function makeOfferInput(name, labelText, y)
     box.TextSize = 12
     box.TextColor3 = Color3.fromRGB(235, 240, 250)
     box.PlaceholderColor3 = Color3.fromRGB(130, 140, 160)
-    box.PlaceholderText = "Laser x2\\nSeer"
+    box.PlaceholderText = "Laser x2\nSeer"
     box.Text = ""
     box.ZIndex = 401
     box.Parent = testFrame
@@ -2173,7 +2173,7 @@ end
 
 local function parseTestOffer(textValue)
     local items, total = {}, 0
-    for line in tostring(textValue or ""):gmatch("[^\\r\\n]+") do
+    for line in tostring(textValue or ""):gmatch("[^\r\n]+") do
         local raw = clean(line)
         if raw ~= "" then
             local item, err = resolveTestItem(raw)
@@ -2212,7 +2212,7 @@ compareTest.Activated:Connect(function()
     local verdict, difference = getVerdict(yourTotal, theirTotal)
     local sign = difference > 0 and "+" or ""
     testResult.Text = verdict .. "  " .. sign .. formatValue(difference)
-        .. "\\nYOU: " .. formatValue(yourTotal)
+        .. "\nYOU: " .. formatValue(yourTotal)
         .. "  |  THEM: " .. formatValue(theirTotal)
     testResult.TextColor3 = verdict == "WIN" and Color3.fromRGB(65, 240, 145)
         or verdict == "LOSE" and Color3.fromRGB(255, 90, 105)
