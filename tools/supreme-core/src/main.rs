@@ -89,8 +89,8 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
     let head_selector = Selector::parse(".itemhead").map_err(|e| e.to_string())?;
     let origin_selector = Selector::parse(".itemorigin").map_err(|e| e.to_string())?;
     let image_selector = Selector::parse("img").map_err(|e| e.to_string())?;
-    let value_re = Regex::new(r"(?i)Value\s*[-:]\s*([0-9][0-9,.]*)").unwrap();
-    let tier_re = Regex::new(r"(?i)Value\s*[-:]\s*([x×]\s*\d+\s+T\d+\s+[A-Za-z]+)").unwrap();
+    let value_re = Regex::new(r"(?i)Value\s*[-:–—]\s*([0-9][0-9,.]*)").unwrap();
+    let tier_re = Regex::new(r"(?i)Value\s*[-:–—]\s*([x×]\s*\d+\s+T\d+\s+[A-Za-z]+)").unwrap();
     let class_re = Regex::new(r"(?i)Class\s*[-:]\s*([A-Za-z]+)").unwrap();
     let mut entries = Vec::new();
     let mut cards = 0;
@@ -126,8 +126,8 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
     Ok((entries, cards))
 }
 fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEntry>, usize), String> {
-    let item_re = Regex::new(r"(?i)Image:\s*(.*?)\s*\|\s*(.*?)\s+Value\s*[-:]\s*([0-9][0-9,.]*)").unwrap();
-    let tier_re = Regex::new(r"(?i)Image:\s*(.*?)\s*\|\s*(.*?)\s+Value\s*[-:]\s*([x×]\s*\d+\s+T\d+\s+[A-Za-z]+)").unwrap();
+    let item_re = Regex::new(r"(?i)Image:\s*(.*?)\s*\|\s*(.*?)\s+Value\s*[-:–—]\s*([0-9][0-9,.]*)").unwrap();
+    let tier_re = Regex::new(r"(?i)Image:\s*(.*?)\s*\|\s*(.*?)\s+Value\s*[-:–—]\s*([x×]\s*\d+\s+T\d+\s+[A-Za-z]+)").unwrap();
     let origin_re = Regex::new(r"(?i)Origin\s*[-:]\s*(.*?)(?:Change in Value|$)").unwrap();
     let demand_re = Regex::new(r"(?i)Demand\s*[-:]\s*(\d+)").unwrap();
     let mut entries = Vec::new();
