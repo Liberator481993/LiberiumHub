@@ -69,6 +69,7 @@ local state = {
     inventoryDataEntries = 0,
     inventoryGroups = 0,
     inventoryFrameProbe = "not scanned",
+    inventoryKeyStats = "not scanned",
     inventoryGuiPath = "unknown",
     inventoryScreenList = "not scanned",
     busy = false,
@@ -344,6 +345,7 @@ local function buildMapping(entries, database, rustIndexData)
     local pets = type(database.Pets) == "table" and database.Pets or {}
     local index, petEntries = {}, {}
     local dbByName, dbByImage = {}, {}
+    local dbIds = {}
     local supremeByName = {}
     local function addSupremeCandidate(key, value)
         if key == "" then return end
@@ -434,6 +436,7 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     for id, item in pairs(weapons) do
+        dbIds[tostring(id)] = "Item"
         if type(item) ~= "table" then continue end
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
@@ -444,6 +447,7 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     for id, item in pairs(pets) do
+        dbIds[tostring(id)] = "Pet"
         if type(item) ~= "table" then continue end
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
@@ -706,6 +710,7 @@ local function buildMapping(entries, database, rustIndexData)
         chromaKeys = chromaKeys,
         dbByName = dbByName,
         dbByImage = dbByImage,
+        dbIds = dbIds,
         supremeByName = supremeByName,
         byName = byName,
         n = mappedCount,
@@ -1744,6 +1749,8 @@ local function scanModuleInventory()
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
     local frameProbe, probeCount = {}, 0
     local seen = {}
+    local keyHits, keyMisses, keySamples = 0, 0, {}
+    local mappedIds = state.mapped and state.mapped.dbIds or nil
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
     -- The previous scanner stopped one level too early and counted only the
@@ -1756,6 +1763,24 @@ local function scanModuleInventory()
             for itemKey, entry in pairs(subgroup) do
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
+                local keyText = tostring(itemKey)
+                local dbKind = mappedIds and mappedIds[keyText] or nil
+                if dbKind then keyHits = keyHits + 1 else keyMisses = keyMisses + 1 end
+                if #keySamples < 12 then
+                    local fields = {}
+                    for fieldName in pairs(entry) do
+                        table.insert(fields, tostring(fieldName))
+                    end
+                    table.sort(fields)
+                    table.insert(keySamples,
+                        tostring(collectionName) .. "/" .. tostring(subgroupName)
+                        .. " key=" .. keyText
+                        .. " db=" .. tostring(dbKind or "MISS")
+                        .. " fields={" .. table.concat(fields, ",") .. "}"
+                        .. " ItemID=" .. tostring(entry.ItemID or entry.ItemId or "nil")
+                        .. " ItemKey=" .. tostring(entry.ItemKey or entry.Key or "nil")
+                        .. " Name=" .. tostring(entry.Name or entry.ItemName or "nil"))
+                end
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
                 seen[tile] = true
@@ -1846,6 +1871,10 @@ local function scanModuleInventory()
     end
 
     state.inventoryFrameProbe = #frameProbe > 0 and table.concat(frameProbe, " | ") or "no visible data Frames"
+    state.inventoryKeyStats = "HITS=" .. tostring(keyHits)
+        .. " MISSES=" .. tostring(keyMisses)
+        .. " | samples: " .. (#keySamples > 0 and table.concat(keySamples, " || ") or "none")
+        .. (mappedIds and "" or " | MM2 database index unavailable")
     state.inventoryFrames = frameCount
     state.inventoryVisibleFrames = visibleFrames
     state.inventoryDataEntries = dataEntries
@@ -1948,6 +1977,7 @@ local function scanInventory()
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
+        .. " | itemKey vs MM2 DB: " .. tostring(state.inventoryKeyStats)
         .. " | Frame probe: " .. tostring(state.inventoryFrameProbe)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
@@ -2378,6 +2408,7 @@ local function buildDiagnostic()
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
+        "INVENTORY INTERNAL KEY AUDIT: " .. tostring(state.inventoryKeyStats),
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
         "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
