@@ -1979,7 +1979,7 @@ testButton.BorderSizePixel = 0
 testButton.Font = Enum.Font.GothamBold
 testButton.TextSize = 10
 testButton.TextColor3 = Color3.new(1, 1, 1)
-testButton.Text = "TEST TRADE"
+testButton.Text = "ТЕСТ ТРЕЙДА"
 testButton.ZIndex = 205
 testButton.Parent = panel
 
