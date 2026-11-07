@@ -1846,6 +1846,7 @@ local function setCollapsed(value)
     panel.Size = collapsed and collapsedSize or expandedSize
     output.Visible = not collapsed
     copyButton.Visible = not collapsed
+    exportButton.Visible = not collapsed
     toggle.Text = collapsed and "+" or "−"
     title.Text = collapsed and "SUPREME" or (state.status == "ok" and "SUPREME — READY" or "SUPREME — " .. string.upper(state.status))
 end
