@@ -1189,66 +1189,89 @@ local VALUE_TEXT_COLORS = {
 }
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
-    -- Parent to the real card Frame. Nested Container objects in mobile MM2
-    -- layouts can be clipped or sit below the icon, hiding otherwise valid badges.
-    local badgeParent = tile
-    if not badgeParent or not badgeParent:IsA("GuiObject") then return end
+    -- Keep a real badge on the card itself so mobile layouts do not clip it
+    -- inside the nested Container frame.
+    if not tile or not tile:IsA("GuiObject") then return end
 
-    local existing = badgeParent:FindFirstChild("__SupremeItemValue")
+    local existing = tile:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
     if value == nil and not hasTier then
-        -- Don't clutter the inventory with "N/A" or fake zero values.
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
     end
 
-    local label = makeLabel(badgeParent, "__SupremeItemValue", group)
-    label.BackgroundTransparency = 1
+    local label = makeLabel(tile, "__SupremeItemValue", group)
+    local accent = hasTier and Color3.fromRGB(255, 193, 92)
+        or VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
+    if normalize(itemName) == "emberbow" and value ~= nil then
+        accent = Color3.fromRGB(255, 85, 95)
+    end
+
+    local badgeText = value ~= nil and formatValue(value) or tostring(tierText)
+    local cardWidth = tonumber(tile.AbsoluteSize.X) or 0
+    if cardWidth < 36 then cardWidth = 72 end
+    local maxWidth = math.max(30, math.min(126, cardWidth - 6))
+    local badgeWidth = math.min(maxWidth, math.max(30, #badgeText * (hasTier and 5.6 or 6.2) + 14))
+
+    label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
+    label.BackgroundTransparency = 0.12
     label.BorderSizePixel = 0
     label.Font = Enum.Font.GothamBlack
+    label.Text = badgeText
+    label.TextColor3 = accent
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
-    label.TextScaled = true
+    label.TextScaled = false
+    label.TextSize = hasTier and 9 or 11
     label.TextYAlignment = Enum.TextYAlignment.Center
-    label.TextXAlignment = Enum.TextXAlignment.Right
-    label.TextSize = 13
-    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
-    label.TextStrokeTransparency = 0.12
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextStrokeColor3 = Color3.fromRGB(3, 5, 10)
+    label.TextStrokeTransparency = 0.48
+    label.AnchorPoint = Vector2.new(1, 0)
+    label.Position = UDim2.new(1, -3, 0, 3)
+    label.Size = UDim2.fromOffset(badgeWidth, 18)
+
     local highestZ = tile.ZIndex
     for _, descendant in ipairs(tile:GetDescendants()) do
-        if descendant:IsA("GuiObject") and descendant.Visible then
+        if descendant:IsA("GuiObject") and descendant ~= label and descendant.Visible then
             highestZ = math.max(highestZ, descendant.ZIndex)
         end
     end
     label.ZIndex = math.min(1000, highestZ + 5)
-    label.AnchorPoint = Vector2.new(1, 0)
-    label.Position = UDim2.new(1, -3, 0, 3)
-    label.Size = UDim2.new(1, -6, 0, 18)
 
-    -- Remove the previous dark background treatment and use crisp text only.
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UICorner") or child:IsA("UIStroke")
-            or child:IsA("UIGradient") then
-            child:Destroy()
-        end
+    -- Recreate styling if an older script version left a bare TextLabel.
+    local corner = label:FindFirstChildOfClass("UICorner")
+    if not corner then
+        corner = Instance.new("UICorner")
+        corner.Parent = label
     end
+    corner.CornerRadius = UDim.new(0, 6)
 
-    if value ~= nil then
-        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
-        if normalize(itemName) == "emberbow" then
-            accent = Color3.fromRGB(255, 75, 75)
-        end
-        label.Text = formatValue(value)
-        label.TextColor3 = accent
-    else
-        -- Keep the complete Supreme tier descriptor; reducing it to only T1
-        -- hides the multiplier and item class (for example, "x3 T1 Uncommons").
-        label.Text = tostring(tierText)
-        label.TextColor3 = Color3.fromRGB(255, 190, 75)
+    local stroke = label:FindFirstChild("SupremeStroke")
+    if not stroke or not stroke:IsA("UIStroke") then
+        if stroke then stroke:Destroy() end
+        stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Parent = label
     end
+    stroke.Color = accent
+    stroke.Thickness = 1
+    stroke.Transparency = 0.22
+
+    local gradient = label:FindFirstChild("SupremeGradient")
+    if not gradient or not gradient:IsA("UIGradient") then
+        if gradient then gradient:Destroy() end
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Parent = label
+    end
+    gradient.Rotation = 90
+    gradient.Color = ColorSequence.new(
+        Color3.fromRGB(37, 43, 61),
+        Color3.fromRGB(10, 13, 23)
+    )
     label.Visible = true
 end
-
 local function scanRoot(root, group)
     local total, known, count, tierCount = 0, 0, 0, 0
     if not root then return total, known, count, tierCount end
@@ -1428,30 +1451,62 @@ end
 local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
     local label = makeLabel(parent, name, group)
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UIGradient") or child:IsA("UIStroke")
-            or child:IsA("UICorner") then
-            child:Destroy()
-        end
-    end
+    local accent = title == "YOU"
+        and Color3.fromRGB(77, 224, 191)
+        or Color3.fromRGB(177, 139, 255)
+
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(210, 22)
-    label.BackgroundTransparency = 1
-    label.TextSize = 14
+    label.Size = UDim2.fromOffset(210, 24)
+    label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
+    label.BackgroundTransparency = 0.12
+    label.BorderSizePixel = 0
+    label.TextSize = 13
+    label.TextScaled = false
     label.Font = Enum.Font.GothamBlack
-    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
-    label.TextStrokeTransparency = 0.14
+    label.TextStrokeColor3 = Color3.fromRGB(3, 5, 10)
+    label.TextStrokeTransparency = 0.55
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextColor3 = Color3.fromRGB(245, 250, 255)
-    local gradient = label:FindFirstChild("SupremeTextGradient")
-    if gradient then gradient:Destroy() end
-    label.Text = title .. " " .. formatValue(total)
-        .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
-        .. (known < count and " +?" or "")
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.TextColor3 = accent
+    label.ZIndex = 150
+
+    local corner = label:FindFirstChildOfClass("UICorner")
+    if not corner then
+        corner = Instance.new("UICorner")
+        corner.Parent = label
+    end
+    corner.CornerRadius = UDim.new(0, 7)
+
+    local stroke = label:FindFirstChild("SupremeStroke")
+    if not stroke or not stroke:IsA("UIStroke") then
+        if stroke then stroke:Destroy() end
+        stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Parent = label
+    end
+    stroke.Color = accent
+    stroke.Thickness = 1
+    stroke.Transparency = 0.3
+
+    local gradient = label:FindFirstChild("SupremeGradient")
+    if not gradient or not gradient:IsA("UIGradient") then
+        if gradient then gradient:Destroy() end
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Parent = label
+    end
+    gradient.Rotation = 90
+    gradient.Color = ColorSequence.new(
+        Color3.fromRGB(37, 43, 61),
+        Color3.fromRGB(10, 13, 23)
+    )
+
+    label.Text = title .. "  " .. formatValue(total)
+        .. ((tierCount or 0) > 0 and "  +TIER(" .. tostring(tierCount) .. ")" or "")
+        .. (known < count and "  +?" or "")
     label.Visible = count > 0
 end
-
 local function getVerdict(giveValue, receiveValue)
     local give = tonumber(giveValue) or 0
     local receive = tonumber(receiveValue) or 0
@@ -1584,16 +1639,12 @@ local TIER_SELF_TEST = runTierSelfTests()
 local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount, yourItems, theirItems)
     if not trade then return end
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UIGradient") or child:IsA("UIStroke")
-            or child:IsA("UICorner") then
-            child:Destroy()
-        end
-    end
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -35)
     label.Size = UDim2.fromOffset(190, 25)
-    label.BackgroundTransparency = 1
+    label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
+    label.BackgroundTransparency = 0.1
+    label.BorderSizePixel = 0
     label.ZIndex = 150
     label.Font = Enum.Font.GothamBlack
     label.TextSize = 16
@@ -1626,6 +1677,39 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     if gradient then gradient:Destroy() end
     label.TextColor3 = color
     label.Text = caption
+    label.TextSize = 14
+    label.TextScaled = true
+
+    local corner = label:FindFirstChildOfClass("UICorner")
+    if not corner then
+        corner = Instance.new("UICorner")
+        corner.Parent = label
+    end
+    corner.CornerRadius = UDim.new(0, 8)
+
+    local stroke = label:FindFirstChild("SupremeStroke")
+    if not stroke or not stroke:IsA("UIStroke") then
+        if stroke then stroke:Destroy() end
+        stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Parent = label
+    end
+    stroke.Color = color
+    stroke.Thickness = 1.15
+    stroke.Transparency = 0.2
+
+    local gradient = label:FindFirstChild("SupremeGradient")
+    if not gradient or not gradient:IsA("UIGradient") then
+        if gradient then gradient:Destroy() end
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Parent = label
+    end
+    gradient.Rotation = 90
+    gradient.Color = ColorSequence.new(
+        Color3.fromRGB(37, 43, 61),
+        Color3.fromRGB(10, 13, 23)
+    )
     label.Visible = true
 end
 
@@ -1816,8 +1900,9 @@ local function scanModuleInventory()
                 -- Do not depend on ItemName text: MM2's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
-                if type(entry.Amount) == "number" and quantity <= 1 then
-                    quantity = math.max(1, math.floor(entry.Amount))
+                local dataAmount = tonumber(entry.Amount)
+                if dataAmount and dataAmount > 0 then
+                    quantity = math.max(1, math.floor(dataAmount))
                 end
 
                 local exactPrefix = dbKind == "Pet" and "p:"
@@ -2100,7 +2185,7 @@ testButton.BorderSizePixel = 0
 testButton.Font = Enum.Font.GothamBold
 testButton.TextSize = 10
 testButton.TextColor3 = Color3.new(1, 1, 1)
-testButton.Text = "ТЕСТ ТРЕЙДА"
+testButton.Text = "СИМУЛЯТОР"
 testButton.ZIndex = 205
 testButton.Parent = panel
 
@@ -2190,7 +2275,7 @@ testTitle.Font = Enum.Font.GothamBold
 testTitle.TextSize = 14
 testTitle.TextColor3 = Color3.fromRGB(120, 220, 255)
 testTitle.TextXAlignment = Enum.TextXAlignment.Left
-testTitle.Text = "ТЕСТ ТРЕЙДА"
+testTitle.Text = "ОФЛАЙН СИМУЛЯТОР"
 testTitle.ZIndex = 401
 testTitle.Parent = testFrame
 
@@ -2540,7 +2625,7 @@ local function buildPhase1Dump()
     return table.concat(lines, "\n")
 end
 
-local function buildDiagnostic()
+local function buildDiagnostic(includeDeepDump)
     local lines = {
         "SUPREME TRADE CHECKER — MM2 MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
@@ -2573,7 +2658,8 @@ local function buildDiagnostic()
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
         "INVENTORY INTERNAL KEY AUDIT: " .. tostring(state.inventoryKeyStats),
-        buildPhase1Dump(),
+        includeDeepDump and buildPhase1Dump()
+            or "PHASE 1 DUMP: skipped during live refresh (tap COPY REPORT to include)",
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
         "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
@@ -2621,7 +2707,7 @@ exportButton.Activated:Connect(function()
 end)
 
 copyButton.Activated:Connect(function()
-    local report = buildDiagnostic()
+    local report = buildDiagnostic(true)
     copyButton.Text = copyText(report) and "REPORT COPIED" or "COPY UNAVAILABLE"
     task.delay(3, function()
         if copyButton and copyButton.Parent then
@@ -2665,7 +2751,7 @@ local function updateUi()
     else
         title.Text = collapsed and "SUPREME" or "SUPREME — " .. string.upper(state.status)
     end
-    output.Text = buildDiagnostic()
+    output.Text = buildDiagnostic(false)
 end
 
 textGui.Destroying:Connect(function()
