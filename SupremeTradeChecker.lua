@@ -68,6 +68,7 @@ local state = {
     inventoryGuiItems = 0,
     inventoryDataEntries = 0,
     inventoryGroups = 0,
+    inventoryFrameProbe = "not scanned",
     inventoryGuiPath = "unknown",
     inventoryScreenList = "not scanned",
     busy = false,
@@ -1133,8 +1134,9 @@ local VALUE_TEXT_COLORS = {
 }
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
-    local container = tile and tile:FindFirstChild("Container", true)
-    local badgeParent = container or tile
+    -- Parent to the real card Frame. Nested Container objects in mobile MM2
+    -- layouts can be clipped or sit below the icon, hiding otherwise valid badges.
+    local badgeParent = tile
     if not badgeParent or not badgeParent:IsA("GuiObject") then return end
 
     local existing = badgeParent:FindFirstChild("__SupremeItemValue")
@@ -1157,7 +1159,13 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.TextSize = 13
     label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
     label.TextStrokeTransparency = 0.12
-    label.ZIndex = 100
+    local highestZ = tile.ZIndex
+    for _, descendant in ipairs(tile:GetDescendants()) do
+        if descendant:IsA("GuiObject") and descendant.Visible then
+            highestZ = math.max(highestZ, descendant.ZIndex)
+        end
+    end
+    label.ZIndex = math.min(1000, highestZ + 5)
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
     label.Size = UDim2.new(1, -6, 0, 18)
@@ -1562,6 +1570,7 @@ local function scanModuleInventory()
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
+    local frameProbe, probeCount = {}, 0
     local seen = {}
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
@@ -1580,7 +1589,30 @@ local function scanModuleInventory()
                 seen[tile] = true
                 frameCount = frameCount + 1
                 if not tile.Parent then continue end
-                if visible(tile) then visibleFrames = visibleFrames + 1 end
+                local isVisible = visible(tile)
+                if isVisible then visibleFrames = visibleFrames + 1 end
+                if isVisible and probeCount < 5 then
+                    probeCount = probeCount + 1
+                    local icon = findTileIcon(tile)
+                    local container = tile:FindFirstChild("Container", true)
+                    local badge = tile:FindFirstChild("__SupremeItemValue", true)
+                    local amountNode = tile:FindFirstChild("Amount", true)
+                    local nameNode = tile:FindFirstChild("ItemName", true)
+                    table.insert(frameProbe,
+                        tostring(tile.Name)
+                        .. "{class=" .. tile.ClassName
+                        .. ",size=" .. tostring(tile.AbsoluteSize.X) .. "x" .. tostring(tile.AbsoluteSize.Y)
+                        .. ",z=" .. tostring(tile.ZIndex)
+                        .. ",clip=" .. tostring(tile.ClipsDescendants)
+                        .. ",container=" .. tostring(container and container.Name or "none")
+                        .. ",icon=" .. tostring(icon and assetId(icon.Image) or "none")
+                        .. ",nameNode=" .. tostring(nameNode ~= nil)
+                        .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
+                        .. ",badge=" .. tostring(badge ~= nil)
+                        .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
+                        .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
+                        .. "}")
+                end
 
                 -- Do not depend on ItemName text: MM2's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
@@ -1639,6 +1671,7 @@ local function scanModuleInventory()
         label.Visible = count > 0
     end
 
+    state.inventoryFrameProbe = #frameProbe > 0 and table.concat(frameProbe, " | ") or "no visible data Frames"
     state.inventoryFrames = frameCount
     state.inventoryVisibleFrames = visibleFrames
     state.inventoryDataEntries = dataEntries
@@ -1741,6 +1774,7 @@ local function scanInventory()
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
+        .. " | Frame probe: " .. tostring(state.inventoryFrameProbe)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
 
