@@ -595,7 +595,7 @@ local function buildMapping(entries, database)
         end
     end
 
-    local icon, iconCandidates, chromaOf, byName = {}, {}, {}, {}
+    local icon, iconCandidates, chromaOf, byName, chromaKeys = {}, {}, {}, {}, {}
     local function addIcon(item, idKey)
         local image = assetId(item.Image)
         if image then
@@ -605,7 +605,11 @@ local function buildMapping(entries, database)
     end
 
     for id, item in pairs(weapons) do
-        if type(item) == "table" then addIcon(item, "i:" .. tostring(id)) end
+        if type(item) == "table" then
+            local idKey = "i:" .. tostring(id)
+            addIcon(item, idKey)
+            if item.Chroma == true then chromaKeys[idKey] = true end
+        end
     end
     for id, item in pairs(weapons) do
         if type(item) == "table" and not item.Chroma and item.ItemID then
@@ -615,7 +619,11 @@ local function buildMapping(entries, database)
         end
     end
     for id, item in pairs(pets) do
-        if type(item) == "table" then addIcon(item, "p:" .. tostring(id)) end
+        if type(item) == "table" then
+            local idKey = "p:" .. tostring(id)
+            addIcon(item, idKey)
+            if item.Chroma == true then chromaKeys[idKey] = true end
+        end
     end
     -- Only unique asset IDs are safe for icon-based identification.
     for image, candidates in pairs(iconCandidates) do
@@ -668,6 +676,7 @@ local function buildMapping(entries, database)
         byKey = byKey,
         icon = icon,
         chromaOf = chromaOf,
+        chromaKeys = chromaKeys,
         dbByName = dbByName,
         dbByImage = dbByImage,
         supremeByName = supremeByName,
@@ -692,7 +701,7 @@ local function valueOf(tile, name)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
-        if chroma then
+        if chroma and not (mapped.chromaKeys and mapped.chromaKeys[iconKey]) then
             iconKey = mapped.chromaOf[iconKey]
             -- Never price a Chroma item with its non-Chroma counterpart.
             if not iconKey then return nil end
