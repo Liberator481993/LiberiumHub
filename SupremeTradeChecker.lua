@@ -1553,7 +1553,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     if yourCount == 0 or theirCount == 0 then
         caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+        caption, color = "NUMERIC VALUES NEEDED", Color3.fromRGB(255, 190, 65)
     elseif yourTierCount > 0 or theirTierCount > 0 then
         -- Tier labels are classes, not numerical prices. Never invent a
         -- numeric difference or issue a market verdict from tier counts.
@@ -1620,7 +1620,7 @@ local function scanTrade()
     }
     if yourCount > 0 and theirCount > 0 then
         if yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+            table.insert(lines, "RESULT: NUMERIC VALUES NEEDED — unresolved item")
         elseif yourTierCount > 0 or theirTierCount > 0 then
             table.insert(lines, "RESULT: NUMERIC VALUES NEEDED — tier labels are not prices")
         else
