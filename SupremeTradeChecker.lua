@@ -2069,7 +2069,7 @@ testTitle.Font = Enum.Font.GothamBold
 testTitle.TextSize = 14
 testTitle.TextColor3 = Color3.fromRGB(120, 220, 255)
 testTitle.TextXAlignment = Enum.TextXAlignment.Left
-testTitle.Text = "OFFLINE TRADE TEST"
+testTitle.Text = "ТЕСТ ТРЕЙДА"
 testTitle.ZIndex = 401
 testTitle.Parent = testFrame
 
@@ -2114,15 +2114,15 @@ local function makeOfferInput(name, labelText, y)
     box.TextSize = 12
     box.TextColor3 = Color3.fromRGB(235, 240, 250)
     box.PlaceholderColor3 = Color3.fromRGB(130, 140, 160)
-    box.PlaceholderText = "Laser x2\nSeer"
+    box.PlaceholderText = "Например: Laser x2\nSeer"
     box.Text = ""
     box.ZIndex = 401
     box.Parent = testFrame
     return box
 end
 
-local yourTestInput = makeOfferInput("YourTestOffer", "YOU GIVE — one item per line", 42)
-local theirTestInput = makeOfferInput("TheirTestOffer", "YOU RECEIVE — one item per line", 150)
+local yourTestInput = makeOfferInput("YourTestOffer", "ТЫ ОТДАЁШЬ (каждый предмет с новой строки)", 42)
+local theirTestInput = makeOfferInput("TheirTestOffer", "ТЫ ПОЛУЧАЕШЬ (каждый предмет с новой строки)", 150)
 
 local testResult = Instance.new("TextLabel")
 testResult.Size = UDim2.new(1, -24, 0, 58)
@@ -2133,7 +2133,7 @@ testResult.Font = Enum.Font.GothamBold
 testResult.TextSize = 12
 testResult.TextWrapped = true
 testResult.TextColor3 = Color3.fromRGB(230, 235, 245)
-testResult.Text = "Enter exact item names from your MM2 inventory."
+testResult.Text = "Впиши точные названия предметов на английском. Количество: Laser x2. Затем нажми «СРАВНИТЬ»."
 testResult.ZIndex = 401
 testResult.Parent = testFrame
 
@@ -2145,7 +2145,7 @@ compareTest.BorderSizePixel = 0
 compareTest.Font = Enum.Font.GothamBold
 compareTest.TextSize = 13
 compareTest.TextColor3 = Color3.new(1, 1, 1)
-compareTest.Text = "COMPARE OFFERS"
+compareTest.Text = "СРАВНИТЬ"
 compareTest.ZIndex = 402
 compareTest.Parent = testFrame
 
@@ -2196,24 +2196,25 @@ end)
 
 compareTest.Activated:Connect(function()
     if state.status ~= "ok" or type(state.mapped) ~= "table" then
-        testResult.Text = "Supreme data is still loading. Try again when READY."
+        testResult.Text = "Данные Supreme ещё загружаются. Подожди, пока появится READY."
         return
     end
     local yourItems, yourTotal, yourError = parseTestOffer(yourTestInput.Text)
     if not yourItems then
-        testResult.Text = "YOU GIVE: " .. tostring(yourError)
+        testResult.Text = "ТЫ ОТДАЁШЬ: " .. tostring(yourError)
         return
     end
     local theirItems, theirTotal, theirError = parseTestOffer(theirTestInput.Text)
     if not theirItems then
-        testResult.Text = "YOU RECEIVE: " .. tostring(theirError)
+        testResult.Text = "ТЫ ПОЛУЧАЕШЬ: " .. tostring(theirError)
         return
     end
     local verdict, difference = getVerdict(yourTotal, theirTotal)
     local sign = difference > 0 and "+" or ""
-    testResult.Text = verdict .. "  " .. sign .. formatValue(difference)
-        .. "\nYOU: " .. formatValue(yourTotal)
-        .. "  |  THEM: " .. formatValue(theirTotal)
+    testResult.Text = (verdict == "WIN" and "ВЫИГРЫШ" or verdict == "LOSE" and "ПРОИГРЫШ" or "РАВНО")
+        .. "  " .. sign .. formatValue(difference)
+        .. "\nТВОЁ: " .. formatValue(yourTotal)
+        .. "  |  ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
     testResult.TextColor3 = verdict == "WIN" and Color3.fromRGB(65, 240, 145)
         or verdict == "LOSE" and Color3.fromRGB(255, 90, 105)
         or Color3.fromRGB(105, 195, 255)
