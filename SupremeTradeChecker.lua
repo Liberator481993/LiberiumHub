@@ -40,6 +40,7 @@ local RUST_MAPPING_URL = "https://raw.githubusercontent.com/Liberator481993/Libe
 local state = {
     status = "loading",
     mapped = nil,
+    supremeEntries = nil,
     updated = 0,
     loadDuration = 0,
     lastUpdate = "Not loaded",
@@ -950,6 +951,7 @@ local function loadValues(force)
                 error("only " .. tostring(mapping.n) .. " MM2 records matched Supreme Values")
             end
 
+            state.supremeEntries = entries
             state.mapped = mapping
             state.dbItems = mapping.dbItems
             state.dbPets = mapping.dbPets
@@ -1812,16 +1814,29 @@ output.Parent = panel
 
 local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
-copyButton.Size = UDim2.new(1, -20, 0, 32)
+copyButton.Size = UDim2.new(0, 130, 0, 32)
 copyButton.Position = UDim2.new(0, 10, 1, -39)
 copyButton.BackgroundColor3 = Color3.fromRGB(35, 125, 145)
 copyButton.BorderSizePixel = 0
 copyButton.Font = Enum.Font.GothamBold
-copyButton.TextSize = 12
+copyButton.TextSize = 11
 copyButton.TextColor3 = Color3.new(1, 1, 1)
-copyButton.Text = "COPY FULL DIAGNOSTIC"
+copyButton.Text = "COPY REPORT"
 copyButton.ZIndex = 205
 copyButton.Parent = panel
+
+local exportButton = Instance.new("TextButton")
+exportButton.Name = "ExportSupremeData"
+exportButton.Size = UDim2.new(0, 130, 0, 32)
+exportButton.Position = UDim2.new(0, 150, 1, -39)
+exportButton.BackgroundColor3 = Color3.fromRGB(45, 115, 85)
+exportButton.BorderSizePixel = 0
+exportButton.Font = Enum.Font.GothamBold
+exportButton.TextSize = 11
+exportButton.TextColor3 = Color3.new(1, 1, 1)
+exportButton.Text = "EXPORT JSON"
+exportButton.ZIndex = 205
+exportButton.Parent = panel
 
 local collapsed = true
 local expandedSize = UDim2.fromOffset(290, 225)
@@ -1894,6 +1909,7 @@ local function buildDiagnostic()
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
         "Pages parsed: " .. tostring(state.parsedPages),
         "Supreme entries: " .. tostring(state.entryCount),
+        "Export-ready entries: " .. tostring(type(state.supremeEntries) == "table" and #state.supremeEntries or 0),
         "Supreme tier entries: " .. tostring(state.tierEntryCount or 0),
         "Value entries by category: " .. HttpService:JSONEncode(state.categoryCounts or {}),
         "Reference-page value cards (not mapped as single items): "
@@ -1919,6 +1935,46 @@ local function buildDiagnostic()
     }
     return table.concat(lines, "\n")
 end
+
+exportButton.Activated:Connect(function()
+    local entries = state.supremeEntries
+    if type(entries) ~= "table" or #entries < 300 then
+        exportButton.Text = "DATA NOT READY"
+        task.delay(3, function()
+            if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
+        end)
+        return
+    end
+
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode({
+            schema_version = 1,
+            source = "Supreme Values MM2 via Arceus X",
+            exported_at = os.date("%Y-%m-%d %H:%M:%S"),
+            entries = entries
+        })
+    end)
+    if not ok or type(encoded) ~= "string" then
+        exportButton.Text = "JSON ENCODE FAILED"
+        return
+    end
+
+    if type(writefile) == "function" then
+        local saved, saveError = pcall(writefile, "SupremeTradeChecker_export.json", encoded)
+        if saved then
+            exportButton.Text = "EXPORTED " .. tostring(#entries)
+        else
+            exportButton.Text = "SAVE FAILED"
+            warn("[Supreme Trade Checker] Export failed: " .. tostring(saveError))
+        end
+    else
+        local copied = copyText(encoded)
+        exportButton.Text = copied and "JSON COPIED" or "NO FILE API"
+    end
+    task.delay(5, function()
+        if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
+    end)
+end)
 
 copyButton.Activated:Connect(function()
     local report = buildDiagnostic()
