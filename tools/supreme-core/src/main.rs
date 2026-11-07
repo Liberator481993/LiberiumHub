@@ -206,6 +206,7 @@ fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
     let mut proxy_errors = Vec::new();
     for proxy_url in proxies {
         match client.get(&proxy_url)
+            .timeout(Duration::from_secs(10))
             .header("Accept", "text/plain,text/html,*/*")
             .header("X-Return-Format", "markdown")
             .send().and_then(|r| r.error_for_status()).and_then(|r| r.text()) {
