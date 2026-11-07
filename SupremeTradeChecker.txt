@@ -40,6 +40,7 @@ local state = {
     status = "loading",
     mapped = nil,
     updated = 0,
+    loadDuration = 0,
     lastUpdate = "Not loaded",
     source = "",
     pageCount = 0,
@@ -59,6 +60,9 @@ local state = {
     inventoryModuleRetryAt = 0,
     inventoryFrames = 0,
     inventoryVisibleFrames = 0,
+    inventoryGuiFrames = 0,
+    inventoryGuiValued = 0,
+    inventoryGuiItems = 0,
     inventoryDataEntries = 0,
     inventoryGroups = 0,
     inventoryGuiPath = "unknown",
@@ -198,6 +202,10 @@ local function parseCategory(category, html, output)
         end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
         local origin = decodeText(card:match('class="itemorigin">([^<]*)<') or "")
+        local imageAlt = card:match('<img[^>]-alt="([^"]*)"')
+            or card:match("<img[^>]-alt='([^']*)'")
+        imageAlt = decodeText(imageAlt or "")
+        local pageEvent = card:match('data%-event="([^"]+)"')
         if (amount or tierText) and (not amount or amount < 500000)
             and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
@@ -205,10 +213,11 @@ local function parseCategory(category, html, output)
                 table.insert(output, {
                     c = category,
                     n = name,
+                    im = imageAlt,
                     v = amount,
                     t = tierText,
                     y = card:match('data%-year="(%d%d%d%d)'),
-                    e = card:match('data%-event="([^"]+)"'),
+                    e = pageEvent,
                     o = origin ~= "" and origin or nil,
                     cl = card:match("Class %- <b>([^<]+)</b>"),
                     dm = card:match('data%-demand="(%d+)"')
@@ -332,16 +341,48 @@ local function buildMapping(entries, database)
         local tierText = clean(value.t)
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
 
-        local name, kind = tostring(value.n or ""), nil
-        local baseName, suffix = name:match("^(.-)%s*%((%a+)%)%s*$")
-        if baseName and (suffix == "Knife" or suffix == "Gun") then
-            name, kind = baseName, suffix
+        -- Parse both the value title and image label; the image label often
+        -- carries the exact weapon type/year while the value title is generic.
+        local function splitVariant(raw)
+            local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
+            local year
+            local base, suffix = text:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
+            if base then text, year = clean(base), suffix end
+
+            local kind
+            base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
+            if base and (suffix == "Knife" or suffix == "Gun") then
+                text, kind = clean(base), suffix
+            else
+                base, suffix = text:match("^(.-)%s+(%a+)$")
+                if base and (suffix == "Knife" or suffix == "Gun") then
+                    text, kind = clean(base), suffix
+                end
+            end
+            return text, kind, year
         end
 
-        local year = value.y
-        baseName, suffix = name:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
-        if baseName then name, year = baseName, suffix end
+        local name, kind, titleYear = splitVariant(value.n)
+        local year = value.y or titleYear
+        if value.y and titleYear and tostring(value.y) ~= tostring(titleYear) then
+            continue
+        end
         if not year and value.o then year = tostring(value.o):match("(20%d%d)") end
+
+        local _, altKind, altYear = splitVariant(value.im)
+        if altKind then
+            if kind and kind ~= altKind then continue end
+            kind = altKind
+        end
+        if altYear then
+            if year and tostring(year) ~= tostring(altYear) then continue end
+            year = altYear
+        end
+
+        local event = clean(value.e)
+        if event == "" and value.o then
+            event = clean(tostring(value.o):match("^(.-)%s+20%d%d") or "")
+        end
 
         local chroma = category == "chromas"
         if chroma then
@@ -413,25 +454,30 @@ local function buildMapping(entries, database)
 
         if kind then filterMatches(function(item) return item.ItemType == kind end) end
         if value.cl then
-            filterMatches(function(item) return item.Rarity == value.cl end)
-        end
-        -- Year/Event are useful discriminators when MM2 exposes them, but
-        -- many valid database records omit these fields. Missing metadata
-        -- must not erase an otherwise exact name/category match.
-        if year then
             filterMatches(function(item)
-                local itemYear = item.Year
-                return itemYear == nil or tostring(itemYear) == ""
-                    or tostring(itemYear) == tostring(year)
+                return normalize(item.Rarity) == normalize(value.cl)
             end)
         end
-        if value.e then
-            filterMatches(function(item)
-                local itemEvent = item.Event
-                return itemEvent == nil or tostring(itemEvent) == ""
-                    or tostring(itemEvent) == tostring(value.e)
-            end)
+
+        local function preferExactMetadata(field, wanted)
+            if not wanted or clean(wanted) == "" then return end
+            local exact, unknown = {}, {}
+            for _, candidate in ipairs(matches) do
+                local actual = clean(candidate.item[field])
+                if actual == "" then
+                    table.insert(unknown, candidate)
+                elseif normalize(actual) == normalize(wanted) then
+                    table.insert(exact, candidate)
+                end
+            end
+            if #exact > 0 then
+                matches = exact
+            else
+                matches = unknown
+            end
         end
+        preferExactMetadata("Year", year)
+        preferExactMetadata("Event", event)
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
@@ -542,33 +588,38 @@ local function valueOf(tile, name)
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
 
-    -- Prefer an exact visible item name. A shared/reused icon can otherwise
-    -- make one skin inherit another skin's value.
-    local namedMatches = {}
-    local normalizedName = normalize(name)
-    if normalizedName ~= "" then
-        for _, candidate in ipairs(mapped.byName[normalizedName] or {}) do
-            if candidate.chroma == chroma and mapped.byKey[candidate.key] then
-                table.insert(namedMatches, candidate)
-            end
-        end
-    end
-    if #namedMatches == 1 then
-        local entry = mapped.byKey[namedMatches[1].key]
-        return entry.v, entry.name, entry.t
-    end
-
-    -- Fall back to image matching only when the asset ID is globally unique.
+    -- A globally unique database icon is the strongest identifier. Resolve it
+    -- before the visible name because seasonal skins often share one label.
     local container = tile and tile:FindFirstChild("Container")
     local iconObject = container and container:FindFirstChild("Icon")
-    local id = iconObject and assetId(iconObject.Image)
-    local idKey = id and mapped.icon[id]
-    if idKey and chroma then
-        idKey = mapped.chromaOf[idKey] or idKey
+    local imageId = iconObject and assetId(iconObject.Image)
+    local iconKey = imageId and mapped.icon[imageId]
+    if iconKey then
+        if chroma then iconKey = mapped.chromaOf[iconKey] or iconKey end
+        local entry = mapped.byKey[iconKey]
+        -- The icon identifies the exact MM2 record. Do not fall through to a
+        -- different same-name item when Supreme has no value for this record.
+        if entry then return entry.v, entry.name, entry.t, entry.category end
+        return nil
     end
-    if idKey and mapped.byKey[idKey] then
-        local entry = mapped.byKey[idKey]
-        return entry.v, entry.name, entry.t
+
+    -- Use a name only when it identifies exactly one database record after
+    -- applying the visible Chroma state. A unique mapped-name candidate alone
+    -- is insufficient: other same-name skins may simply be unmapped.
+    local normalizedName = normalize(name)
+    if normalizedName ~= "" then
+        local databaseMatches = {}
+        for _, candidate in ipairs(mapped.dbByName[normalizedName] or {}) do
+            if candidate.chroma == chroma then
+                table.insert(databaseMatches, candidate)
+            end
+        end
+        if #databaseMatches == 1 then
+            local candidate = databaseMatches[1]
+            local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
+            local entry = mapped.byKey[key]
+            if entry then return entry.v, entry.name, entry.t, entry.category end
+        end
     end
     return nil
 end
@@ -579,50 +630,73 @@ local function loadValues(force)
     state.busy = true
     state.status = "loading"
     task.spawn(function()
+        local loadStarted = os.clock()
         local ok, err = pcall(function()
             local entries = {}
             local pageCount, parsedPages, entryCount, tierEntryCount = 0, 0, 0, 0
             local failed, methods = {}, {}
             local categoryCounts, referenceValueCounts, categoryCardCounts = {}, {}, {}
 
-            for _, category in ipairs(CATEGORIES) do
+            -- Four concurrent workers reduce the sequential network wait without
+            -- flooding the executor with all 14 requests at once.
+            local fetched = {}
+            local nextIndex = 1
+            for worker = 1, 4 do
+                task.spawn(function()
+                    while not stopped do
+                        local index = nextIndex
+                        nextIndex = nextIndex + 1
+                        local category = CATEGORIES[index]
+                        if not category then break end
+                        local ok, html, fetchInfo = pcall(fetchPage, BASE .. category)
+                        if not ok then
+                            fetched[index] = {html = nil, info = "request worker error: " .. tostring(html)}
+                        else
+                            fetched[index] = {html = html, info = fetchInfo}
+                        end
+                    end
+                end)
+            end
+            while not stopped do
+                local complete = true
+                for index = 1, #CATEGORIES do
+                    if fetched[index] == nil then complete = false break end
+                end
+                if complete then break end
+                task.wait(0.05)
+            end
+
+            for index, category in ipairs(CATEGORIES) do
                 if stopped then return end
-                local html, fetchInfo = fetchPage(BASE .. category)
+                local result = fetched[index]
+                local html, fetchInfo = result and result.html, result and result.info
                 if not html then
-                    table.insert(failed, category .. ": " .. tostring(fetchInfo))
+                    table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
                 else
                     pageCount = pageCount + 1
                     methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
-
                     local pageEntries = {}
                     local count, tierCount = parseCategory(category, html, pageEntries)
                     local cardCount = countItemCards(html)
                     categoryCardCounts[category] = cardCount
-
                     if cardCount > 0 then parsedPages = parsedPages + 1 end
                     if VALUE_CATEGORIES[category] then
                         categoryCounts[category] = count
-                        for _, entry in ipairs(pageEntries) do
-                            table.insert(entries, entry)
-                        end
+                        for _, entry in ipairs(pageEntries) do table.insert(entries, entry) end
                         entryCount = entryCount + count
                         tierEntryCount = tierEntryCount + (tierCount or 0)
-
                         local minimum = MINIMUM[category] or 1
                         if count < minimum then
                             table.insert(failed, category .. ": only " .. tostring(count)
                                 .. " value cards parsed (expected at least " .. tostring(minimum) .. ")")
                         end
                     else
-                        -- These pages are scanned for completeness but their
-                        -- set/evolution/cosmetic entries are not weapon values.
                         referenceValueCounts[category] = count
                         if cardCount < 1 then
                             table.insert(failed, category .. ": no reference cards detected")
                         end
                     end
                 end
-                task.wait(0.15)
             end
 
             state.pageCount = pageCount
@@ -655,6 +729,7 @@ local function loadValues(force)
             state.status = "ok"
             state.source = dbSource
             state.updated = os.clock()
+            state.loadDuration = state.updated - loadStarted
             state.lastUpdate = os.date("%H:%M:%S")
         end)
 
@@ -664,6 +739,7 @@ local function loadValues(force)
         else
             state.lastError = nil
         end
+        state.loadDuration = os.clock() - loadStarted
         state.busy = false
     end)
 end
@@ -735,7 +811,19 @@ local function getTiles(root)
         local seen = {}
         for _, node in ipairs(root:GetDescendants()) do
             if node.Name == "ItemName" then
-                local tile = node.Parent
+                local current = node.Parent
+                local tile
+                while current and current ~= root do
+                    if current:IsA("GuiObject") then
+                        local container = current:FindFirstChild("Container")
+                        if container and container:FindFirstChild("Icon") then
+                            tile = current
+                            break
+                        end
+                    end
+                    current = current.Parent
+                end
+                tile = tile or node.Parent
                 if tile and tile:FindFirstChild("Container") and not seen[tile] then
                     seen[tile] = true
                     table.insert(cached.tiles, tile)
@@ -756,82 +844,94 @@ local function makeLabel(parent, name, group)
     if not label then
         label = Instance.new("TextLabel")
         label.Name = name
-        label.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
-        label.BackgroundTransparency = 0.15
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextStrokeTransparency = 0.45
-        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.BackgroundColor3 = Color3.fromRGB(25, 30, 48)
+        label.BackgroundTransparency = 0.12
+        label.TextColor3 = Color3.fromRGB(248, 250, 255)
+        label.TextStrokeTransparency = 1
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.TextYAlignment = Enum.TextYAlignment.Center
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 12
+        label.TextSize = 11
         label.BorderSizePixel = 0
         label.ZIndex = 90
         label.Parent = parent
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = label
+        local stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Thickness = 1
+        stroke.Transparency = 0.2
+        stroke.Color = Color3.fromRGB(112, 145, 255)
+        stroke.Parent = label
+        local gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Rotation = 90
+        gradient.Color = ColorSequence.new(Color3.fromRGB(48, 56, 88), Color3.fromRGB(20, 24, 40))
+        gradient.Parent = label
     end
     label:SetAttribute("SupremeOwner", group)
     return label
 end
 
-local function updateTileBadge(tile, value, quantity, group, tierText)
+local VALUE_TEXT_COLORS = {
+    uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
+    chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
+    vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
+    -- Swap the two low-tier accents to match the in-game item color mapping.
+    rares = Color3.fromRGB(94, 220, 171), uncommons = Color3.fromRGB(104, 174, 255),
+    commons = Color3.fromRGB(228, 235, 248), pets = Color3.fromRGB(116, 225, 210),
+    misc = Color3.fromRGB(190, 190, 205)
+}
+
+local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
-    local label = container:FindFirstChild("__SupremeItemValue")
-    if value == nil and not tierText then
-        if label and label:IsA("TextLabel") then
-            label.Text = "?"
-            label.Visible = true
-        end
+
+    local existing = container:FindFirstChild("__SupremeItemValue")
+    local hasTier = type(tierText) == "string" and tierText ~= ""
+    if value == nil and not hasTier then
+        -- Don't clutter the inventory with "N/A" or fake zero values.
+        if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
     end
 
-    label = makeLabel(container, "__SupremeItemValue", group)
-    quantity = math.max(1, tonumber(quantity) or 1)
-    local text
-    if tierText then
-        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
-        if units then
-            local perItem = tonumber(units) or 0
-            text = "x" .. tostring(perItem) .. " " .. tier .. " " .. rarity
-            if quantity > 1 then
-                text = text .. " x" .. tostring(quantity)
-                    .. " = x" .. tostring(perItem * quantity) .. " " .. tier .. " " .. rarity
-            end
-        else
-            text = tierText .. (quantity > 1 and " x" .. tostring(quantity) or "")
-        end
-    else
-        text = formatValue(value)
-        if quantity > 1 then
-            text = text .. " x" .. tostring(quantity) .. " = " .. formatValue(value * quantity)
+    local label = makeLabel(container, "__SupremeItemValue", group)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.Font = Enum.Font.GothamBlack
+    label.TextWrapped = false
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.TextScaled = true
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.TextXAlignment = Enum.TextXAlignment.Right
+    label.TextSize = 13
+    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
+    label.TextStrokeTransparency = 0.12
+    label.ZIndex = 100
+    label.AnchorPoint = Vector2.new(1, 0)
+    label.Position = UDim2.new(1, -3, 0, 3)
+    label.Size = UDim2.new(1, -6, 0, 18)
+
+    -- Remove the previous dark background treatment and use crisp text only.
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UICorner") or child:IsA("UIStroke")
+            or child:IsA("UIGradient") then
+            child:Destroy()
         end
     end
 
-    local isTier = tierText ~= nil and tierText ~= ""
-    local width = math.max(60, container.AbsoluteSize.X - 6)
-    local height
-    if isTier then
-        -- Keep long tier equivalents inside each inventory card. The first
-        -- line is the per-item value; the second is the duplicate quantity total.
-        local units, tier, rarity = tierText:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
-        if units and quantity > 1 then
-            text = "x" .. units .. " " .. tier .. " " .. rarity
-                .. "\n" .. tostring(quantity) .. " items = x"
-                .. tostring((tonumber(units) or 0) * quantity) .. " " .. tier .. " " .. rarity
+    if value ~= nil then
+        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
+        if normalize(itemName) == "emberbow" then
+            accent = Color3.fromRGB(255, 75, 75)
         end
-        height = quantity > 1 and 38 or 24
-        label.TextWrapped = true
-        label.TextYAlignment = Enum.TextYAlignment.Center
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.TextSize = 11
-        label.Size = UDim2.fromOffset(width, height)
+        label.Text = formatValue(value)
+        label.TextColor3 = accent
     else
-        height = math.clamp(math.floor(container.AbsoluteSize.Y * 0.19 + 0.5), 18, 24)
-        label.TextWrapped = false
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.TextSize = math.max(11, math.floor(height * 0.72))
-        label.Size = UDim2.fromOffset(math.clamp(math.max(70, #text * height * 0.48 + 12), 70, width), height)
+        label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
+        label.TextColor3 = Color3.fromRGB(255, 190, 75)
     end
-    label.Position = UDim2.fromOffset(3, 3)
-    label.Text = " " .. text
     label.Visible = true
 end
 
@@ -842,7 +942,7 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value, _, tierText = valueOf(tile, name)
+        local value, _, tierText, category = valueOf(tile, name)
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
@@ -854,7 +954,7 @@ local function scanRoot(root, group)
         if value == nil and not tierText and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(tile, value, quantity, group, tierText)
+        updateTileBadge(tile, value, quantity, group, tierText, category, name)
     end
     return total, known, count, tierCount
 end
@@ -901,7 +1001,7 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
-        local value, _, tierText = valueOf(card, name)
+        local value, _, tierText, category = valueOf(card, name)
         if value == nil and not tierText then
             local amountNode = card:FindFirstChild("Container")
                 and card.Container:FindFirstChild("Amount")
@@ -919,7 +1019,7 @@ local function scanImageCards(root, group)
         if value == nil and not tierText and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(card, value, quantity, group, tierText)
+        updateTileBadge(card, value, quantity, group, tierText, category, name)
     end
     return total, known, count, tierCount
 end
@@ -960,7 +1060,7 @@ local function scanOffer(offer, group)
         if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
-            local value, resolvedName, tierText = valueOf(tile, name)
+            local value, resolvedName, tierText, category = valueOf(tile, name)
             if name or value ~= nil or tierText then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
@@ -979,7 +1079,7 @@ local function scanOffer(offer, group)
                 if value == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedTrade)
                 end
-                updateTileBadge(tile, value, quantity, group, tierText)
+                updateTileBadge(tile, value, quantity, group, tierText, category, name)
             end
         end
     end
@@ -989,23 +1089,85 @@ end
 local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
     local label = makeLabel(parent, name, group)
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UIGradient") or child:IsA("UIStroke")
+            or child:IsA("UICorner") then
+            child:Destroy()
+        end
+    end
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
     label.Size = UDim2.fromOffset(210, 22)
-    label.TextSize = 12
+    label.BackgroundTransparency = 1
+    label.TextSize = 14
+    label.Font = Enum.Font.GothamBlack
+    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
+    label.TextStrokeTransparency = 0.14
     label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextColor3 = Color3.fromRGB(245, 250, 255)
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if gradient then gradient:Destroy() end
     label.Text = title .. " " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " +?" or "")
     label.Visible = count > 0
 end
 
-local function getVerdict(give, get)
-    local difference = get - give
-    if math.abs(difference) <= math.max(0.02 * math.max(give, get), 0.005) then
+local function getVerdict(giveValue, receiveValue)
+    local give = tonumber(giveValue) or 0
+    local receive = tonumber(receiveValue) or 0
+    local difference = receive - give
+    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.005)
+    if math.abs(difference) <= tolerance then
         return "FAIR", difference
     end
     return difference > 0 and "WIN" or "LOSE", difference
+end
+
+local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
+    if not trade then return end
+    local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UIGradient") or child:IsA("UIStroke")
+            or child:IsA("UICorner") then
+            child:Destroy()
+        end
+    end
+    label.AnchorPoint = Vector2.new(0.5, 1)
+    label.Position = UDim2.new(0.5, 0, 1, -35)
+    label.Size = UDim2.fromOffset(190, 25)
+    label.BackgroundTransparency = 1
+    label.ZIndex = 150
+    label.Font = Enum.Font.GothamBlack
+    label.TextSize = 16
+    label.TextScaled = true
+    label.TextWrapped = false
+    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
+    label.TextStrokeTransparency = 0.12
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextYAlignment = Enum.TextYAlignment.Center
+
+    local verdict, difference, caption, color
+    if yourCount == 0 or theirCount == 0 then
+        caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
+    elseif yourTierCount > 0 or theirTierCount > 0 then
+        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
+    elseif yourKnown < yourCount or theirKnown < theirCount then
+        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+    else
+        verdict, difference = getVerdict(yourTotal, theirTotal)
+        local sign = difference > 0 and "+" or ""
+        caption = verdict .. "  " .. sign .. formatValue(difference)
+        color = verdict == "WIN" and Color3.fromRGB(45, 255, 135)
+            or verdict == "LOSE" and Color3.fromRGB(255, 65, 85)
+            or Color3.fromRGB(75, 195, 255)
+    end
+
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if gradient then gradient:Destroy() end
+    label.TextColor3 = color
+    label.Text = caption
+    label.Visible = true
 end
 
 local function scanTrade()
@@ -1025,6 +1187,8 @@ local function scanTrade()
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
     setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
     setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
+    setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
+        yourCount, theirCount, yourTierCount, theirTierCount)
 
     local lines = {
         "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
@@ -1037,6 +1201,8 @@ local function scanTrade()
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
             table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
+        elseif yourKnown < yourCount or theirKnown < theirCount then
+            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -1132,7 +1298,7 @@ local function scanModuleInventory()
                 if type(entry.Amount) == "number" and quantity <= 1 then
                     quantity = math.max(1, math.floor(entry.Amount))
                 end
-                local resolvedValue, _, tierText = valueOf(tile, name)
+                local resolvedValue, _, tierText, category = valueOf(tile, name)
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
@@ -1144,13 +1310,27 @@ local function scanModuleInventory()
                 if resolvedValue == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText)
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
             end
         end
     end
 
     scanCollection(data.Weapons, "Weapons")
     scanCollection(data.Pets, "Pets")
+
+    local guiInstance = typeof(gui) == "Instance" and gui or nil
+    if guiInstance then
+        local guiTiles = getTiles(guiInstance)
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
+        scanImageCards(guiInstance, "inventoryOverlay")
+        state.inventoryGuiFrames = #guiTiles
+        state.inventoryGuiValued = guiKnown or 0
+        state.inventoryGuiItems = guiCount or 0
+    else
+        state.inventoryGuiFrames = 0
+        state.inventoryGuiValued = 0
+        state.inventoryGuiItems = 0
+    end
 
     -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
     -- Put the running total on the visible inventory page when available.
@@ -1175,19 +1355,6 @@ local function scanModuleInventory()
     state.inventoryGroups = groupCount
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
-
-    local guiInstance = typeof(gui) == "Instance" and gui or nil
-    if guiInstance and guiInstance:IsA("GuiObject") and visible(guiInstance) then
-        local label = makeLabel(guiInstance, "__SupremeInventoryTotal", "inventory")
-        label.AnchorPoint = Vector2.new(0, 1)
-        label.Position = UDim2.new(0, 4, 1, -5)
-        label.Size = UDim2.fromOffset(290, 28)
-        label.TextSize = 12
-        label.Text = "INV " .. formatValue(total)
-            .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
-            .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
-        label.Visible = count > 0
-    end
 
     return total, known, count, visibleFrames, myInventory, tierCount
 end
@@ -1279,6 +1446,8 @@ local function scanInventory()
         .. " | Data entries: " .. tostring(state.inventoryDataEntries)
         .. " | Frames: " .. tostring(state.inventoryFrames)
         .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
+        .. " | GUI cards: " .. tostring(state.inventoryGuiFrames)
+        .. " | GUI valued: " .. tostring(state.inventoryGuiValued) .. "/" .. tostring(state.inventoryGuiItems)
         .. " | Groups: " .. tostring(state.inventoryGroups)
         .. " | GUI: " .. tostring(state.inventoryGuiPath)
         .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
@@ -1434,6 +1603,7 @@ local function buildDiagnostic()
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
         "Status: " .. tostring(state.status),
+        "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
         "Values source: " .. BASE,
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
         "Pages parsed: " .. tostring(state.parsedPages),
