@@ -46,8 +46,16 @@ jobs:
         run: |
           mkdir -p data
           cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- refresh data/SupremeTradeChecker.mapping.json
+      - name: Checkout data publication branch
+        uses: actions/checkout@v4
+        with:
+          ref: supreme-values-data
+          path: publish
       - name: Publish updated mapping
         run: |
+          mkdir -p publish/data
+          cp data/SupremeTradeChecker.mapping.json publish/data/SupremeTradeChecker.mapping.json
+          cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/SupremeTradeChecker.mapping.json
