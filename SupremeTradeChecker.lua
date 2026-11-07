@@ -1979,10 +1979,10 @@ end)
 
 copyButton.Activated:Connect(function()
     local report = buildDiagnostic()
-    copyButton.Text = copyText(report) and "COPIED — SEND THE TEXT" or "CLIPBOARD API UNAVAILABLE"
+    copyButton.Text = copyText(report) and "REPORT COPIED" or "COPY UNAVAILABLE"
     task.delay(3, function()
         if copyButton and copyButton.Parent then
-            copyButton.Text = "COPY FULL DIAGNOSTIC"
+            copyButton.Text = "COPY REPORT"
         end
     end)
 end)
