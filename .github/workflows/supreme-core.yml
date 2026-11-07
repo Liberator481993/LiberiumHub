@@ -3,24 +3,57 @@ name: Supreme Trade Core
 on:
   push:
     paths:
+      - "SupremeTradeChecker.lua"
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
   pull_request:
     paths:
+      - "SupremeTradeChecker.lua"
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
+  schedule:
+    - cron: "17 */6 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/supreme-core
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test
-      - run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
-      - run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path tools/supreme-core/Cargo.toml
+      - name: Verify JSON build pipeline
+        run: |
+          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- build tools/supreme-core/examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- total /tmp/SupremeTradeChecker.mapping.json tools/supreme-core/examples/items.json
+
+  refresh:
+    needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/supreme-trade-checker-rust-core')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch Supreme Values and build the validated dataset
+        run: |
+          mkdir -p data
+          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- refresh data/SupremeTradeChecker.mapping.json
+      - name: Publish updated mapping
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/SupremeTradeChecker.mapping.json
+          if git diff --cached --quiet; then
+            echo "Mapping is already current."
+          else
+            git commit -m "Update Supreme Values mapping"
+            git push
+          fi
