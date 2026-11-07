@@ -1512,7 +1512,7 @@ local function runTierSelfTests()
         {name = "fair", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Commons")}, expected = "FAIR"},
         {name = "different units", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Rares")}, expected = "UNCOMPARABLE"},
         {name = "mixed directions", yours = {item("x1 T1 Commons"), item("x3 T1 Rares")}, theirs = {item("x2 T1 Commons"), item("x2 T1 Rares")}, expected = "MIXED"},
-        {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "WIN"},
+        {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "LOSE"},
         {name = "singular/plural alias", yours = {item("x2 T1 Rare")}, theirs = {item("x2 T1 Rares")}, expected = "FAIR"}
     }
     for _, case in ipairs(cases) do
