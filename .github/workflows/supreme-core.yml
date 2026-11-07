@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "SupremeTradeChecker.lua"
+      - "data/supreme-export.json"
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
   pull_request:
@@ -11,8 +12,6 @@ on:
       - "SupremeTradeChecker.lua"
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
-  schedule:
-    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -34,7 +33,7 @@ jobs:
 
   refresh:
     needs: test
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/supreme-trade-checker-rust-core')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/supreme-trade-checker-rust-core' && contains(join(github.event.head_commit.added, ','), 'data/supreme-export.json'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,10 +41,18 @@ jobs:
           ref: ${{ github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Fetch Supreme Values and build the validated dataset
+      - name: Build and validate Rust mapping from the Arceus X export
         run: |
+          test -s data/supreme-export.json || { echo "Missing data/supreme-export.json. Export it from the Supreme Trade Checker in Arceus X, then commit/upload that JSON file."; exit 1; }
           mkdir -p data
-          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- refresh data/SupremeTradeChecker.mapping.json
+          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- build data/supreme-export.json data/SupremeTradeChecker.mapping.json
+      - name: Validate published mapping size and schema
+        run: |
+          test -s data/SupremeTradeChecker.mapping.json
+          cargo run --manifest-path tools/supreme-core/Cargo.toml --release -- total data/SupremeTradeChecker.mapping.json tools/supreme-core/examples/items.json >/tmp/supreme-total-smoke.json || true
+          grep -q '"schema_version": 1' data/SupremeTradeChecker.mapping.json
+          grep -q '"by_name"' data/SupremeTradeChecker.mapping.json
+          grep -q '"by_image_alt"' data/SupremeTradeChecker.mapping.json
       - name: Checkout data publication branch
         uses: actions/checkout@v4
         with:
