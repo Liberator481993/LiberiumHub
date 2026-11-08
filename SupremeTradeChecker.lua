@@ -1842,6 +1842,8 @@ local function scanModuleInventory()
     local frameProbe, probeCount = {}, 0
     local seen = {}
     local keyHits, keyMisses, keySamples = 0, 0, {}
+    local exactNumericQty, exactTierQty, knownNoSupremeQty, dbKeyMissQty = 0, 0, 0, 0
+    local noSupremeSamples, dbMissSamples = {}, {}
     local mappedIds = state.mapped and state.mapped.dbIds or nil
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
@@ -1857,7 +1859,15 @@ local function scanModuleInventory()
                 dataEntries = dataEntries + 1
                 local keyText = tostring(itemKey)
                 local dbKind = mappedIds and mappedIds[keyText] or nil
-                if dbKind then keyHits = keyHits + 1 else keyMisses = keyMisses + 1 end
+                if dbKind then keyHits = keyHits + 1 else
+                    keyMisses = keyMisses + 1
+                    dbKeyMissQty = dbKeyMissQty + math.max(1, tonumber(entry.Amount) or 1)
+                    if #dbMissSamples < 20 then
+                        table.insert(dbMissSamples, tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or "nil")
+                            .. " amount=" .. tostring(entry.Amount or 1))
+                    end
+                end
                 if #keySamples < 12 then
                     local fields = {}
                     for fieldName in pairs(entry) do
@@ -1932,9 +1942,22 @@ local function scanModuleInventory()
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
+                    if dbKind then exactNumericQty = exactNumericQty + quantity end
                 elseif tierText then
                     known = known + quantity
                     tierCount = tierCount + quantity
+                    if dbKind then exactTierQty = exactTierQty + quantity end
+                elseif dbKind then
+                    knownNoSupremeQty = knownNoSupremeQty + quantity
+                    if #noSupremeSamples < 30 then
+                        local image = findTileIcon(tile)
+                        table.insert(noSupremeSamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
+                            .. " type=" .. tostring(dbKind)
+                            .. " icon=" .. tostring(image and assetId(image.Image) or "none")
+                            .. " qty=" .. tostring(quantity))
+                    end
                 end
                 count = count + quantity
                 local dbRecognized = dbKind ~= nil
@@ -2014,6 +2037,13 @@ local function scanModuleInventory()
     state.inventoryVisibleFrames = visibleFrames
     state.inventoryDataEntries = dataEntries
     state.inventoryGroups = groupCount
+    state.inventoryResolutionStats =
+        "EXACT_NUMERIC=" .. tostring(exactNumericQty)
+        .. " EXACT_TIER=" .. tostring(exactTierQty)
+        .. " DB_KNOWN_NO_SUPREME=" .. tostring(knownNoSupremeQty)
+        .. " DB_KEY_MISS=" .. tostring(dbKeyMissQty)
+        .. " | no-Supreme samples: " .. (#noSupremeSamples > 0 and table.concat(noSupremeSamples, " || ") or "none")
+        .. " | DB-key misses: " .. (#dbMissSamples > 0 and table.concat(dbMissSamples, " || ") or "none")
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
 
@@ -2113,6 +2143,7 @@ local function scanInventory()
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
         .. " | itemKey vs MM2 DB: " .. tostring(state.inventoryKeyStats)
+        .. " | Resolution: " .. tostring(state.inventoryResolutionStats)
         .. " | Frame probe: " .. tostring(state.inventoryFrameProbe)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
@@ -2704,6 +2735,7 @@ local function buildDiagnostic(includeDeepDump)
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
         "INVENTORY INTERNAL KEY AUDIT: " .. tostring(state.inventoryKeyStats),
+        "INVENTORY RESOLUTION BREAKDOWN: " .. tostring(state.inventoryResolutionStats or "not available"),
         includeDeepDump and buildPhase1Dump()
             or "PHASE 1 DUMP: skipped during live refresh (tap COPY REPORT to include)",
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
