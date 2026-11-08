@@ -710,6 +710,7 @@ local function buildMapping(entries, database, rustIndexData)
     -- Full database coverage audit: every MM2 catalog record is recognized
     -- by its canonical key, whether or not Supreme publishes a value for it.
     local dbTotal, dbUnmapped, dbUnmappedSample = 0, 0, {}
+    local dbUnmappedAll, dbUniqueUnmapped = {}, {}
     local dbNumericMapped, dbTierMapped, dbExcludedNoValue = 0, 0, 0
     -- These two built-in defaults have no Supreme value by design.
     -- They remain part of the MM2 database total but are not coverage failures.
@@ -731,15 +732,18 @@ local function buildMapping(entries, database, rustIndexData)
                 dbExcludedNoValue = dbExcludedNoValue + 1
             else
                 dbUnmapped = dbUnmapped + 1
-                if #dbUnmappedSample < 40 then
-                    table.insert(dbUnmappedSample,
-                        idText .. "=" .. tostring(item[nameField] or item.Name or "")
-                        .. "{type=" .. tostring(item.ItemType or "Pet")
-                        .. ",rarity=" .. tostring(item.Rarity or "none")
-                        .. ",chroma=" .. tostring(item.Chroma == true)
-                        .. ",year=" .. tostring(item.Year or idText:match("(20%d%d)$") or "none")
-                        .. ",event=" .. tostring(item.Event or "none") .. "}")
+                local row = idText .. "=" .. tostring(item[nameField] or item.Name or "")
+                    .. "{itemId=" .. tostring(item.ItemID or "none")
+                    .. ",type=" .. tostring(item.ItemType or "Pet")
+                    .. ",rarity=" .. tostring(item.Rarity or "none")
+                    .. ",chroma=" .. tostring(item.Chroma == true)
+                    .. ",year=" .. tostring(item.Year or idText:match("(20%d%d)$") or "none")
+                    .. ",event=" .. tostring(item.Event or "none") .. "}"
+                table.insert(dbUnmappedAll, row)
+                if clean(item.Rarity) == "Unique" then
+                    table.insert(dbUniqueUnmapped, row)
                 end
+                if #dbUnmappedSample < 40 then table.insert(dbUnmappedSample, row) end
             end
         end
     end
@@ -760,6 +764,8 @@ local function buildMapping(entries, database, rustIndexData)
         dbExcludedNoValue = dbExcludedNoValue,
         dbUnmapped = dbUnmapped,
         dbUnmappedSample = dbUnmappedSample,
+        dbUnmappedAll = dbUnmappedAll,
+        dbUniqueUnmapped = dbUniqueUnmapped,
         supremeByName = supremeByName,
         byName = byName,
         n = mappedCount,
@@ -2743,8 +2749,12 @@ local function buildDiagnostic(includeDeepDump)
             .. ", tier=" .. tostring(state.mapped and state.mapped.dbTierMapped or 0)
             .. ", intentionally no-value defaults=" .. tostring(state.mapped and state.mapped.dbExcludedNoValue or 0)
             .. ", unmapped=" .. tostring(state.mapped and state.mapped.dbUnmapped or 0),
-        "Unmapped MM2 database sample (top 40): " 
-            .. table.concat(state.mapped and state.mapped.dbUnmappedSample or {}, " | "),
+        "Unmapped MM2 database records (full list; Unique-rarity entries are candidates only, not auto-excluded): "
+            .. table.concat(state.mapped and state.mapped.dbUnmappedAll or {}, " | "),
+        "Unmapped Unique-rarity candidate count: "
+            .. tostring(state.mapped and #(state.mapped.dbUniqueUnmapped or {}) or 0),
+        "Unmapped Unique-rarity candidates: "
+            .. table.concat(state.mapped and state.mapped.dbUniqueUnmapped or {}, " | "),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
