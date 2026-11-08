@@ -1626,7 +1626,9 @@ local function runTierSelfTests()
         {name = "different units", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Rares")}, expected = "UNCOMPARABLE"},
         {name = "mixed directions", yours = {item("x1 T1 Commons"), item("x3 T1 Rares")}, theirs = {item("x2 T1 Commons"), item("x2 T1 Rares")}, expected = "MIXED"},
         {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "LOSE"},
-        {name = "singular/plural alias", yours = {item("x2 T1 Rare")}, theirs = {item("x2 T1 Rares")}, expected = "FAIR"}
+        {name = "singular/plural alias", yours = {item("x2 T1 Rare")}, theirs = {item("x2 T1 Rares")}, expected = "FAIR"},
+        {name = "tier vs numeric", yours = {{value = 10}}, theirs = {item("x2 T1 Commons")}, expected = "MIXED VALUES"},
+        {name = "unknown item blocks tier verdict", yours = {item("x2 T1 Commons")}, theirs = {{name = "unknown"}}, expected = "CHECK UNKNOWN"}
     }
     for _, case in ipairs(cases) do
         local result = compareTierOffers(case.yours, case.theirs)
