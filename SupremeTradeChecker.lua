@@ -429,6 +429,23 @@ local function buildMapping(entries, database, rustIndexData)
         addImageCandidate(assetId(item.ItemID))
     end
 
+    -- MM2 trophy skins are untradable leaderboard rewards. Their names
+    -- commonly begin with a medal/color label (Gold, Silver, Bronze, Red,
+    -- Blue, Purple). Require Unique rarity as well, so ordinary items such
+    -- as Red Seer or Blue Seer are not filtered merely because of a name.
+    local TROPHY_PREFIXES = {"Gold", "Silver", "Bronze", "Red", "Blue", "Purple"}
+    local function isTrophyRecord(item)
+        if type(item) ~= "table" or clean(item.Rarity) ~= "Unique" then return false end
+        local itemName = clean(item.ItemName or item.Name or "")
+        for _, prefix in ipairs(TROPHY_PREFIXES) do
+            if itemName:lower():sub(1, #prefix) == prefix:lower()
+                and itemName:sub(#prefix + 1, #prefix + 1):match("[%s%-']") then
+                return true
+            end
+        end
+        return false
+    end
+
     local function addIndex(name, entry)
         if name == "" then return end
         index[name] = index[name] or {}
@@ -441,9 +458,11 @@ local function buildMapping(entries, database, rustIndexData)
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Item")
-        addIndex(normalize(name), entry)
-        local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
-        if withoutYear ~= name then addIndex(normalize(withoutYear), entry) end
+        if not isTrophyRecord(item) then
+            addIndex(normalize(name), entry)
+            local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
+            if withoutYear ~= name then addIndex(normalize(withoutYear), entry) end
+        end
     end
 
     for id, item in pairs(pets) do
@@ -711,7 +730,7 @@ local function buildMapping(entries, database, rustIndexData)
     -- by its canonical key, whether or not Supreme publishes a value for it.
     local dbTotal, dbUnmapped, dbUnmappedSample = 0, 0, {}
     local dbUnmappedAll, dbUniqueUnmapped = {}, {}
-    local dbNumericMapped, dbTierMapped, dbExcludedNoValue = 0, 0, 0
+    local dbNumericMapped, dbTierMapped, dbExcludedNoValue, dbExcludedTrophy = 0, 0, 0, 0
     -- These two built-in defaults have no Supreme value by design.
     -- They remain part of the MM2 database total but are not coverage failures.
     local intentionalNoValue = {DefaultGun = true, DefaultKnife = true}
@@ -730,6 +749,8 @@ local function buildMapping(entries, database, rustIndexData)
                 end
             elseif kind == "i" and intentionalNoValue[idText] then
                 dbExcludedNoValue = dbExcludedNoValue + 1
+            elseif kind == "i" and isTrophyRecord(item) then
+                dbExcludedTrophy = dbExcludedTrophy + 1
             else
                 dbUnmapped = dbUnmapped + 1
                 local row = idText .. "=" .. tostring(item[nameField] or item.Name or "")
@@ -762,6 +783,7 @@ local function buildMapping(entries, database, rustIndexData)
         dbNumericMapped = dbNumericMapped,
         dbTierMapped = dbTierMapped,
         dbExcludedNoValue = dbExcludedNoValue,
+        dbExcludedTrophy = dbExcludedTrophy,
         dbUnmapped = dbUnmapped,
         dbUnmappedSample = dbUnmappedSample,
         dbUnmappedAll = dbUnmappedAll,
@@ -2748,8 +2770,9 @@ local function buildDiagnostic(includeDeepDump)
             .. " catalog records total; numeric=" .. tostring(state.mapped and state.mapped.dbNumericMapped or 0)
             .. ", tier=" .. tostring(state.mapped and state.mapped.dbTierMapped or 0)
             .. ", intentionally no-value defaults=" .. tostring(state.mapped and state.mapped.dbExcludedNoValue or 0)
+            .. ", untradable trophy skins excluded=" .. tostring(state.mapped and state.mapped.dbExcludedTrophy or 0)
             .. ", unmapped=" .. tostring(state.mapped and state.mapped.dbUnmapped or 0),
-        "Unmapped MM2 database records (full list; Unique-rarity entries are candidates only, not auto-excluded): "
+        "Unmapped MM2 database records (trophy skins excluded; remaining Unique-rarity entries are candidates only): "
             .. table.concat(state.mapped and state.mapped.dbUnmappedAll or {}, " | "),
         "Unmapped Unique-rarity candidate count: "
             .. tostring(state.mapped and #(state.mapped.dbUniqueUnmapped or {}) or 0),
