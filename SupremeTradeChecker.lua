@@ -738,7 +738,7 @@ local function valueOf(tile, name)
         end
         local entry = mapped.byKey[iconKey]
         if entry then return entry.v, entry.name, entry.t, entry.category end
-        return nil
+        return nil, nil, nil, nil, "NO VALUE"
     end
 
     -- Some MM2 skins share an image asset. In that case, intersect the icon
@@ -769,7 +769,7 @@ local function valueOf(tile, name)
         local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
         local entry = mapped.byKey[key]
         if entry then return entry.v, entry.name, entry.t, entry.category end
-        return nil
+        return nil, nil, nil, nil, "NO VALUE"
     end
 
     if normalizedName ~= "" then
@@ -1234,7 +1234,7 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value, _, tierText, category = valueOf(tile, name)
+        local value, _, tierText, category, resolveStatus = valueOf(tile, name)
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
@@ -1243,10 +1243,10 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
+        if value == nil and not tierText and not resolveStatus and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(tile, value, quantity, group, tierText, category, name)
+        updateTileBadge(tile, value, quantity, group, tierText, category, name, resolveStatus)
     end
     return total, known, count, tierCount
 end
@@ -1306,7 +1306,7 @@ local function scanImageCards(root, group)
         -- Cards with an ItemName node were handled by scanRoot, even while
         -- the text is temporarily blank or still says Loading.
         if card:FindFirstChild("ItemName", true) then continue end
-        local value, _, tierText, category = valueOf(card, name)
+        local value, _, tierText, category, resolveStatus = valueOf(card, name)
         if value == nil and not tierText then
             local amountContainer = card:FindFirstChild("Container", true)
             local amountNode = amountContainer and amountContainer:FindFirstChild("Amount", true)
@@ -1322,10 +1322,10 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
+        if value == nil and not tierText and not resolveStatus and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(card, value, quantity, group, tierText, category, name)
+        updateTileBadge(card, value, quantity, group, tierText, category, name, resolveStatus)
     end
     return total, known, count, tierCount
 end
@@ -1378,7 +1378,7 @@ local function scanOffer(offer, group)
         if normalCard or directSlot then
             seen[tile] = true
             local name, quantity = itemData(tile)
-            local value, resolvedName, tierText, category = valueOf(tile, name)
+            local value, resolvedName, tierText, category, resolveStatus = valueOf(tile, name)
 
             table.insert(items, {
                 name = resolvedName or name or "Unknown item",
@@ -1394,10 +1394,10 @@ local function scanOffer(offer, group)
                 known = known + quantity
                 tierCount = tierCount + quantity
             end
-            if value == nil and not tierText then
+            if value == nil and not tierText and not resolveStatus then
                 recordUnmatched(tile, name, quantity, state.unmatchedTrade)
             end
-            updateTileBadge(tile, value, quantity, group, tierText, category, name)
+            updateTileBadge(tile, value, quantity, group, tierText, category, name, resolveStatus)
         end
     end
     return items, total, known, count, tierCount
