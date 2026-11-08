@@ -1448,7 +1448,7 @@ local function scanOffer(offer, group)
     return items, total, known, count, tierCount
 end
 
-local function setSummary(parent, name, title, total, known, count, group, tierCount)
+local function setSummary(parent, name, title, total, known, count, group, tierCount, tierText)
     if not parent then return end
     local label = makeLabel(parent, name, group)
     local accent = title == "YOU"
@@ -1457,12 +1457,13 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
 
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(210, 24)
+    label.Size = UDim2.fromOffset(226, 25)
     label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
     label.BackgroundTransparency = 0.12
     label.BorderSizePixel = 0
-    label.TextSize = 13
+    label.TextSize = (tierCount or 0) > 0 and 10 or 13
     label.TextScaled = false
+    label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Font = Enum.Font.GothamBlack
     label.TextStrokeColor3 = Color3.fromRGB(3, 5, 10)
     label.TextStrokeTransparency = 0.55
@@ -1502,8 +1503,10 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
         Color3.fromRGB(10, 13, 23)
     )
 
+    local tierSuffix = (tierCount or 0) > 0 and tierText and tierText ~= "none"
+        and ("  |  " .. tierText) or ""
     label.Text = title .. "  " .. formatValue(total)
-        .. ((tierCount or 0) > 0 and "  +TIER(" .. tostring(tierCount) .. ")" or "")
+        .. tierSuffix
         .. (known < count and "  +?" or "")
     label.Visible = count > 0
 end
@@ -1750,8 +1753,14 @@ local function scanTrade()
 
     local yourItems, yourTotal, yourKnown, yourCount, yourTierCount = scanOffer(yours, "trade")
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
-    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
-    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
+    local yourTierUnits = summarizeTierOffer(yourItems)
+    local theirTierUnits = summarizeTierOffer(theirItems)
+    local yourTierText = formatTierUnits(yourTierUnits)
+    local theirTierText = formatTierUnits(theirTierUnits)
+    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount,
+        "trade", yourTierCount, yourTierText)
+    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount,
+        "trade", theirTierCount, theirTierText)
     setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
         yourCount, theirCount, yourTierCount, theirTierCount, yourItems, theirItems)
 
