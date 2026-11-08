@@ -1148,49 +1148,39 @@ local function makeLabel(parent, name, group)
     if not label then
         label = Instance.new("TextLabel")
         label.Name = name
-        label.BackgroundColor3 = Color3.fromRGB(25, 30, 48)
-        label.BackgroundTransparency = 0.12
-        label.TextColor3 = Color3.fromRGB(248, 250, 255)
-        label.TextStrokeTransparency = 1
-        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.BackgroundTransparency = 1
+        label.BorderSizePixel = 0
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.TextStrokeTransparency = 0.18
+        label.TextXAlignment = Enum.TextXAlignment.Right
         label.TextYAlignment = Enum.TextYAlignment.Center
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 11
-        label.BorderSizePixel = 0
+        label.TextSize = 12
         label.ZIndex = 90
         label.Parent = parent
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
-        corner.Parent = label
-        local stroke = Instance.new("UIStroke")
-        stroke.Name = "SupremeStroke"
-        stroke.Thickness = 1
-        stroke.Transparency = 0.2
-        stroke.Color = Color3.fromRGB(112, 145, 255)
-        stroke.Parent = label
-        local gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeGradient"
-        gradient.Rotation = 90
-        gradient.Color = ColorSequence.new(Color3.fromRGB(48, 56, 88), Color3.fromRGB(20, 24, 40))
-        gradient.Parent = label
+    end
+    -- Remove decorations left behind by older versions: values are plain text,
+    -- never dark pills, gradients, rounded boxes, or colored borders.
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UICorner") or child:IsA("UIStroke") or child:IsA("UIGradient") then
+            child:Destroy()
+        end
     end
     label:SetAttribute("SupremeOwner", group)
     return label
 end
 
 local VALUE_TEXT_COLORS = {
-    uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
-    chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
-    vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
-    -- Swap the two low-tier accents to match the in-game item color mapping.
-    rares = Color3.fromRGB(94, 220, 171), uncommons = Color3.fromRGB(104, 174, 255),
-    commons = Color3.fromRGB(228, 235, 248), pets = Color3.fromRGB(116, 225, 210),
-    misc = Color3.fromRGB(190, 190, 205)
+    uniques = Color3.fromRGB(255, 220, 150), godlies = Color3.fromRGB(220, 190, 255),
+    chromas = Color3.fromRGB(255, 190, 235), ancients = Color3.fromRGB(255, 185, 190),
+    vintages = Color3.fromRGB(255, 210, 170), legendaries = Color3.fromRGB(255, 210, 175),
+    rares = Color3.fromRGB(190, 245, 220), uncommons = Color3.fromRGB(190, 220, 255),
+    commons = Color3.fromRGB(245, 245, 245), pets = Color3.fromRGB(190, 240, 235),
+    misc = Color3.fromRGB(220, 220, 225)
 }
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
-    -- Keep a real badge on the card itself so mobile layouts do not clip it
-    -- inside the nested Container frame.
     if not tile or not tile:IsA("GuiObject") then return end
 
     local existing = tile:FindFirstChild("__SupremeItemValue")
@@ -1201,35 +1191,29 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     end
 
     local label = makeLabel(tile, "__SupremeItemValue", group)
-    local accent = hasTier and Color3.fromRGB(255, 193, 92)
-        or VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
+    local accent = hasTier and Color3.fromRGB(255, 225, 165)
+        or VALUE_TEXT_COLORS[category] or Color3.fromRGB(255, 255, 255)
     if normalize(itemName) == "emberbow" and value ~= nil then
-        accent = Color3.fromRGB(255, 85, 95)
+        accent = Color3.fromRGB(255, 175, 175)
     end
 
     local badgeText = value ~= nil and formatValue(value) or tostring(tierText)
-    local cardWidth = tonumber(tile.AbsoluteSize.X) or 0
-    if cardWidth < 36 then cardWidth = 72 end
-    local maxWidth = math.max(30, math.min(126, cardWidth - 6))
-    local badgeWidth = math.min(maxWidth, math.max(30, #badgeText * (hasTier and 5.6 or 6.2) + 14))
-
-    label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
-    label.BackgroundTransparency = 0.12
+    label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
-    label.Font = Enum.Font.GothamBlack
+    label.Font = Enum.Font.GothamBold
     label.Text = badgeText
     label.TextColor3 = accent
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextScaled = false
-    label.TextSize = hasTier and 9 or 11
+    label.TextSize = hasTier and 10 or 12
     label.TextYAlignment = Enum.TextYAlignment.Center
-    label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextStrokeColor3 = Color3.fromRGB(3, 5, 10)
-    label.TextStrokeTransparency = 0.48
+    label.TextXAlignment = Enum.TextXAlignment.Right
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.TextStrokeTransparency = 0.12
     label.AnchorPoint = Vector2.new(1, 0)
-    label.Position = UDim2.new(1, -3, 0, 3)
-    label.Size = UDim2.fromOffset(badgeWidth, 18)
+    label.Position = UDim2.new(1, -7, 0, 5)
+    label.Size = UDim2.fromOffset(math.max(38, math.min(132, #badgeText * 6 + 8)), 16)
 
     local highestZ = tile.ZIndex
     for _, descendant in ipairs(tile:GetDescendants()) do
@@ -1237,41 +1221,10 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
             highestZ = math.max(highestZ, descendant.ZIndex)
         end
     end
-    label.ZIndex = math.min(1000, highestZ + 5)
-
-    -- Recreate styling if an older script version left a bare TextLabel.
-    local corner = label:FindFirstChildOfClass("UICorner")
-    if not corner then
-        corner = Instance.new("UICorner")
-        corner.Parent = label
-    end
-    corner.CornerRadius = UDim.new(0, 6)
-
-    local stroke = label:FindFirstChild("SupremeStroke")
-    if not stroke or not stroke:IsA("UIStroke") then
-        if stroke then stroke:Destroy() end
-        stroke = Instance.new("UIStroke")
-        stroke.Name = "SupremeStroke"
-        stroke.Parent = label
-    end
-    stroke.Color = accent
-    stroke.Thickness = 1
-    stroke.Transparency = 0.22
-
-    local gradient = label:FindFirstChild("SupremeGradient")
-    if not gradient or not gradient:IsA("UIGradient") then
-        if gradient then gradient:Destroy() end
-        gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeGradient"
-        gradient.Parent = label
-    end
-    gradient.Rotation = 90
-    gradient.Color = ColorSequence.new(
-        Color3.fromRGB(37, 43, 61),
-        Color3.fromRGB(10, 13, 23)
-    )
+    label.ZIndex = math.min(1000, highestZ + 2)
     label.Visible = true
 end
+
 local function scanRoot(root, group)
     local total, known, count, tierCount = 0, 0, 0, 0
     if not root then return total, known, count, tierCount end
