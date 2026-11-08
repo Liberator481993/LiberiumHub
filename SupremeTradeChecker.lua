@@ -1661,9 +1661,15 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     elseif yourKnown < yourCount or theirKnown < theirCount then
         caption, color = "NUMERIC VALUES NEEDED", Color3.fromRGB(255, 190, 65)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        -- Tier labels are classes, not numerical prices. Never invent a
-        -- numeric difference or issue a market verdict from tier counts.
-        caption, color = "NUMERIC VALUES NEEDED", Color3.fromRGB(255, 190, 65)
+        -- Compare tier units only against the same tier units on the other
+        -- side. Tier quantities are not converted into numeric market prices.
+        local tierVerdict, _, yourTierText, theirTierText =
+            compareTierOffers(yourItems, theirItems)
+        caption = tierVerdict .. "  |  " .. yourTierText .. " → " .. theirTierText
+        color = (tierVerdict == "WIN" and Color3.fromRGB(45, 255, 135))
+            or (tierVerdict == "LOSE" and Color3.fromRGB(255, 65, 85))
+            or (tierVerdict == "FAIR" and Color3.fromRGB(75, 195, 255))
+            or Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
@@ -1761,7 +1767,11 @@ local function scanTrade()
         if yourKnown < yourCount or theirKnown < theirCount then
             table.insert(lines, "RESULT: NUMERIC VALUES NEEDED — unresolved item")
         elseif yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "RESULT: NUMERIC VALUES NEEDED — tier labels are not prices")
+            local tierVerdict, tierReason, yourTierText, theirTierText =
+                compareTierOffers(yourItems, theirItems)
+            table.insert(lines, "RESULT: " .. tierVerdict .. " | YOU: "
+                .. yourTierText .. " | THEM: " .. theirTierText
+                .. " | " .. tierReason)
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -2320,7 +2330,7 @@ local function makeOfferInput(name, labelText, y)
     box.TextSize = 12
     box.TextColor3 = Color3.fromRGB(235, 240, 250)
     box.PlaceholderColor3 = Color3.fromRGB(130, 140, 160)
-    box.PlaceholderText = "Например: Laser x2\nSeer"
+    box.PlaceholderText = "Например: Laser x2\nSeer\nx2 T1 Commons"
     box.Text = ""
     box.ZIndex = 401
     box.Parent = testFrame
@@ -2651,6 +2661,7 @@ local function buildDiagnostic(includeDeepDump)
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
         "Last error: " .. tostring(state.lastError or "none"),
         "Tier comparator self-test: " .. TIER_SELF_TEST,
+        "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
         tostring(state.latestTrade),
