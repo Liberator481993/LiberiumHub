@@ -403,7 +403,7 @@ local function buildMapping(entries, database, rustIndexData)
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
                 chroma = item.Chroma == true,
-                year = tostring(item.Year or ""),
+                year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
                 itemId = tostring(item.ItemID or "")
@@ -419,7 +419,7 @@ local function buildMapping(entries, database, rustIndexData)
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
                 chroma = item.Chroma == true,
-                year = tostring(item.Year or ""),
+                year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or "")
             })
         end
@@ -1180,24 +1180,26 @@ local VALUE_TEXT_COLORS = {
     misc = Color3.fromRGB(220, 220, 225)
 }
 
-local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
+local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName, statusText)
     if not tile or not tile:IsA("GuiObject") then return end
 
     local existing = tile:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
-    if value == nil and not hasTier then
+    if value == nil and not hasTier and not statusText then
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
     end
 
     local label = makeLabel(tile, "__SupremeItemValue", group)
-    local accent = hasTier and Color3.fromRGB(255, 225, 165)
-        or VALUE_TEXT_COLORS[category] or Color3.fromRGB(255, 255, 255)
+    local accent = statusText and value == nil and not hasTier
+        and Color3.fromRGB(170, 180, 195)
+        or (hasTier and Color3.fromRGB(255, 225, 165)
+        or VALUE_TEXT_COLORS[category] or Color3.fromRGB(255, 255, 255))
     if normalize(itemName) == "emberbow" and value ~= nil then
         accent = Color3.fromRGB(255, 175, 175)
     end
 
-    local badgeText = value ~= nil and formatValue(value) or tostring(tierText)
+    local badgeText = value ~= nil and formatValue(value) or (hasTier and tostring(tierText) or tostring(statusText))
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
     label.Font = Enum.Font.GothamBold
@@ -1903,11 +1905,12 @@ local function scanModuleInventory()
                     tierCount = tierCount + quantity
                 end
                 count = count + quantity
-                if resolvedValue == nil and not tierText then
+                local dbRecognized = dbKind ~= nil
+                if resolvedValue == nil and not tierText and not dbRecognized then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
                 updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
-                    resolvedName or name)
+                    resolvedName or name, dbRecognized and "NO VALUE" or nil)
             end
         end
     end
