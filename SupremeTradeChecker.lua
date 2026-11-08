@@ -1646,7 +1646,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -35)
-    label.Size = UDim2.fromOffset(190, 25)
+    label.Size = UDim2.fromOffset(245, 25)
     label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
     label.BackgroundTransparency = 0.1
     label.BorderSizePixel = 0
@@ -1670,7 +1670,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
         -- side. Tier quantities are not converted into numeric market prices.
         local tierVerdict, _, yourTierText, theirTierText =
             compareTierOffers(yourItems, theirItems)
-        caption = tierVerdict .. "  |  " .. yourTierText .. " → " .. theirTierText
+        caption = "TIER " .. tierVerdict .. "  |  " .. yourTierText .. " → " .. theirTierText
         color = (tierVerdict == "WIN" and Color3.fromRGB(45, 255, 135))
             or (tierVerdict == "LOSE" and Color3.fromRGB(255, 65, 85))
             or (tierVerdict == "FAIR" and Color3.fromRGB(75, 195, 255))
@@ -2509,7 +2509,7 @@ compareTest.Activated:Connect(function()
     if hasTier then
         local tierVerdict, tierReason, yourTierText, theirTierText =
             compareTierOffers(yourItems, theirItems)
-        testResult.Text = tierVerdict .. "\nТЫ: " .. yourTierText
+        testResult.Text = "TIER " .. tierVerdict .. "\nТЫ: " .. yourTierText
             .. "\nПОЛУЧАЕШЬ: " .. theirTierText .. "\n" .. tierReason
         testResult.TextColor3 = tierVerdict == "WIN" and Color3.fromRGB(65, 240, 145)
             or tierVerdict == "LOSE" and Color3.fromRGB(255, 90, 105)
