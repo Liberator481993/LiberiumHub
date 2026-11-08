@@ -2367,6 +2367,14 @@ compareTest.Parent = testFrame
 
 local function resolveTestItem(rawName)
     local name = clean(rawName)
+    local tierMultiplier, tierLevel, tierClass =
+        name:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+    if tierMultiplier and tierLevel and tierClass then
+        local tierText = "x" .. tostring(tonumber(tierMultiplier)) .. " "
+            .. tierLevel .. " " .. tierClass
+        return {name = tierText, tier = tierText, quantity = 1}
+    end
+
     local quantity = 1
     local base, amount = name:match("^(.-)%s+[x×](%d+)$")
     if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
@@ -2445,7 +2453,9 @@ local function parseTestOffer(textValue)
             local item, err = resolveTestItem(raw)
             if not item then return nil, nil, err end
             table.insert(items, item)
-            total = total + item.value * item.quantity
+            if tonumber(item.value) ~= nil then
+                total = total + item.value * item.quantity
+            end
         end
     end
     if #items == 0 then return nil, nil, "Добавь хотя бы один предмет в каждую сторону." end
@@ -2475,15 +2485,36 @@ compareTest.Activated:Connect(function()
         testResult.Text = "ТЫ ПОЛУЧАЕШЬ: " .. tostring(theirError)
         return
     end
-    local verdict, difference = getVerdict(yourTotal, theirTotal)
-    local sign = difference > 0 and "+" or ""
-    testResult.Text = (verdict == "WIN" and "ВЫИГРЫШ" or verdict == "LOSE" and "ПРОИГРЫШ" or "РАВНО")
-        .. "  " .. sign .. formatValue(difference)
-        .. "\nТВОЁ: " .. formatValue(yourTotal)
-        .. "  |  ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
-    testResult.TextColor3 = verdict == "WIN" and Color3.fromRGB(65, 240, 145)
-        or verdict == "LOSE" and Color3.fromRGB(255, 90, 105)
-        or Color3.fromRGB(105, 195, 255)
+    local hasTier = false
+    for _, item in ipairs(yourItems) do
+        if item.tier then hasTier = true break end
+    end
+    if not hasTier then
+        for _, item in ipairs(theirItems) do
+            if item.tier then hasTier = true break end
+        end
+    end
+
+    if hasTier then
+        local tierVerdict, tierReason, yourTierText, theirTierText =
+            compareTierOffers(yourItems, theirItems)
+        testResult.Text = tierVerdict .. "\nТЫ: " .. yourTierText
+            .. "\nПОЛУЧАЕШЬ: " .. theirTierText .. "\n" .. tierReason
+        testResult.TextColor3 = tierVerdict == "WIN" and Color3.fromRGB(65, 240, 145)
+            or tierVerdict == "LOSE" and Color3.fromRGB(255, 90, 105)
+            or tierVerdict == "FAIR" and Color3.fromRGB(105, 195, 255)
+            or Color3.fromRGB(255, 190, 65)
+    else
+        local verdict, difference = getVerdict(yourTotal, theirTotal)
+        local sign = difference > 0 and "+" or ""
+        testResult.Text = (verdict == "WIN" and "ВЫИГРЫШ" or verdict == "LOSE" and "ПРОИГРЫШ" or "РАВНО")
+            .. "  " .. sign .. formatValue(difference)
+            .. "\nТВОЁ: " .. formatValue(yourTotal)
+            .. "  |  ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
+        testResult.TextColor3 = verdict == "WIN" and Color3.fromRGB(65, 240, 145)
+            or verdict == "LOSE" and Color3.fromRGB(255, 90, 105)
+            or Color3.fromRGB(105, 195, 255)
+    end
 end)
 
 
