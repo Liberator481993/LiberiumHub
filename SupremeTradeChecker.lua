@@ -710,20 +710,34 @@ local function buildMapping(entries, database, rustIndexData)
     -- Full database coverage audit: every MM2 catalog record is recognized
     -- by its canonical key, whether or not Supreme publishes a value for it.
     local dbTotal, dbUnmapped, dbUnmappedSample = 0, 0, {}
+    local dbNumericMapped, dbTierMapped, dbExcludedNoValue = 0, 0, 0
+    -- These two built-in defaults have no Supreme value by design.
+    -- They remain part of the MM2 database total but are not coverage failures.
+    local intentionalNoValue = {DefaultGun = true, DefaultKnife = true}
     local function auditDatabase(items, kind, nameField)
         for id, item in pairs(items) do
             if type(item) ~= "table" then continue end
             dbTotal = dbTotal + 1
-            local idKey = kind .. ":" .. tostring(id)
-            if not byKey[idKey] then
+            local idText = tostring(id)
+            local idKey = kind .. ":" .. idText
+            local mappedEntry = byKey[idKey]
+            if mappedEntry then
+                if clean(mappedEntry.t) ~= "" then
+                    dbTierMapped = dbTierMapped + 1
+                elseif tonumber(mappedEntry.v) ~= nil then
+                    dbNumericMapped = dbNumericMapped + 1
+                end
+            elseif kind == "i" and intentionalNoValue[idText] then
+                dbExcludedNoValue = dbExcludedNoValue + 1
+            else
                 dbUnmapped = dbUnmapped + 1
                 if #dbUnmappedSample < 40 then
                     table.insert(dbUnmappedSample,
-                        tostring(id) .. "=" .. tostring(item[nameField] or item.Name or "")
+                        idText .. "=" .. tostring(item[nameField] or item.Name or "")
                         .. "{type=" .. tostring(item.ItemType or "Pet")
                         .. ",rarity=" .. tostring(item.Rarity or "none")
                         .. ",chroma=" .. tostring(item.Chroma == true)
-                        .. ",year=" .. tostring(item.Year or tostring(id):match("(20%d%d)$") or "none")
+                        .. ",year=" .. tostring(item.Year or idText:match("(20%d%d)$") or "none")
                         .. ",event=" .. tostring(item.Event or "none") .. "}")
                 end
             end
@@ -741,6 +755,9 @@ local function buildMapping(entries, database, rustIndexData)
         dbByImage = dbByImage,
         dbIds = dbIds,
         dbTotal = dbTotal,
+        dbNumericMapped = dbNumericMapped,
+        dbTierMapped = dbTierMapped,
+        dbExcludedNoValue = dbExcludedNoValue,
         dbUnmapped = dbUnmapped,
         dbUnmappedSample = dbUnmappedSample,
         supremeByName = supremeByName,
@@ -1948,15 +1965,19 @@ local function scanModuleInventory()
                     tierCount = tierCount + quantity
                     if dbKind then exactTierQty = exactTierQty + quantity end
                 elseif dbKind then
-                    knownNoSupremeQty = knownNoSupremeQty + quantity
-                    if #noSupremeSamples < 30 then
-                        local image = findTileIcon(tile)
-                        table.insert(noSupremeSamples,
-                            tostring(collectionName) .. "/" .. tostring(subgroupName)
-                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
-                            .. " type=" .. tostring(dbKind)
-                            .. " icon=" .. tostring(image and assetId(image.Image) or "none")
-                            .. " qty=" .. tostring(quantity))
+                    -- Default Knife and Default Gun are built-in placeholders,
+                    -- not Supreme-priced skins; do not report them as missing values.
+                    if keyText ~= "DefaultKnife" and keyText ~= "DefaultGun" then
+                        knownNoSupremeQty = knownNoSupremeQty + quantity
+                        if #noSupremeSamples < 30 then
+                            local image = findTileIcon(tile)
+                            table.insert(noSupremeSamples,
+                                tostring(collectionName) .. "/" .. tostring(subgroupName)
+                                .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
+                                .. " type=" .. tostring(dbKind)
+                                .. " icon=" .. tostring(image and assetId(image.Image) or "none")
+                                .. " qty=" .. tostring(quantity))
+                        end
                     end
                 end
                 count = count + quantity
@@ -2718,9 +2739,11 @@ local function buildDiagnostic(includeDeepDump)
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
         "MM2 database coverage: " .. tostring(state.mapped and state.mapped.dbTotal or 0)
-            .. " catalog records indexed; " .. tostring(state.mapped and state.mapped.dbUnmapped or 0)
-            .. " without a unique Supreme value mapping",
-        "Unmapped MM2 database sample (top 40): "
+            .. " catalog records total; numeric=" .. tostring(state.mapped and state.mapped.dbNumericMapped or 0)
+            .. ", tier=" .. tostring(state.mapped and state.mapped.dbTierMapped or 0)
+            .. ", intentionally no-value defaults=" .. tostring(state.mapped and state.mapped.dbExcludedNoValue or 0)
+            .. ", unmapped=" .. tostring(state.mapped and state.mapped.dbUnmapped or 0),
+        "Unmapped MM2 database sample (top 40): " 
             .. table.concat(state.mapped and state.mapped.dbUnmappedSample or {}, " | "),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
