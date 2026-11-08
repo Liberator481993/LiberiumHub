@@ -706,6 +706,32 @@ local function buildMapping(entries, database, rustIndexData)
 
     local iconCount = 0
     for _ in pairs(icon) do iconCount = iconCount + 1 end
+
+    -- Full database coverage audit: every MM2 catalog record is recognized
+    -- by its canonical key, whether or not Supreme publishes a value for it.
+    local dbTotal, dbUnmapped, dbUnmappedSample = 0, 0, {}
+    local function auditDatabase(items, kind, nameField)
+        for id, item in pairs(items) do
+            if type(item) ~= "table" then continue end
+            dbTotal = dbTotal + 1
+            local idKey = kind .. ":" .. tostring(id)
+            if not byKey[idKey] then
+                dbUnmapped = dbUnmapped + 1
+                if #dbUnmappedSample < 40 then
+                    table.insert(dbUnmappedSample,
+                        tostring(id) .. "=" .. tostring(item[nameField] or item.Name or "")
+                        .. "{type=" .. tostring(item.ItemType or "Pet")
+                        .. ",rarity=" .. tostring(item.Rarity or "none")
+                        .. ",chroma=" .. tostring(item.Chroma == true)
+                        .. ",year=" .. tostring(item.Year or tostring(id):match("(20%d%d)$") or "none")
+                        .. ",event=" .. tostring(item.Event or "none") .. "}")
+                end
+            end
+        end
+    end
+    auditDatabase(weapons, "i", "ItemName")
+    auditDatabase(pets, "p", "Name")
+
     return {
         byKey = byKey,
         icon = icon,
@@ -714,6 +740,9 @@ local function buildMapping(entries, database, rustIndexData)
         dbByName = dbByName,
         dbByImage = dbByImage,
         dbIds = dbIds,
+        dbTotal = dbTotal,
+        dbUnmapped = dbUnmapped,
+        dbUnmappedSample = dbUnmappedSample,
         supremeByName = supremeByName,
         byName = byName,
         n = mappedCount,
@@ -2657,6 +2686,11 @@ local function buildDiagnostic(includeDeepDump)
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
+        "MM2 database coverage: " .. tostring(state.mapped and state.mapped.dbTotal or 0)
+            .. " catalog records indexed; " .. tostring(state.mapped and state.mapped.dbUnmapped or 0)
+            .. " without a unique Supreme value mapping",
+        "Unmapped MM2 database sample (top 40): "
+            .. table.concat(state.mapped and state.mapped.dbUnmappedSample or {}, " | "),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
