@@ -586,6 +586,9 @@ local function buildMapping(entries, database, rustIndexData)
             local exact, unknown = {}, {}
             for _, candidate in ipairs(matches) do
                 local actual = clean(candidate.item[field])
+                if actual == "" and field == "Year" then
+                    actual = tostring(candidate.id):match("(20%d%d)$") or ""
+                end
                 if actual == "" then
                     table.insert(unknown, candidate)
                 elseif normalizer(actual) == normalizer(wanted) then
