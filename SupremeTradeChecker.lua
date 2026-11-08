@@ -429,13 +429,23 @@ local function buildMapping(entries, database, rustIndexData)
         addImageCandidate(assetId(item.ItemID))
     end
 
-    -- MM2 trophy skins are untradable leaderboard rewards. Their names
-    -- commonly begin with a medal/color label (Gold, Silver, Bronze, Red,
-    -- Blue, Purple). Require Unique rarity as well, so ordinary items such
-    -- as Red Seer or Blue Seer are not filtered merely because of a name.
+    -- MM2 trophy skins are untradable leaderboard rewards. They may be
+    -- identified either by a color prefix in ItemName or by a color suffix
+    -- in the database key (for example VampireAxe_Gold). Require Unique
+    -- rarity in both cases; ordinary tradeable items remain indexed.
     local TROPHY_PREFIXES = {"Gold", "Silver", "Bronze", "Red", "Blue", "Purple"}
-    local function isTrophyRecord(item)
+    local TROPHY_KEY_SUFFIXES = {
+        gold = true, silver = true, bronze = true,
+        red = true, blue = true, purple = true
+    }
+    local function isTrophyRecord(item, recordKey)
         if type(item) ~= "table" or clean(item.Rarity) ~= "Unique" then return false end
+
+        local keySuffix = tostring(recordKey or ""):match("_([^_]+)$")
+        if keySuffix and TROPHY_KEY_SUFFIXES[keySuffix:lower()] then
+            return true
+        end
+
         local itemName = clean(item.ItemName or item.Name or "")
         for _, prefix in ipairs(TROPHY_PREFIXES) do
             if itemName:lower():sub(1, #prefix) == prefix:lower()
@@ -458,7 +468,7 @@ local function buildMapping(entries, database, rustIndexData)
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Item")
-        if not isTrophyRecord(item) then
+        if not isTrophyRecord(item, id) then
             addIndex(normalize(name), entry)
             local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
             if withoutYear ~= name then addIndex(normalize(withoutYear), entry) end
@@ -749,7 +759,7 @@ local function buildMapping(entries, database, rustIndexData)
                 end
             elseif kind == "i" and intentionalNoValue[idText] then
                 dbExcludedNoValue = dbExcludedNoValue + 1
-            elseif kind == "i" and isTrophyRecord(item) then
+            elseif kind == "i" and isTrophyRecord(item, idText) then
                 dbExcludedTrophy = dbExcludedTrophy + 1
             else
                 dbUnmapped = dbUnmapped + 1
@@ -1888,7 +1898,8 @@ local function scanModuleInventory()
     local seen = {}
     local keyHits, keyMisses, keySamples = 0, 0, {}
     local exactNumericQty, exactTierQty, knownNoSupremeQty, dbKeyMissQty = 0, 0, 0, 0
-    local noSupremeSamples, dbMissSamples = {}, {}
+    local intentionalDefaultQty = 0
+    local noSupremeSamples, dbMissSamples, intentionalDefaultSamples = {}, {}, {}
     local mappedIds = state.mapped and state.mapped.dbIds or nil
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
@@ -1995,7 +2006,14 @@ local function scanModuleInventory()
                 elseif dbKind then
                     -- Default Knife and Default Gun are built-in placeholders,
                     -- not Supreme-priced skins; do not report them as missing values.
-                    if keyText ~= "DefaultKnife" and keyText ~= "DefaultGun" then
+                    if keyText == "DefaultKnife" or keyText == "DefaultGun" then
+                        intentionalDefaultQty = intentionalDefaultQty + quantity
+                        if #intentionalDefaultSamples < 10 then
+                            table.insert(intentionalDefaultSamples,
+                                tostring(collectionName) .. "/" .. tostring(subgroupName)
+                                .. "/" .. keyText .. " qty=" .. tostring(quantity))
+                        end
+                    else
                         knownNoSupremeQty = knownNoSupremeQty + quantity
                         if #noSupremeSamples < 30 then
                             local image = findTileIcon(tile)
@@ -2074,6 +2092,7 @@ local function scanModuleInventory()
         label.Text = "INV " .. formatValue(total)
             .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
             .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
+            .. (intentionalDefaultQty > 0 and " | DEFAULT " .. tostring(intentionalDefaultQty) or "")
         label.Visible = count > 0
     end
 
@@ -2091,6 +2110,8 @@ local function scanModuleInventory()
         .. " EXACT_TIER=" .. tostring(exactTierQty)
         .. " DB_KNOWN_NO_SUPREME=" .. tostring(knownNoSupremeQty)
         .. " DB_KEY_MISS=" .. tostring(dbKeyMissQty)
+        .. " INTENTIONAL_DEFAULTS=" .. tostring(intentionalDefaultQty)
+        .. " | default samples: " .. (#intentionalDefaultSamples > 0 and table.concat(intentionalDefaultSamples, " || ") or "none")
         .. " | no-Supreme samples: " .. (#noSupremeSamples > 0 and table.concat(noSupremeSamples, " || ") or "none")
         .. " | DB-key misses: " .. (#dbMissSamples > 0 and table.concat(dbMissSamples, " || ") or "none")
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
