@@ -2,6 +2,8 @@ name: Supreme Trade Core
 
 on:
   push:
+    branches:
+      - supreme-trade-checker-rust-core
     paths:
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
@@ -39,6 +41,11 @@ jobs:
       - name: Fetch and parse all Supreme Values categories with Rust
         working-directory: tools/supreme-core
         run: cargo run --release -- fetch ../../SupremeTradeChecker.mapping.json
+      - name: Validate generated snapshot
+        working-directory: .
+        run: |
+          test -s SupremeTradeChecker.mapping.json
+          jq -e '.schema_version == 1 and (.entries | length >= 300) and (.by_name | length > 0) and (.by_image_alt | type == "object")' SupremeTradeChecker.mapping.json >/dev/null
       - name: Publish immutable data branch snapshot
         env:
           GH_TOKEN: ${{ github.token }}
