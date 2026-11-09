@@ -2332,7 +2332,7 @@ exportButton.BorderSizePixel = 0
 exportButton.Font = Enum.Font.GothamBold
 exportButton.TextSize = 11
 exportButton.TextColor3 = Color3.new(1, 1, 1)
-exportButton.Text = "EXPORT JSON"
+exportButton.Text = "COPY JSON"
 exportButton.ZIndex = 205
 exportButton.Parent = panel
 
