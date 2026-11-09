@@ -2837,7 +2837,7 @@ exportButton.Activated:Connect(function()
     if type(entries) ~= "table" or #entries < 300 then
         exportButton.Text = "DATA NOT READY"
         task.delay(3, function()
-            if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
+            if exportButton and exportButton.Parent then exportButton.Text = "COPY JSON" end
         end)
         return
     end
@@ -2856,63 +2856,19 @@ exportButton.Activated:Connect(function()
         return
     end
 
-    local fileName = "SupremeTradeChecker_export.json"
-    local fileVerified = false
-    local saveError = nil
-
-    if type(writefile) == "function" then
-        local writeOk, writeResult = pcall(writefile, fileName, encoded)
-        if writeOk then
-            -- A successful pcall only means writefile did not throw. Verify the
-            -- actual file and its contents before reporting a successful export.
-            local exists = false
-            if type(isfile) == "function" then
-                local existsOk, existsResult = pcall(isfile, fileName)
-                exists = existsOk and existsResult == true
-            end
-
-            if exists and type(readfile) == "function" then
-                local readOk, readResult = pcall(readfile, fileName)
-                fileVerified = readOk
-                    and type(readResult) == "string"
-                    and #readResult == #encoded
-                    and readResult == encoded
-                if not readOk then
-                    saveError = "readfile failed: " .. tostring(readResult)
-                elseif not fileVerified then
-                    saveError = "saved file could not be verified"
-                end
-            elseif not exists then
-                saveError = "isfile did not confirm the exported file"
-            else
-                saveError = "readfile is unavailable; file contents cannot be verified"
-            end
-        else
-            saveError = tostring(writeResult)
-        end
+    -- Do not write a file: copy the complete JSON directly to the executor clipboard.
+    local copied = copyText(encoded)
+    if copied then
+        exportButton.Text = "JSON COPIED " .. tostring(#entries)
+        warn("[Supreme Trade Checker] Full JSON copied to clipboard: "
+            .. tostring(#entries) .. " entries, " .. tostring(#encoded) .. " bytes")
     else
-        saveError = "writefile is unavailable"
-    end
-
-    if fileVerified then
-        exportButton.Text = "SAVED + VERIFIED " .. tostring(#entries)
-        warn("[Supreme Trade Checker] Export saved and verified: " .. fileName
-            .. " (" .. tostring(#entries) .. " entries, " .. tostring(#encoded) .. " bytes)")
-    else
-        local copied = copyText(encoded)
-        if copied then
-            exportButton.Text = "JSON COPIED " .. tostring(#entries)
-            warn("[Supreme Trade Checker] File export was not verified; full JSON copied to clipboard. "
-                .. tostring(saveError))
-        else
-            exportButton.Text = "EXPORT FAILED"
-            warn("[Supreme Trade Checker] Export failed. File: " .. tostring(saveError)
-                .. "; clipboard copy unavailable.")
-        end
+        exportButton.Text = "COPY UNAVAILABLE"
+        warn("[Supreme Trade Checker] Clipboard API unavailable; JSON was not copied.")
     end
 
     task.delay(7, function()
-        if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
+        if exportButton and exportButton.Parent then exportButton.Text = "COPY JSON" end
     end)
 end)
 
