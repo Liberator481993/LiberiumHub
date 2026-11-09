@@ -1506,13 +1506,14 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
         and Color3.fromRGB(77, 224, 191)
         or Color3.fromRGB(177, 139, 255)
 
+    -- Keep the offer total in the header strip, never over the item thumbnails.
     label.AnchorPoint = Vector2.new(0.5, 0)
-    label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(226, 25)
+    label.Position = UDim2.new(0.5, 0, 0, 30)
+    label.Size = UDim2.fromOffset(210, 20)
     label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
-    label.BackgroundTransparency = 0.12
+    label.BackgroundTransparency = 0.22
     label.BorderSizePixel = 0
-    label.TextSize = (tierCount or 0) > 0 and 10 or 13
+    label.TextSize = (tierCount or 0) > 0 and 9 or 11
     label.TextScaled = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Font = Enum.Font.GothamBlack
@@ -2242,8 +2243,9 @@ textGui.Parent = playerGui
 local panel = Instance.new("Frame")
 panel.Name = "SupremePanel"
 panel.Size = UDim2.fromOffset(290, 225)
-panel.Position = UDim2.new(1, -12, 0, 88)
-panel.AnchorPoint = Vector2.new(1, 0)
+-- Keep the diagnostics control away from MM2's Accept/Decline buttons.
+panel.AnchorPoint = Vector2.new(0, 1)
+panel.Position = UDim2.new(0, 12, 1, -12)
 panel.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -2336,7 +2338,7 @@ exportButton.Parent = panel
 
 local collapsed = true
 local expandedSize = UDim2.fromOffset(290, 225)
-local collapsedSize = UDim2.fromOffset(150, 34)
+local collapsedSize = UDim2.fromOffset(126, 34)
 local function setCollapsed(value)
     collapsed = value
     panel.Size = collapsed and collapsedSize or expandedSize
