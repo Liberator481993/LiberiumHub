@@ -2852,22 +2852,66 @@ exportButton.Activated:Connect(function()
     end)
     if not ok or type(encoded) ~= "string" then
         exportButton.Text = "JSON ENCODE FAILED"
+        warn("[Supreme Trade Checker] JSON encode failed: " .. tostring(encoded))
         return
     end
 
+    local fileName = "SupremeTradeChecker_export.json"
+    local fileVerified = false
+    local saveError = nil
+
     if type(writefile) == "function" then
-        local saved, saveError = pcall(writefile, "SupremeTradeChecker_export.json", encoded)
-        if saved then
-            exportButton.Text = "EXPORTED " .. tostring(#entries)
+        local writeOk, writeResult = pcall(writefile, fileName, encoded)
+        if writeOk then
+            -- A successful pcall only means writefile did not throw. Verify the
+            -- actual file and its contents before reporting a successful export.
+            local exists = false
+            if type(isfile) == "function" then
+                local existsOk, existsResult = pcall(isfile, fileName)
+                exists = existsOk and existsResult == true
+            end
+
+            if exists and type(readfile) == "function" then
+                local readOk, readResult = pcall(readfile, fileName)
+                fileVerified = readOk
+                    and type(readResult) == "string"
+                    and #readResult == #encoded
+                    and readResult == encoded
+                if not readOk then
+                    saveError = "readfile failed: " .. tostring(readResult)
+                elseif not fileVerified then
+                    saveError = "saved file could not be verified"
+                end
+            elseif not exists then
+                saveError = "isfile did not confirm the exported file"
+            else
+                saveError = "readfile is unavailable; file contents cannot be verified"
+            end
         else
-            exportButton.Text = "SAVE FAILED"
-            warn("[Supreme Trade Checker] Export failed: " .. tostring(saveError))
+            saveError = tostring(writeResult)
         end
     else
-        local copied = copyText(encoded)
-        exportButton.Text = copied and "JSON COPIED" or "NO FILE API"
+        saveError = "writefile is unavailable"
     end
-    task.delay(5, function()
+
+    if fileVerified then
+        exportButton.Text = "SAVED + VERIFIED " .. tostring(#entries)
+        warn("[Supreme Trade Checker] Export saved and verified: " .. fileName
+            .. " (" .. tostring(#entries) .. " entries, " .. tostring(#encoded) .. " bytes)")
+    else
+        local copied = copyText(encoded)
+        if copied then
+            exportButton.Text = "JSON COPIED " .. tostring(#entries)
+            warn("[Supreme Trade Checker] File export was not verified; full JSON copied to clipboard. "
+                .. tostring(saveError))
+        else
+            exportButton.Text = "EXPORT FAILED"
+            warn("[Supreme Trade Checker] Export failed. File: " .. tostring(saveError)
+                .. "; clipboard copy unavailable.")
+        end
+    end
+
+    task.delay(7, function()
         if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
     end)
 end)
