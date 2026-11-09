@@ -545,6 +545,15 @@ local function buildMapping(entries, database, rustIndexData)
         end
 
         local aliases = {name}
+        -- MM2's Database.Sync sometimes stores the item name with its type
+        -- suffix (for example "Swirly Gun"), while Supreme titles may be
+        -- parsed into base name + kind ("Swirly", "Gun"). Keep both forms:
+        -- the base form handles entries such as "Frozen (Gun)" -> "Frozen",
+        -- and the typed form handles DB names such as "Swirly Gun".
+        if kind then
+            table.insert(aliases, name .. " " .. kind)
+            table.insert(aliases, name .. " (" .. kind .. ")")
+        end
         local wrapping = name:match("^(%a+) Papers$")
         if wrapping then table.insert(aliases, "Box of " .. wrapping .. " Wrapping Paper") end
         if name == "Ultra Wrap" then table.insert(aliases, "Box of Ultra Wrapping Paper") end
