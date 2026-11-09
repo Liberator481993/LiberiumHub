@@ -188,14 +188,19 @@ local function fetchPage(url)
     for _, targetUrl in ipairs(urls) do
         local function attempt(fn, label)
             if type(fn) ~= "function" then return nil end
+            local headers = {
+                ["User-Agent"] = "Mozilla/5.0",
+                ["Accept"] = "text/html,application/xhtml+xml"
+            }
+            -- Delta and Arceus X expose slightly different request wrappers.
+            -- Try the executor-style options table first, then URL-string form.
             local ok, response = pcall(fn, {
-                Url = targetUrl,
-                Method = "GET",
-                Headers = {
-                    ["User-Agent"] = "Mozilla/5.0",
-                    ["Accept"] = "text/html,application/xhtml+xml"
-                }
+                Url = targetUrl, URL = targetUrl, url = targetUrl,
+                Method = "GET", method = "GET", Headers = headers, headers = headers
             })
+            if not ok or response == nil then
+                ok, response = pcall(fn, targetUrl)
+            end
             if not ok then
                 table.insert(errors, label .. ": error")
                 return nil
@@ -924,14 +929,18 @@ local function fetchRustMapping()
 
     local function attempt(fn, method)
         if type(fn) ~= "function" then return nil end
+        local headers = {
+            ["User-Agent"] = "Mozilla/5.0",
+            ["Accept"] = "application/json"
+        }
+        -- Support both common executor request signatures (options table / URL string).
         local ok, response = pcall(fn, {
-            Url = RUST_MAPPING_URL,
-            Method = "GET",
-            Headers = {
-                ["User-Agent"] = "Mozilla/5.0",
-                ["Accept"] = "application/json"
-            }
+            Url = RUST_MAPPING_URL, URL = RUST_MAPPING_URL, url = RUST_MAPPING_URL,
+            Method = "GET", method = "GET", Headers = headers, headers = headers
         })
+        if not ok or response == nil then
+            ok, response = pcall(fn, RUST_MAPPING_URL)
+        end
         if not ok then
             table.insert(errors, method .. ": request error")
             return nil
@@ -2834,7 +2843,7 @@ exportButton.Activated:Connect(function()
     local ok, encoded = pcall(function()
         return HttpService:JSONEncode({
             schema_version = 1,
-            source = "Supreme Values MM2 via Arceus X",
+            source = "Supreme Values MM2 via Delta / Arceus X",
             exported_at = os.date("%Y-%m-%d %H:%M:%S"),
             entries = entries
         })
