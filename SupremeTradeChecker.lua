@@ -2243,18 +2243,13 @@ local function scanModuleInventory()
         local guiTiles = getTiles(guiInstance)
         state.inventoryGuiFrames = #guiTiles
 
-        if frameCount > 0 then
-            -- InventoryModule.Data frames were already resolved by their exact
-            -- database keys above. Do not rescan and hide those badges using
-            -- the less reliable display-name/icon resolver.
-            state.inventoryGuiValued = known
-            state.inventoryGuiItems = count
-        else
-            local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-            scanImageCards(guiInstance, "inventoryOverlay")
-            state.inventoryGuiValued = guiKnown or 0
-            state.inventoryGuiItems = guiCount or 0
-        end
+        -- Data.Weapons/Data.Pets remains the only source for inventory totals.
+        -- Scan GUI cards independently to attach labels even when MM2 has
+        -- detached/replaced the Frames stored in InventoryModule.Data.
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
+        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay")
+        state.inventoryGuiValued = (guiKnown or 0) + (imageKnown or 0)
+        state.inventoryGuiItems = (guiCount or 0) + (imageCount or 0)
     else
         state.inventoryGuiFrames = 0
         state.inventoryGuiValued = 0
