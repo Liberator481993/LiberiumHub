@@ -431,7 +431,8 @@ local function buildMapping(entries, database, rustIndexData)
             name = tostring(item.ItemName or item.Name or ""),
             itemType = tostring(item.ItemType or ""),
             rarity = tostring(item.Rarity or ""),
-            chroma = item.Chroma == true,
+            chroma = item.Chroma == true
+                or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
             year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
             event = tostring(item.Event or "")
         }
@@ -444,7 +445,8 @@ local function buildMapping(entries, database, rustIndexData)
                 name = tostring(item.ItemName or item.Name or ""),
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true,
+                chroma = item.Chroma == true
+                    or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
@@ -460,7 +462,8 @@ local function buildMapping(entries, database, rustIndexData)
                 name = tostring(item.ItemName or item.Name or ""),
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true,
+                chroma = item.Chroma == true
+                    or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or "")
             })
@@ -478,11 +481,50 @@ local function buildMapping(entries, database, rustIndexData)
         gold = true, silver = true, bronze = true,
         red = true, blue = true, purple = true
     }
+    local TROPHY_NAME_PREFIXES = {
+        "Gold", "Silver", "Bronze", "Red", "Blue", "Purple"
+    }
     local function isTrophyRecord(item, recordKey)
-        if type(item) ~= "table" or clean(item.Rarity) ~= "Unique" then return false end
+        if type(item) ~= "table" or normalize(item.Rarity) ~= "unique" then return false end
+
+        -- Real leaderboard trophies use an exact color word at the beginning
+        -- of their item name (for example "Gold Icepiercer"). Require a word
+        -- boundary and Unique rarity so ordinary names containing color words
+        -- elsewhere can never be excluded by a substring match.
+        local itemName = clean(item.ItemName or item.Name or "")
+        for _, prefix in ipairs(TROPHY_NAME_PREFIXES) do
+            if itemName:sub(1, #prefix):lower() == prefix:lower()
+                and itemName:sub(#prefix + 1, #prefix + 1):match("%s") then
+                return true
+            end
+        end
+
+        -- A few exact database keys encode trophy color as a suffix instead.
         local keySuffix = tostring(recordKey or ""):match("_([^_]+)$")
         return keySuffix ~= nil and TROPHY_KEY_SUFFIXES[keySuffix:lower()] == true
     end
+
+    local function trophyDetectorSelfTest()
+        local cases = {
+            {name = "Gold Icepiercer", rarity = "Unique", key = "GoldIcepiercer", expected = true},
+            {name = "Silver Candy", rarity = "Unique", key = "SilverCandy", expected = true},
+            {name = "Red Icepiercer", rarity = "Unique", key = "RedIcepiercer", expected = true},
+            {name = "Goldfish", rarity = "Unique", key = "Goldfish", expected = false},
+            {name = "Gold Luger", rarity = "Godly", key = "GoldLuger", expected = false},
+            {name = "Vampire's Edge", rarity = "Unique", key = "VampiresEdge", expected = false}
+        }
+        for _, testCase in ipairs(cases) do
+            local actual = isTrophyRecord({
+                ItemName = testCase.name,
+                Rarity = testCase.rarity
+            }, testCase.key)
+            if actual ~= testCase.expected then
+                return "failed: " .. testCase.name
+            end
+        end
+        return "passed"
+    end
+    state.trophyDetectorStatus = trophyDetectorSelfTest()
 
     local function addIndex(name, entry)
         if name == "" then return end
@@ -762,7 +804,8 @@ local function buildMapping(entries, database, rustIndexData)
                 byName[nameKey] = byName[nameKey] or {}
                 table.insert(byName[nameKey], {
                     key = idKey,
-                    chroma = item.Chroma == true,
+                    chroma = item.Chroma == true
+                        or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
                     itemType = tostring(item.ItemType or ""),
                     year = tostring(item.Year or "")
                 })
@@ -856,6 +899,7 @@ local function valueOf(tile, name)
     end
 
     local chroma = hasChromaTag(tile)
+        or clean(name):lower():match("^chroma%s") ~= nil
     local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
@@ -889,7 +933,10 @@ local function valueOf(tile, name)
             displayName, explicitKind = clean(base), suffix
         end
     end
-    base, suffix = displayName:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
+    base, suffix = displayName:match("^(.-)%s*%((20%d%d)%)%s*$")
+    if not base then
+        base, suffix = displayName:match("^(.-)%s+(20%d%d)$")
+    end
     if base then displayName, explicitYear = clean(base), suffix end
 
     local normalizedName = normalize(displayName)
@@ -1444,11 +1491,12 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.Visible = true
 end
 
-local function scanRoot(root, group)
+local function scanRoot(root, group, skipFrames)
     local total, known, count, tierCount = 0, 0, 0, 0
     if not root then return total, known, count, tierCount end
 
     for _, tile in ipairs(getTiles(root)) do
+        if skipFrames and skipFrames[tile] then continue end
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
         local value, _, tierText, category, resolveStatus = valueOf(tile, name)
@@ -1470,7 +1518,7 @@ end
 
 -- Some mobile MM2 builds omit ItemName nodes from the inventory list and expose
 -- only an image card. Resolve the nearest card from its Container.Icon instead.
-local function scanImageCards(root, group)
+local function scanImageCards(root, group, skipFrames)
     if not root then return 0, 0, 0, 0 end
     local seen = {}
     local total, known, count, tierCount = 0, 0, 0, 0
@@ -1515,7 +1563,7 @@ local function scanImageCards(root, group)
     for _, node in ipairs(root:GetDescendants()) do
         if not (node:IsA("ImageLabel") or node:IsA("ImageButton")) then continue end
         local card = cardForImage(node)
-        if not card or seen[card] or not card.Parent then continue end
+        if not card or (skipFrames and skipFrames[card]) or seen[card] or not card.Parent then continue end
         seen[card] = true
         if not cardVisible(card) then continue end
 
@@ -1582,7 +1630,7 @@ local function scanOffer(offer, group)
     -- expose NewItem slots or named image cards directly under the offer.
     local root = offer:FindFirstChild("Container") or offer
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
-    local seen, seenIcons = {}, {}
+    local seen, seenIcons, seenNameNodes = {}, {}, {}
     for _, tile in ipairs(root:GetDescendants()) do
         if not tile:IsA("GuiObject") or not visible(tile) or seen[tile] then continue end
 
@@ -1590,17 +1638,20 @@ local function scanOffer(offer, group)
         local name, quantity = itemData(tile)
         local hasIdentifier = icon ~= nil or clean(name) ~= ""
         local cardContainer = tile:FindFirstChild("Container")
+        local itemNameNode = tile:FindFirstChild("ItemName", true)
         local normalCard = cardContainer ~= nil and icon ~= nil
         local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
-        local namedCard = tile:FindFirstChild("ItemName") ~= nil and hasIdentifier
+        local namedCard = itemNameNode ~= nil and hasIdentifier
 
         if normalCard or directSlot or namedCard then
-            -- A parent card and its nested Container can expose the same Icon.
-            -- Count each icon instance once, but never collapse separate copies
-            -- that happen to use the same asset ID.
+            -- Nested wrappers can expose the same image or ItemName node.
+            -- Deduplicate by GUI object identity, not asset ID, so separate
+            -- copies of an identical item still contribute independently.
             if icon and seenIcons[icon] then continue end
+            if itemNameNode and seenNameNodes[itemNameNode] then continue end
             seen[tile] = true
             if icon then seenIcons[icon] = true end
+            if itemNameNode then seenNameNodes[itemNameNode] = true end
 
             local value, resolvedName, tierText, category, resolveStatus = valueOf(tile, name)
 
@@ -2207,6 +2258,23 @@ local function scanModuleInventory()
                     -- only those use the cautious icon/name resolver fallback.
                     resolvedValue, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
                 end
+                if excludedKind == "trophy" then
+                    excludedTrophyQty = excludedTrophyQty + quantity
+                    if #excludedTrophySamples < 20 then
+                        table.insert(excludedTrophySamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(databaseRecord and databaseRecord.name or name)
+                            .. " qty=" .. tostring(quantity))
+                    end
+                    if tile and tile.Parent then
+                        updateTileBadge(tile, nil, quantity, "inventory", nil, category,
+                            resolvedName or name, "UNTRADABLE")
+                    end
+                    -- Leaderboard trophies cannot be traded; do not include
+                    -- their showcase values or quantities in tradeable totals.
+                    continue
+                end
+
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
@@ -2216,27 +2284,15 @@ local function scanModuleInventory()
                     tierCount = tierCount + quantity
                     if dbKind then exactTierQty = exactTierQty + quantity end
                 elseif dbKind then
-                    -- Default Knife and Default Gun are built-in placeholders,
-                    -- not Supreme-priced skins; do not report them as missing values.
-                    if excludedKind == "trophy" then
-                        excludedTrophyQty = excludedTrophyQty + quantity
-                        if #excludedTrophySamples < 20 then
-                            table.insert(excludedTrophySamples,
-                                tostring(collectionName) .. "/" .. tostring(subgroupName)
-                                .. "/" .. keyText .. " name=" .. tostring(databaseRecord and databaseRecord.name or name)
-                                .. " qty=" .. tostring(quantity))
-                        end
-                    else
-                        knownNoSupremeQty = knownNoSupremeQty + quantity
-                        if #noSupremeSamples < 30 then
-                            local image = findTileIcon(tile)
-                            table.insert(noSupremeSamples,
-                                tostring(collectionName) .. "/" .. tostring(subgroupName)
-                                .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
-                                .. " type=" .. tostring(dbKind)
-                                .. " icon=" .. tostring(image and assetId(image.Image) or "none")
-                                .. " qty=" .. tostring(quantity))
-                        end
+                    knownNoSupremeQty = knownNoSupremeQty + quantity
+                    if #noSupremeSamples < 30 then
+                        local image = findTileIcon(tile)
+                        table.insert(noSupremeSamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
+                            .. " type=" .. tostring(dbKind)
+                            .. " icon=" .. tostring(image and assetId(image.Image) or "none")
+                            .. " qty=" .. tostring(quantity))
                     end
                 end
                 count = count + quantity
@@ -2247,11 +2303,7 @@ local function scanModuleInventory()
                 end
                 local badgeStatus
                 if dbRecognized then
-                    if excludedKind == "trophy" then
-                        badgeStatus = "UNTRADABLE"
-                    elseif excludedKind ~= "default" then
-                        badgeStatus = "NO VALUE"
-                    end
+                    if excludedKind ~= "default" then badgeStatus = "NO VALUE" end
                 else
                     badgeStatus = resolutionStatus
                 end
@@ -2271,11 +2323,13 @@ local function scanModuleInventory()
         local guiTiles = getTiles(guiInstance)
         state.inventoryGuiFrames = #guiTiles
 
-        -- Data.Weapons/Data.Pets remains the only source for inventory totals.
-        -- Scan GUI cards independently to attach labels even when MM2 has
-        -- detached/replaced the Frames stored in InventoryModule.Data.
-        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay")
+        -- The Data scan already used exact itemKey mappings on its Frame
+        -- objects. Exclude those same Frames here so the weaker image/name
+        -- resolver cannot overwrite an exact value with an ambiguous result.
+        -- Remaining GUI-only cards still receive labels, but never affect the
+        -- authoritative total calculated from InventoryModule.Data.
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay", seen)
+        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay", seen)
         state.inventoryGuiValued = (guiKnown or 0) + (imageKnown or 0)
         state.inventoryGuiItems = (guiCount or 0) + (imageCount or 0)
     else
@@ -3032,6 +3086,7 @@ local function buildDiagnostic(includeDeepDump)
         "Last error: " .. tostring(state.lastError or "none"),
         "Tier comparator self-test: " .. TIER_SELF_TEST,
         "Numeric parser self-test: " .. tostring(state.numericParserStatus or "not run"),
+        "Trophy detector self-test: " .. tostring(state.trophyDetectorStatus or "not run"),
         "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
