@@ -455,13 +455,13 @@ local function buildMapping(entries, database, rustIndexData)
             year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
             event = tostring(item.Event or "")
         }
-        local name = normalize(item.ItemName or item.Name or "")
+        local rawName = tostring(item.ItemName or item.Name or "")
+        local name = normalize(rawName)
         if name ~= "" then
-            dbByName[name] = dbByName[name] or {}
-            table.insert(dbByName[name], {
+            local candidate = {
                 id = tostring(id),
                 kind = kind,
-                name = tostring(item.ItemName or item.Name or ""),
+                name = rawName,
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
                 chroma = databaseIsChroma(item),
@@ -469,7 +469,15 @@ local function buildMapping(entries, database, rustIndexData)
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
                 itemId = tostring(item.ItemID or "")
-            })
+            }
+            local function addNameKey(key)
+                if key == "" then return end
+                dbByName[key] = dbByName[key] or {}
+                table.insert(dbByName[key], candidate)
+            end
+            addNameKey(name)
+            local withoutChroma = normalize(rawName:gsub("^[Cc]hroma%s+", ""))
+            if withoutChroma ~= name then addNameKey(withoutChroma) end
         end
         local function addImageCandidate(image)
             if not image then return end
