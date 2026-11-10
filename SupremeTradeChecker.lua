@@ -1998,6 +1998,19 @@ local function scanModuleInventory()
                         .. " ItemKey=" .. tostring(entry.ItemKey or entry.Key or "nil")
                         .. " Name=" .. tostring(entry.Name or entry.ItemName or "nil"))
                 end
+                if (dbKind == "Item" and (keyText == "DefaultKnife" or keyText == "DefaultGun")) then
+                    intentionalDefaultQty = intentionalDefaultQty
+                        + math.max(1, math.floor(tonumber(entry.Amount) or 1))
+                    if #intentionalDefaultSamples < 10 then
+                        table.insert(intentionalDefaultSamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " qty=" .. tostring(entry.Amount or 1))
+                    end
+                    -- Starter placeholders are not tradeable inventory items
+                    -- and must not affect either the total or known-item count.
+                    continue
+                end
+
                 local tile = entry.Frame
                 local tileValid = typeof(tile) == "Instance" and tile:IsA("GuiObject")
                 if tileValid and seen[tile] then
@@ -2014,30 +2027,28 @@ local function scanModuleInventory()
                         local isVisible = visible(tile)
                         if isVisible then visibleFrames = visibleFrames + 1 end
                         if isVisible and probeCount < 5 then
-    
-                        probeCount = probeCount + 1
-                        local icon = findTileIcon(tile)
-                        local container = tile:FindFirstChild("Container", true)
-                        local badge = tile:FindFirstChild("__SupremeItemValue", true)
-                        local amountNode = tile:FindFirstChild("Amount", true)
-                        local nameNode = tile:FindFirstChild("ItemName", true)
-                        table.insert(frameProbe,
-                            tostring(tile.Name)
-                            .. "{class=" .. tile.ClassName
-                            .. ",size=" .. tostring(tile.AbsoluteSize.X) .. "x" .. tostring(tile.AbsoluteSize.Y)
-                            .. ",z=" .. tostring(tile.ZIndex)
-                            .. ",clip=" .. tostring(tile.ClipsDescendants)
-                            .. ",container=" .. tostring(container and container.Name or "none")
-                            .. ",icon=" .. tostring(icon and assetId(icon.Image) or "none")
-                            .. ",nameNode=" .. tostring(nameNode ~= nil)
-                            .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
-                            .. ",badge=" .. tostring(badge ~= nil)
-                            .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
-                            .. ",badgeText=" .. tostring(badge and badge.Text or "none")
-                            .. ",nameText=" .. tostring(nameNode and (nameNode:IsA("TextLabel") and nameNode.Text or (nameNode:FindFirstChildWhichIsA("TextLabel", true) and nameNode:FindFirstChildWhichIsA("TextLabel", true).Text)) or "none")
-                            .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
-                            .. "}")
-    
+                            probeCount = probeCount + 1
+                            local icon = findTileIcon(tile)
+                            local container = tile:FindFirstChild("Container", true)
+                            local badge = tile:FindFirstChild("__SupremeItemValue", true)
+                            local amountNode = tile:FindFirstChild("Amount", true)
+                            local nameNode = tile:FindFirstChild("ItemName", true)
+                            table.insert(frameProbe,
+                                tostring(tile.Name)
+                                .. "{class=" .. tile.ClassName
+                                .. ",size=" .. tostring(tile.AbsoluteSize.X) .. "x" .. tostring(tile.AbsoluteSize.Y)
+                                .. ",z=" .. tostring(tile.ZIndex)
+                                .. ",clip=" .. tostring(tile.ClipsDescendants)
+                                .. ",container=" .. tostring(container and container.Name or "none")
+                                .. ",icon=" .. tostring(icon and assetId(icon.Image) or "none")
+                                .. ",nameNode=" .. tostring(nameNode ~= nil)
+                                .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
+                                .. ",badge=" .. tostring(badge ~= nil)
+                                .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
+                                .. ",badgeText=" .. tostring(badge and badge.Text or "none")
+                                .. ",nameText=" .. tostring(nameNode and (nameNode:IsA("TextLabel") and nameNode.Text or (nameNode:FindFirstChildWhichIsA("TextLabel", true) and nameNode:FindFirstChildWhichIsA("TextLabel", true).Text)) or "none")
+                                .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
+                                .. "}")
                         end
                     else
                         detachedFrames = detachedFrames + 1
@@ -2097,14 +2108,7 @@ local function scanModuleInventory()
                 elseif dbKind then
                     -- Default Knife and Default Gun are built-in placeholders,
                     -- not Supreme-priced skins; do not report them as missing values.
-                    if excludedKind == "default" or keyText == "DefaultKnife" or keyText == "DefaultGun" then
-                        intentionalDefaultQty = intentionalDefaultQty + quantity
-                        if #intentionalDefaultSamples < 10 then
-                            table.insert(intentionalDefaultSamples,
-                                tostring(collectionName) .. "/" .. tostring(subgroupName)
-                                .. "/" .. keyText .. " qty=" .. tostring(quantity))
-                        end
-                    elseif excludedKind == "trophy" then
+                    if excludedKind == "trophy" then
                         excludedTrophyQty = excludedTrophyQty + quantity
                         if #excludedTrophySamples < 20 then
                             table.insert(excludedTrophySamples,
