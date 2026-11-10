@@ -384,6 +384,20 @@ local function buildMapping(entries, database, rustIndexData)
         return item.Chroma == true
             or itemName:lower():match("^chroma%s") ~= nil
     end
+    local function chromaDetectorSelfTest()
+        local cases = {
+            {item = {ItemName = "Chroma Seer"}, expected = true},
+            {item = {Name = "Chroma Luger", Chroma = false}, expected = true},
+            {item = {ItemName = "Seer", Chroma = false}, expected = false},
+            {item = {ItemName = "Chromatic", Chroma = false}, expected = false},
+            {item = {ItemName = "Seer", Chroma = true}, expected = true}
+        }
+        for _, case in ipairs(cases) do
+            if databaseIsChroma(case.item) ~= case.expected then return "failed" end
+        end
+        return "passed"
+    end
+    state.chromaDetectorStatus = chromaDetectorSelfTest()
     local function addSupremeCandidate(key, value)
         if key == "" then return end
         supremeByName[key] = supremeByName[key] or {}
@@ -3089,6 +3103,7 @@ local function buildDiagnostic(includeDeepDump)
         "Tier comparator self-test: " .. TIER_SELF_TEST,
         "Numeric parser self-test: " .. tostring(state.numericParserStatus or "not run"),
         "Trophy detector self-test: " .. tostring(state.trophyDetectorStatus or "not run"),
+        "Chroma detector self-test: " .. tostring(state.chromaDetectorStatus or "not run"),
         "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
