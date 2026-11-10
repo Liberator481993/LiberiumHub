@@ -1356,6 +1356,7 @@ local function recordUnmatched(tile, name, quantity, target)
     local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
     local chroma = hasChromaTag(tile)
+        or clean(name):lower():match("^chroma%s") ~= nil
     local itemName = clean(name)
     if itemName == "" then itemName = "NO_NAME" end
     local key = normalize(itemName) .. "|" .. tostring(imageId) .. "|" .. tostring(chroma)
