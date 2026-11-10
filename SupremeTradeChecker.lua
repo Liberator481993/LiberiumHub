@@ -481,8 +481,25 @@ local function buildMapping(entries, database, rustIndexData)
         gold = true, silver = true, bronze = true,
         red = true, blue = true, purple = true
     }
+    local TROPHY_NAME_PREFIXES = {
+        "Gold", "Silver", "Bronze", "Red", "Blue", "Purple"
+    }
     local function isTrophyRecord(item, recordKey)
-        if type(item) ~= "table" or clean(item.Rarity) ~= "Unique" then return false end
+        if type(item) ~= "table" or normalize(item.Rarity) ~= "unique" then return false end
+
+        -- Real leaderboard trophies use an exact color word at the beginning
+        -- of their item name (for example "Gold Icepiercer"). Require a word
+        -- boundary and Unique rarity so ordinary names containing color words
+        -- elsewhere can never be excluded by a substring match.
+        local itemName = clean(item.ItemName or item.Name or "")
+        for _, prefix in ipairs(TROPHY_NAME_PREFIXES) do
+            if itemName:sub(1, #prefix):lower() == prefix:lower()
+                and itemName:sub(#prefix + 1, #prefix + 1):match("%s") then
+                return true
+            end
+        end
+
+        -- A few exact database keys encode trophy color as a suffix instead.
         local keySuffix = tostring(recordKey or ""):match("_([^_]+)$")
         return keySuffix ~= nil and TROPHY_KEY_SUFFIXES[keySuffix:lower()] == true
     end
