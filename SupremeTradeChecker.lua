@@ -445,7 +445,8 @@ local function buildMapping(entries, database, rustIndexData)
                 name = tostring(item.ItemName or item.Name or ""),
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true,
+                chroma = item.Chroma == true
+                    or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
@@ -461,7 +462,8 @@ local function buildMapping(entries, database, rustIndexData)
                 name = tostring(item.ItemName or item.Name or ""),
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true,
+                chroma = item.Chroma == true
+                    or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or "")
             })
@@ -763,7 +765,8 @@ local function buildMapping(entries, database, rustIndexData)
                 byName[nameKey] = byName[nameKey] or {}
                 table.insert(byName[nameKey], {
                     key = idKey,
-                    chroma = item.Chroma == true,
+                    chroma = item.Chroma == true
+                        or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
                     itemType = tostring(item.ItemType or ""),
                     year = tostring(item.Year or "")
                 })
