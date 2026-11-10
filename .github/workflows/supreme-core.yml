@@ -12,6 +12,7 @@ on:
     paths:
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
+      - "data/supreme-export.json"
   workflow_dispatch:
 
 permissions:
@@ -42,6 +43,29 @@ jobs:
         run: cargo test
       - name: Test export builder with fixture data
         run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+      - name: Build uploaded Arceus X export
+        if: steps.export-presence.outputs.present == 'true'
+        run: cargo run --release -- build ../../data/supreme-export.json /tmp/User.SupremeTradeChecker.mapping.json
+      - name: Validate uploaded export category coverage
+        if: steps.export-presence.outputs.present == 'true'
+        working-directory: .
+        run: |
+          jq -e '
+            .schema_version == 1
+            and (.entry_count == (.entries | length))
+            and (.entry_count >= 300)
+            and (.by_name | length > 0)
+            and (.by_image_alt | type == "object")
+            and ((.category_counts.godlies // 0) >= 80)
+            and ((.category_counts.chromas // 0) >= 30)
+            and ((.category_counts.commons // 0) >= 150)
+            and ((.category_counts.uncommons // 0) >= 100)
+            and ((.category_counts.rares // 0) >= 80)
+            and ((.category_counts.legendaries // 0) >= 40)
+            and ((.category_counts.ancients // 0) >= 8)
+            and ((.category_counts.pets // 0) >= 40)
+            and ((.category_counts.uniques // 0) >= 1)
+          ' /tmp/User.SupremeTradeChecker.mapping.json >/dev/null
       - name: Test duplicate-aware total calculator
         run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
 
