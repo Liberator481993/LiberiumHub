@@ -448,6 +448,14 @@ local function buildMapping(entries, database, rustIndexData)
         return inferred or ""
     end
 
+    local function databaseItemYear(item, itemKey)
+        if type(item) == "table" then
+            local explicit = clean(item.Year)
+            if explicit ~= "" then return explicit end
+        end
+        return tostring(itemKey or ""):match("(20%d%d)$") or ""
+    end
+
     local function itemTypeDetectorSelfTest()
         local cases = {
             {item = {}, key = "Carrot_K_2023", kind = "Item", expected = "Knife"},
@@ -459,6 +467,16 @@ local function buildMapping(entries, database, rustIndexData)
         for _, case in ipairs(cases) do
             if databaseItemType(case.item, case.key, case.kind) ~= case.expected then
                 return "failed: " .. case.key
+            end
+        end
+        local yearCases = {
+            {item = {}, key = "Carrot_K_2023", expected = "2023"},
+            {item = {Year = 2024}, key = "Carrot_K_2023", expected = "2024"},
+            {item = {}, key = "Phoenix", expected = ""}
+        }
+        for _, case in ipairs(yearCases) do
+            if databaseItemYear(case.item, case.key) ~= case.expected then
+                return "failed year: " .. case.key
             end
         end
         return "passed"
@@ -532,7 +550,7 @@ local function buildMapping(entries, database, rustIndexData)
             itemType = databaseItemType(item, id, kind),
             rarity = tostring(item.Rarity or ""),
             chroma = databaseIsChroma(item),
-            year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
+            year = databaseItemYear(item, id),
             event = tostring(item.Event or "")
         }
         local rawName = tostring(item.ItemName or item.Name or "")
@@ -545,7 +563,7 @@ local function buildMapping(entries, database, rustIndexData)
                 itemType = databaseItemType(item, id, kind),
                 rarity = tostring(item.Rarity or ""),
                 chroma = databaseIsChroma(item),
-                year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
+                year = databaseItemYear(item, id),
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
                 itemId = tostring(item.ItemID or "")
@@ -569,7 +587,7 @@ local function buildMapping(entries, database, rustIndexData)
                 itemType = databaseItemType(item, id, kind),
                 rarity = tostring(item.Rarity or ""),
                 chroma = databaseIsChroma(item),
-                year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
+                year = databaseItemYear(item, id),
                 event = tostring(item.Event or "")
             })
         end
@@ -832,7 +850,7 @@ local function buildMapping(entries, database, rustIndexData)
                     name = name,
                     category = category,
                     itemType = databaseItemType(candidate.item, candidate.id, candidate.kind),
-                    year = tostring(candidate.item.Year or "")
+                    year = databaseItemYear(candidate.item, candidate.id)
                 }
             end
         end
@@ -912,7 +930,7 @@ local function buildMapping(entries, database, rustIndexData)
                     key = idKey,
                     chroma = databaseIsChroma(item),
                     itemType = databaseItemType(item, id, group.kind == "p" and "Pet" or "Item"),
-                    year = tostring(item.Year or "")
+                    year = databaseItemYear(item, id)
                 })
             end
         end
@@ -2873,8 +2891,10 @@ local function resolveTestItem(rawName)
         local entry = state.mapped.byKey[candidate.key]
         if entry and tonumber(entry.v) ~= nil then
             local mappedName = normalize(entry.name)
-            local typeMatches = not requestedType or candidate.itemType == requestedType
-            local yearMatches = not requestedYear or candidate.year == requestedYear
+            local typeMatches = not requestedType
+                or normalize(candidate.itemType) == normalize(requestedType)
+            local yearMatches = not requestedYear
+                or tostring(candidate.year or "") == tostring(requestedYear)
             if mappedName == normalizedInput
                 and candidate.chroma == isChromaInput
                 and typeMatches and yearMatches then
