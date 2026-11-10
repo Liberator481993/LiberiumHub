@@ -5,11 +5,15 @@ Rust is the data/indexing core for the MM2 Supreme Trade Checker. The in-game cl
 ## Data flow
 
 1. The Luau checker in Arceus X fetches Supreme Values pages using the executor's HTTP capability (the same path that has already been used by the in-game checker).
-2. Once the full dataset is parsed and page checks pass, open the checker panel and press **EXPORT JSON**. The script writes `SupremeTradeChecker_export.json` using the executor's `writefile` API. If that API is unavailable, it attempts to copy the JSON to the clipboard.
+2. Once the full dataset is parsed and page checks pass, open the checker panel and press **EXPORT JSON**. The script saves `SupremeTradeChecker_export.json` with `writefile` when the executor supports it and also copies the same JSON to the clipboard as a fallback.
 3. Upload the exported file to the repository as `data/supreme-export.json` on branch `supreme-trade-checker-rust-core`.
+   - If `writefile` is unavailable, create `data/supreme-export.json` from the copied clipboard contents instead.
+   - The export includes parsed category/card counts and uses schema version `1`; the Rust importer accepts numeric or string `v` fields.
 4. GitHub Actions runs the Rust core's `build` command, validates the output schema, generates normalized `by_name` and `by_image_alt` indexes, and publishes `data/SupremeTradeChecker.mapping.json` to the stable `supreme-values-data` branch.
 5. Luau downloads that stable JSON snapshot, validates schema version and age, then matches its item entries against the live `ReplicatedStorage.Database.Sync` database and displays item values and trade/inventory totals.
 6. If the Rust snapshot is unavailable, Luau retains its existing Supreme page scraper as a fallback.
+
+GitHub Actions publishes only when `data/supreme-export.json` exists. A code-only push runs the Rust tests but skips snapshot publication; a push that includes the export builds and validates the mapping before replacing the `supreme-values-data` snapshot. The workflow does not fetch Supreme Values from GitHub-hosted runners.
 
 **Why the export step exists:** GitHub-hosted runners received HTTP 403 from Supreme Values on all 14 category pages during the live scrape check. The user-side Arceus X scraper is the supported data-ingress point; the workflow no longer pretends that GitHub can scrape those pages. It only publishes a map after a complete export has been supplied.
 
