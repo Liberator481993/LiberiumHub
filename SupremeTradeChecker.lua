@@ -962,6 +962,26 @@ local function fetchRustMapping()
             return nil
         end
 
+        local requiredCategories = {
+            godlies = 80,
+            chromas = 30,
+            commons = 150,
+            uncommons = 100,
+            rares = 80,
+            legendaries = 40,
+            ancients = 8,
+            pets = 40,
+            uniques = 1
+        }
+        for category, minimum in pairs(requiredCategories) do
+            local actual = tonumber(decoded.category_counts[category]) or 0
+            if actual < minimum then
+                table.insert(errors, method .. ": incomplete category " .. category
+                    .. " (" .. tostring(actual) .. "/" .. tostring(minimum) .. ")")
+                return nil
+            end
+        end
+
         for index, entry in ipairs(entries) do
             if type(entry) ~= "table" or normalize(entry.n) == "" then
                 table.insert(errors, method .. ": invalid item entry at index " .. tostring(index))
