@@ -426,6 +426,44 @@ local function buildMapping(entries, database, rustIndexData)
         return item.Chroma == true
             or itemName:lower():match("^chroma%s") ~= nil
     end
+
+    local function databaseItemType(item, itemKey, kind)
+        if type(item) ~= "table" then return "" end
+        local explicit = clean(item.ItemType)
+        if explicit ~= "" then return explicit end
+        if kind == "Pet" then return "" end
+
+        -- Some MM2 database keys encode the weapon slot as an exact token:
+        -- Carrot_K_2023 / Carrot_G_2023. Infer only when ItemType is absent.
+        local inferred
+        for token in tostring(itemKey or ""):gmatch("[^_]+") do
+            if token == "K" then
+                if inferred and inferred ~= "Knife" then return "" end
+                inferred = "Knife"
+            elseif token == "G" then
+                if inferred and inferred ~= "Gun" then return "" end
+                inferred = "Gun"
+            end
+        end
+        return inferred or ""
+    end
+
+    local function itemTypeDetectorSelfTest()
+        local cases = {
+            {item = {}, key = "Carrot_K_2023", kind = "Item", expected = "Knife"},
+            {item = {}, key = "Carrot_G_2023", kind = "Item", expected = "Gun"},
+            {item = {ItemType = "Misc"}, key = "Carrot_K_2023", kind = "Item", expected = "Misc"},
+            {item = {}, key = "Phoenix_2023", kind = "Pet", expected = ""},
+            {item = {}, key = "Carrot_K_G_2023", kind = "Item", expected = ""}
+        }
+        for _, case in ipairs(cases) do
+            if databaseItemType(case.item, case.key, case.kind) ~= case.expected then
+                return "failed: " .. case.key
+            end
+        end
+        return "passed"
+    end
+    state.itemTypeDetectorStatus = itemTypeDetectorSelfTest()
     local function chromaDetectorSelfTest()
         local cases = {
             {item = {ItemName = "Chroma Seer"}, expected = true},
@@ -491,7 +529,7 @@ local function buildMapping(entries, database, rustIndexData)
             id = tostring(id),
             kind = kind,
             name = tostring(item.ItemName or item.Name or ""),
-            itemType = tostring(item.ItemType or ""),
+            itemType = databaseItemType(item, id, kind),
             rarity = tostring(item.Rarity or ""),
             chroma = databaseIsChroma(item),
             year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
@@ -504,7 +542,7 @@ local function buildMapping(entries, database, rustIndexData)
                 id = tostring(id),
                 kind = kind,
                 name = rawName,
-                itemType = tostring(item.ItemType or ""),
+                itemType = databaseItemType(item, id, kind),
                 rarity = tostring(item.Rarity or ""),
                 chroma = databaseIsChroma(item),
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
@@ -528,7 +566,7 @@ local function buildMapping(entries, database, rustIndexData)
                 id = tostring(id),
                 kind = kind,
                 name = tostring(item.ItemName or item.Name or ""),
-                itemType = tostring(item.ItemType or ""),
+                itemType = databaseItemType(item, id, kind),
                 rarity = tostring(item.Rarity or ""),
                 chroma = databaseIsChroma(item),
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
@@ -737,14 +775,19 @@ local function buildMapping(entries, database, rustIndexData)
         local function filterMatches(predicate)
             local filtered = {}
             for _, candidate in ipairs(matches) do
-                if predicate(candidate.item) then table.insert(filtered, candidate) end
+                if predicate(candidate.item, candidate) then table.insert(filtered, candidate) end
             end
             -- A supplied discriminator that does not match must reject the
             -- candidate set; never silently fall back to a different skin.
             matches = filtered
         end
 
-        if kind then filterMatches(function(item) return item.ItemType == kind end) end
+        if kind then
+            filterMatches(function(item, candidate)
+                return normalize(databaseItemType(item, candidate.id, candidate.kind))
+                    == normalize(kind)
+            end)
+        end
         if value.cl then
             filterMatches(function(item)
                 return normalize(item.Rarity) == normalize(value.cl)
@@ -788,7 +831,7 @@ local function buildMapping(entries, database, rustIndexData)
                     n = 1,
                     name = name,
                     category = category,
-                    itemType = tostring(candidate.item.ItemType or ""),
+                    itemType = databaseItemType(candidate.item, candidate.id, candidate.kind),
                     year = tostring(candidate.item.Year or "")
                 }
             end
@@ -846,7 +889,7 @@ local function buildMapping(entries, database, rustIndexData)
         for id, item in pairs(group.items) do
             if type(item) == "table" and not databaseIsChroma(item) then
                 local regularKey = normalize(item[group.field])
-                    .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
+                    .. (group.kind == "i" and "|" .. databaseItemType(item, id, "Item") or "")
                 if not regular[regularKey] then
                     regular[regularKey] = group.kind .. ":" .. tostring(id)
                 end
@@ -859,7 +902,7 @@ local function buildMapping(entries, database, rustIndexData)
             local nameKey = normalize(item[group.field])
             if databaseIsChroma(item) then
                 local regularKey = nameKey
-                    .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
+                    .. (group.kind == "i" and "|" .. databaseItemType(item, id, "Item") or "")
                 local base = regular[regularKey]
                 if base then chromaOf[base] = idKey end
             end
@@ -868,7 +911,7 @@ local function buildMapping(entries, database, rustIndexData)
                 table.insert(byName[nameKey], {
                     key = idKey,
                     chroma = databaseIsChroma(item),
-                    itemType = tostring(item.ItemType or ""),
+                    itemType = databaseItemType(item, id, group.kind == "p" and "Pet" or "Item"),
                     year = tostring(item.Year or "")
                 })
             end
@@ -3145,6 +3188,7 @@ local function buildDiagnostic(includeDeepDump)
         "Trophy detector self-test: " .. tostring(state.trophyDetectorStatus or "not run"),
         "Chroma detector self-test: " .. tostring(state.chromaDetectorStatus or "not run"),
         "Variant parser self-test: " .. tostring(state.variantParserStatus or "not run"),
+        "Item type detector self-test: " .. tostring(state.itemTypeDetectorStatus or "not run"),
         "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
