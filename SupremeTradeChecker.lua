@@ -550,8 +550,8 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     for id, item in pairs(weapons) do
-        dbIds["i:" .. tostring(id)] = "Item"
         if type(item) ~= "table" then continue end
+        dbIds["i:" .. tostring(id)] = "Item"
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Item")
@@ -563,8 +563,8 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     for id, item in pairs(pets) do
-        dbIds["p:" .. tostring(id)] = "Pet"
         if type(item) ~= "table" then continue end
+        dbIds["p:" .. tostring(id)] = "Pet"
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
         addIndex("pet:" .. normalize(item.Name), entry)
