@@ -891,7 +891,10 @@ local function valueOf(tile, name)
             displayName, explicitKind = clean(base), suffix
         end
     end
-    base, suffix = displayName:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
+    base, suffix = displayName:match("^(.-)%s*%((20%d%d)%)%s*$")
+    if not base then
+        base, suffix = displayName:match("^(.-)%s+(20%d%d)$")
+    end
     if base then displayName, explicitYear = clean(base), suffix end
 
     local normalizedName = normalize(displayName)
