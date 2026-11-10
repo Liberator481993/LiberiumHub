@@ -430,6 +430,8 @@ mod tests {
         assert_eq!(parse_numeric_value("1,000,000").as_deref(), Some("1000000"));
         assert_eq!(parse_numeric_value("0.25").as_deref(), Some("0.25"));
         assert_eq!(parse_numeric_value("35").as_deref(), Some("35"));
+        assert_eq!(parse_numeric_value("0"), None);
+        assert_eq!(parse_numeric_value("-5"), None);
     }
     #[test] fn input_rejects_mismatched_category_counts() {
         let raw = r#"{"schema_version":1,"category_counts":{"godlies":2},"entries":[
@@ -444,6 +446,21 @@ mod tests {
         ]}"#;
         let input: InputFile = serde_json::from_str(raw).unwrap();
         assert!(validate_export(&input).unwrap_err().contains("page_card_counts"));
+    }
+    #[test] fn input_requires_all_fourteen_category_pages() {
+        let mut page_card_counts: BTreeMap<String, usize> =
+            CATEGORIES.iter().map(|category| ((*category).to_string(), 1)).collect();
+        let input = InputFile {
+            schema_version: 1,
+            category_counts: [("godlies".to_string(), 1)].into_iter().collect(),
+            page_card_counts: page_card_counts.clone(),
+            entries: vec![entry("Lightbringer", "godlies", "45")],
+        };
+        assert!(validate_export(&input).is_ok());
+
+        page_card_counts.remove("untradables");
+        let incomplete = InputFile { page_card_counts, ..input };
+        assert!(validate_export(&incomplete).unwrap_err().contains("untradables"));
     }
     #[test] fn input_derives_category_counts_when_not_reported() {
         let raw = r#"{"schema_version":1,"entries":[
