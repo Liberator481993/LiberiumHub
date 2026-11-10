@@ -947,22 +947,78 @@ local function fetchRustMapping()
             table.insert(errors, method .. ": invalid JSON")
             return nil
         end
+
+        local entries = decoded.entries
+        local entryCount = tonumber(decoded.entry_count)
         if tonumber(decoded.schema_version) ~= 1
-            or type(decoded.entries) ~= "table"
-            or #decoded.entries < 300
+            or type(entries) ~= "table"
+            or #entries < 300
+            or entryCount ~= #entries
             or type(decoded.by_name) ~= "table"
-            or type(decoded.by_image_alt) ~= "table" then
-            table.insert(errors, method .. ": unsupported schema or incomplete mapping")
+            or type(decoded.by_image_alt) ~= "table"
+            or type(decoded.category_counts) ~= "table"
+            or type(decoded.page_card_counts) ~= "table" then
+            table.insert(errors, method .. ": unsupported schema or inconsistent entry counts")
             return nil
         end
+
+        for index, entry in ipairs(entries) do
+            if type(entry) ~= "table" or normalize(entry.n) == "" then
+                table.insert(errors, method .. ": invalid item entry at index " .. tostring(index))
+                return nil
+            end
+            local hasNumeric = entry.v ~= nil and parseNumber(entry.v) ~= nil
+            local hasTier = type(entry.t) == "string" and clean(entry.t) ~= ""
+            if not hasNumeric and not hasTier then
+                table.insert(errors, method .. ": item has no numeric or tier value at index " .. tostring(index))
+                return nil
+            end
+        end
+
+        local function validateIndex(indexMap, label, requireKeys)
+            local keyCount = 0
+            for key, ids in pairs(indexMap) do
+                if type(key) ~= "string" or key == ""
+                    or type(ids) ~= "table" or #ids == 0 then
+                    return false, label .. " contains an invalid key or id list"
+                end
+                keyCount = keyCount + 1
+                for _, rawId in ipairs(ids) do
+                    local id = tonumber(rawId)
+                    if not id or id % 1 ~= 0 or id < 0 or id >= entryCount then
+                        return false, label .. " contains an out-of-range entry index"
+                    end
+                end
+            end
+            if requireKeys and keyCount == 0 then
+                return false, label .. " is empty"
+            end
+            return true
+        end
+
+        local validNames, nameError = validateIndex(decoded.by_name, "by_name", true)
+        if not validNames then
+            table.insert(errors, method .. ": " .. nameError)
+            return nil
+        end
+        local validImages, imageError = validateIndex(decoded.by_image_alt, "by_image_alt", false)
+        if not validImages then
+            table.insert(errors, method .. ": " .. imageError)
+            return nil
+        end
+
         local generated = tonumber(decoded.generated_at_unix)
-        if generated and os.time() - generated > 7 * 24 * 60 * 60 then
-            table.insert(errors, method .. ": mapping is older than 7 days")
+        if not generated then
+            table.insert(errors, method .. ": missing snapshot timestamp")
+            return nil
+        end
+        local age = os.time() - generated
+        if age > 7 * 24 * 60 * 60 or age < -24 * 60 * 60 then
+            table.insert(errors, method .. ": snapshot timestamp is outside the accepted age window")
             return nil
         end
         return decoded
     end
-
     local function attempt(fn, method)
         if type(fn) ~= "function" then return nil end
         local headers = {
