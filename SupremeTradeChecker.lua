@@ -1546,6 +1546,8 @@ end
 
 local function scanInventory()
     state.unmatchedInventory = {}
+    state.inventoryNoValue = 0
+    state.inventoryUnknown = 0
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
     local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
     local weaponTierCount = moduleTierCount or 0
