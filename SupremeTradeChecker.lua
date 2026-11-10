@@ -253,6 +253,30 @@ end
 
 -- Supreme Values item cards expose numeric or tier-based values as visible text.
 -- Parse the displayed value first; data-value is only a numeric fallback.
+local function parseNumber(raw)
+    if raw == nil then return nil end
+    local value = tonumber(tostring(raw):gsub(",", ""))
+    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+        return nil
+    end
+    return value
+end
+
+local function numericParserSelfTest()
+    local cases = {
+        {"5,000", 5000},
+        {"1,000,000", 1000000},
+        {"0.25", 0.25},
+        {"35", 35}
+    }
+    for _, case in ipairs(cases) do
+        local actual = parseNumber(case[1])
+        if actual == nil or math.abs(actual - case[2]) > 0.000001 then return false end
+    end
+    return true
+end
+state.numericParserStatus = numericParserSelfTest() and "passed" or "failed"
+
 local function parseCategory(category, html, output)
     local count, tierCount, cursor, scanned = 0, 0, 1, 0
     while true do
@@ -268,10 +292,10 @@ local function parseCategory(category, html, output)
         -- Read the displayed value first: tier cards may carry data-value="0",
         -- which is a placeholder and must never become a numeric price.
         local amountText = cardText:match("Value%s*%-%s*([%d,%.]+)")
-        local amount = amountText and tonumber((amountText:gsub(",", ""))) or nil
+        local amount = parseNumber(amountText)
         local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
         if not amount and not tierText then
-            local dataAmount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
+            local dataAmount = parseNumber(card:match('data%-value="([%d%.]+)"'))
             if dataAmount and dataAmount > 0 then amount = dataAmount end
         end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
@@ -280,8 +304,7 @@ local function parseCategory(category, html, output)
             or card:match("<img[^>]-alt='([^']*)'")
         imageAlt = decodeText(imageAlt or "")
         local pageEvent = card:match('data%-event="([^"]+)"')
-        if (amount or tierText) and (not amount or amount < 500000)
-            and nameMarkup and not origin:find("Deletion", 1, true) then
+        if (amount or tierText) and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
                 table.insert(output, {
@@ -2341,7 +2364,7 @@ exportButton.BorderSizePixel = 0
 exportButton.Font = Enum.Font.GothamBold
 exportButton.TextSize = 11
 exportButton.TextColor3 = Color3.new(1, 1, 1)
-exportButton.Text = "COPY JSON"
+exportButton.Text = "EXPORT JSON"
 exportButton.ZIndex = 205
 exportButton.Parent = panel
 
@@ -2824,6 +2847,7 @@ local function buildDiagnostic(includeDeepDump)
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
         "Last error: " .. tostring(state.lastError or "none"),
         "Tier comparator self-test: " .. TIER_SELF_TEST,
+        "Numeric parser self-test: " .. tostring(state.numericParserStatus or "not run"),
         "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
@@ -2846,7 +2870,7 @@ exportButton.Activated:Connect(function()
     if type(entries) ~= "table" or #entries < 300 then
         exportButton.Text = "DATA NOT READY"
         task.delay(3, function()
-            if exportButton and exportButton.Parent then exportButton.Text = "COPY JSON" end
+            if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
         end)
         return
     end
@@ -2856,6 +2880,8 @@ exportButton.Activated:Connect(function()
             schema_version = 1,
             source = "Supreme Values MM2 via Delta / Arceus X",
             exported_at = os.date("%Y-%m-%d %H:%M:%S"),
+            category_counts = state.categoryCounts or {},
+            page_card_counts = state.categoryCardCounts or {},
             entries = entries
         })
     end)
@@ -2865,19 +2891,38 @@ exportButton.Activated:Connect(function()
         return
     end
 
-    -- Do not write a file: copy the complete JSON directly to the executor clipboard.
+    -- Save a real file when the executor supports writefile, and also copy
+    -- the JSON so Android users still have a fallback if filesystem APIs fail.
+    local saved = false
+    if type(writefile) == "function" then
+        local writeOk, writeResult = pcall(writefile, "SupremeTradeChecker_export.json", encoded)
+        saved = writeOk and writeResult ~= false
+        if not saved then
+            warn("[Supreme Trade Checker] writefile failed: " .. tostring(writeResult))
+        end
+    end
+
     local copied = copyText(encoded)
-    if copied then
+    if saved and copied then
+        exportButton.Text = "SAVED + COPIED"
+    elseif saved then
+        exportButton.Text = "JSON SAVED " .. tostring(#entries)
+    elseif copied then
         exportButton.Text = "JSON COPIED " .. tostring(#entries)
-        warn("[Supreme Trade Checker] Full JSON copied to clipboard: "
-            .. tostring(#entries) .. " entries, " .. tostring(#encoded) .. " bytes")
     else
-        exportButton.Text = "COPY UNAVAILABLE"
-        warn("[Supreme Trade Checker] Clipboard API unavailable; JSON was not copied.")
+        exportButton.Text = "EXPORT FAILED"
+    end
+
+    if saved or copied then
+        warn("[Supreme Trade Checker] Export ready: " .. tostring(#entries)
+            .. " entries, " .. tostring(#encoded) .. " bytes; file saved="
+            .. tostring(saved) .. ", clipboard copied=" .. tostring(copied))
+    else
+        warn("[Supreme Trade Checker] Export failed: no usable writefile or clipboard API.")
     end
 
     task.delay(7, function()
-        if exportButton and exportButton.Parent then exportButton.Text = "COPY JSON" end
+        if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
     end)
 end)
 
