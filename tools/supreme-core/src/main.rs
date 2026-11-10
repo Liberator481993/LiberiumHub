@@ -158,7 +158,9 @@ fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEnt
     let mut current: Option<SupremeEntry> = None;
     for line in markdown.lines() {
         if let Some(caps) = item_re.captures(line) {
-            if let Some(entry) = current.take() { entries.push(entry); }
+            if let Some(entry) = current.take() {
+                if !entry.o.to_ascii_lowercase().contains("deletion") { entries.push(entry); }
+            }
             cards += 1;
             let image_alt = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
             let name = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
@@ -169,7 +171,9 @@ fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEnt
                 v: value, t: String::new(), dm: String::new(),
             });
         } else if let Some(caps) = tier_re.captures(line) {
-            if let Some(entry) = current.take() { entries.push(entry); }
+            if let Some(entry) = current.take() {
+                if !entry.o.to_ascii_lowercase().contains("deletion") { entries.push(entry); }
+            }
             cards += 1;
             current = Some(SupremeEntry {
                 c: category.to_string(),
@@ -192,7 +196,9 @@ fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEnt
             }
         }
     }
-    if let Some(entry) = current { entries.push(entry); }
+    if let Some(entry) = current {
+        if !entry.o.to_ascii_lowercase().contains("deletion") { entries.push(entry); }
+    }
     Ok((entries, cards))
 }
 fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
@@ -230,7 +236,7 @@ fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
             Ok(body) if body.len() > 1000 => {
                 if body.contains("itemcolumn") {
                     let (entries, cards) = parse_page(category, &body)?;
-                    if !entries.is_empty() { return Ok((category.to_string(), entries, cards)); }
+                    if cards > 0 { return Ok((category.to_string(), entries, cards)); }
                 }
                 let (entries, cards) = parse_markdown_page(category, &body)?;
                 if !entries.is_empty() { return Ok((category.to_string(), entries, cards)); }
@@ -268,18 +274,15 @@ fn fetch_all() -> Result<MappingFile, String> {
                         entries.append(&mut parsed);
                     }
                 }
-                Err(error) => {
-                    if matches!(category, "sets" | "evos" | "untradables") {
-                        category_counts.insert(category.to_string(), 0);
-                        page_card_counts.insert(category.to_string(), 0);
-                    } else {
-                        failures.push(error);
-                    }
-                }
+                Err(error) => failures.push(error),
             }
         }
     }
     let mut missing = Vec::new();
+    for category in CATEGORIES {
+        let cards = *page_card_counts.get(*category).unwrap_or(&0);
+        if cards == 0 { missing.push(format!("{category}: no page cards")); }
+    }
     for (category, minimum) in MINIMUM {
         let count = *category_counts.get(*category).unwrap_or(&0);
         if count < *minimum { missing.push(format!("{category}: {count}/{minimum}")); }
@@ -414,6 +417,13 @@ mod tests {
         assert_eq!(entries[0].v.as_deref(), Some("5100"));
         assert_eq!(entries[0].y, "2023");
         assert_eq!(entries[0].dm, "5");
+    }
+    #[test] fn markdown_parser_skips_deletion_records() {
+        let markdown = "Image: Traveler Gun | Traveler's Gun Value - 5000\nOrigin - Halloween 2023 (Unboxed)\nDemand - 5\nImage: Deleted Gun | Deleted Gun Value - 25\nOrigin - Deletion\nDemand - 1";
+        let (entries, cards) = parse_markdown_page("godlies", markdown).unwrap();
+        assert_eq!(cards, 2);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].n, "Traveler's Gun");
     }
     #[test] fn numeric_parser_handles_thousands_and_millions() {
         assert_eq!(parse_numeric_value("5,000").as_deref(), Some("5000"));
