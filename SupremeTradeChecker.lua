@@ -850,7 +850,9 @@ end
 
 local function valueOf(tile, name)
     local mapped = state.mapped
-    if not mapped or state.status ~= "ok" then return nil end
+    if not mapped or state.status ~= "ok" then
+        return nil, nil, nil, nil, state.status == "loading" and "LOADING" or "UNKNOWN"
+    end
 
     local chroma = hasChromaTag(tile)
     local iconObject = findTileIcon(tile)
@@ -862,10 +864,13 @@ local function valueOf(tile, name)
     if iconKey then
         if chroma and not (mapped.chromaKeys and mapped.chromaKeys[iconKey]) then
             iconKey = mapped.chromaOf[iconKey]
-            if not iconKey then return nil end
+            if not iconKey then return nil, nil, nil, nil, "UNKNOWN" end
         end
         local entry = mapped.byKey[iconKey]
         if entry then return entry.v, entry.name, entry.t, entry.category end
+        local excluded = mapped.dbExcludedKeys and mapped.dbExcludedKeys[iconKey]
+        if excluded == "trophy" then return nil, nil, nil, nil, "UNTRADABLE" end
+        if excluded == "default" then return nil, nil, nil, nil, "DEFAULT" end
         return nil, nil, nil, nil, "NO VALUE"
     end
 
@@ -897,6 +902,9 @@ local function valueOf(tile, name)
         local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
         local entry = mapped.byKey[key]
         if entry then return entry.v, entry.name, entry.t, entry.category end
+        local excluded = mapped.dbExcludedKeys and mapped.dbExcludedKeys[key]
+        if excluded == "trophy" then return nil, nil, nil, nil, "UNTRADABLE" end
+        if excluded == "default" then return nil, nil, nil, nil, "DEFAULT" end
         return nil, nil, nil, nil, "NO VALUE"
     end
 
@@ -930,7 +938,7 @@ local function valueOf(tile, name)
         end
         if #matches == 1 then return mappedValue(matches[1]) end
     end
-    return nil
+    return nil, nil, nil, nil, "UNKNOWN"
 end
 
 local function fetchRustMapping()
@@ -1451,7 +1459,7 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and not resolveStatus and group == "inventory" then
+        if value == nil and not tierText and resolveStatus == "UNKNOWN" and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
         updateTileBadge(tile, value, quantity, group, tierText, category, name, resolveStatus)
@@ -1530,7 +1538,7 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and not resolveStatus and group == "inventory" then
+        if value == nil and not tierText and resolveStatus == "UNKNOWN" and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
         updateTileBadge(card, value, quantity, group, tierText, category, name, resolveStatus)
@@ -1623,7 +1631,7 @@ local function scanOffer(offer, group)
                     state.tradeUnknown = (state.tradeUnknown or 0) + quantity
                 end
             end
-            if value == nil and not tierText and not resolveStatus and hasIdentifier then
+            if value == nil and not tierText and resolveStatus == "UNKNOWN" and hasIdentifier then
                 recordUnmatched(tile, name or resolvedLabel, quantity, state.unmatchedTrade)
             end
             updateTileBadge(tile, value, quantity, group, tierText, category, resolvedLabel, resolveStatus)
@@ -2181,7 +2189,7 @@ local function scanModuleInventory()
                     and state.mapped.byKey[recordKey] or nil
                 local excludedKind = state.mapped and state.mapped.dbExcludedKeys
                     and state.mapped.dbExcludedKeys[recordKey] or nil
-                local resolvedValue, resolvedName, tierText, category
+                local resolvedValue, resolvedName, tierText, category, resolutionStatus
                 if exactValue then
                     resolvedValue = exactValue.v
                     resolvedName = exactValue.name
@@ -2190,7 +2198,7 @@ local function scanModuleInventory()
                 elseif not dbKind then
                     -- Unknown keys may come from a UI-specific data wrapper;
                     -- only those use the cautious icon/name resolver fallback.
-                    resolvedValue, resolvedName, tierText, category = valueOf(tile, name)
+                    resolvedValue, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
                 end
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
@@ -2226,16 +2234,19 @@ local function scanModuleInventory()
                 end
                 count = count + quantity
                 local dbRecognized = dbKind ~= nil
-                if resolvedValue == nil and not tierText and not dbRecognized and tile then
+                if resolvedValue == nil and not tierText and not dbRecognized
+                    and tile and resolutionStatus == "UNKNOWN" then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
                 local badgeStatus
                 if dbRecognized then
                     if excludedKind == "trophy" then
                         badgeStatus = "UNTRADABLE"
-                    elseif excludedKind ~= "default" and keyText ~= "DefaultKnife" and keyText ~= "DefaultGun" then
+                    elseif excludedKind ~= "default" then
                         badgeStatus = "NO VALUE"
                     end
+                else
+                    badgeStatus = resolutionStatus
                 end
                 if tile and tile.Parent then
                     updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
