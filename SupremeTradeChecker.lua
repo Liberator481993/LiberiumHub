@@ -468,31 +468,17 @@ local function buildMapping(entries, database, rustIndexData)
         addImageCandidate(assetId(item.ItemID))
     end
 
-    -- MM2 trophy skins are untradable leaderboard rewards. They may be
-    -- identified either by a color prefix in ItemName or by a color suffix
-    -- in the database key (for example VampireAxe_Gold). Require Unique
-    -- rarity in both cases; ordinary tradeable items remain indexed.
-    local TROPHY_PREFIXES = {"Gold", "Silver", "Bronze", "Red", "Blue", "Purple"}
+    -- Exclude leaderboard trophies only when the exact MM2 database key
+    -- carries a recognized color suffix and the record has Unique rarity.
+    -- Avoid name-prefix or substring guesses that could hide tradable items.
     local TROPHY_KEY_SUFFIXES = {
         gold = true, silver = true, bronze = true,
         red = true, blue = true, purple = true
     }
     local function isTrophyRecord(item, recordKey)
         if type(item) ~= "table" or clean(item.Rarity) ~= "Unique" then return false end
-
         local keySuffix = tostring(recordKey or ""):match("_([^_]+)$")
-        if keySuffix and TROPHY_KEY_SUFFIXES[keySuffix:lower()] then
-            return true
-        end
-
-        local itemName = clean(item.ItemName or item.Name or "")
-        for _, prefix in ipairs(TROPHY_PREFIXES) do
-            if itemName:lower():sub(1, #prefix) == prefix:lower()
-                and itemName:sub(#prefix + 1, #prefix + 1):match("[%s%-']") then
-                return true
-            end
-        end
-        return false
+        return keySuffix ~= nil and TROPHY_KEY_SUFFIXES[keySuffix:lower()] == true
     end
 
     local function addIndex(name, entry)
@@ -502,7 +488,7 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     for id, item in pairs(weapons) do
-        dbIds[tostring(id)] = "Item"
+        dbIds["i:" .. tostring(id)] = "Item"
         if type(item) ~= "table" then continue end
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
@@ -515,7 +501,7 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     for id, item in pairs(pets) do
-        dbIds[tostring(id)] = "Pet"
+        dbIds["p:" .. tostring(id)] = "Pet"
         if type(item) ~= "table" then continue end
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
@@ -1973,7 +1959,9 @@ local function scanModuleInventory()
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
                 local keyText = tostring(itemKey)
-                local dbKind = mappedIds and mappedIds[keyText] or nil
+                local exactPrefix = collectionName == "Pets" and "p:" or "i:"
+                local recordKey = exactPrefix .. keyText
+                local dbKind = mappedIds and mappedIds[recordKey] or nil
                 if dbKind then keyHits = keyHits + 1 else
                     keyMisses = keyMisses + 1
                     dbKeyMissQty = dbKeyMissQty + math.max(1, tonumber(entry.Amount) or 1)
@@ -2066,10 +2054,6 @@ local function scanModuleInventory()
 
                 -- Do not depend on ItemName text: MM2's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
-                local exactPrefix = dbKind == "Pet" and "p:"
-                    or dbKind == "Item" and "i:"
-                    or (collectionName == "Pets" and "p:" or "i:")
-                local recordKey = exactPrefix .. keyText
                 local name, quantity = itemData(tile)
                 local databaseRecord = state.mapped and state.mapped.dbByKey
                     and state.mapped.dbByKey[recordKey] or nil
