@@ -666,7 +666,7 @@ local function buildMapping(entries, database, rustIndexData)
                 for _, candidate in ipairs(petEntries) do
                     if normalize(candidate.id):sub(1, #prefix) == prefix
                         and tostring(candidate.item.Year or "") == tostring(year)
-                        and not candidate.item.Chroma then
+                        and not databaseIsChroma(candidate.item) then
                         table.insert(correct, candidate)
                     end
                 end
@@ -852,7 +852,7 @@ local function buildMapping(entries, database, rustIndexData)
                     .. "{itemId=" .. tostring(item.ItemID or "none")
                     .. ",type=" .. tostring(item.ItemType or "Pet")
                     .. ",rarity=" .. tostring(item.Rarity or "none")
-                    .. ",chroma=" .. tostring(item.Chroma == true)
+                    .. ",chroma=" .. tostring(databaseIsChroma(item))
                     .. ",year=" .. tostring(item.Year or idText:match("(20%d%d)$") or "none")
                     .. ",event=" .. tostring(item.Event or "none") .. "}"
                 table.insert(dbUnmappedAll, row)
