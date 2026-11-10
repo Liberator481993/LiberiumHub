@@ -1502,27 +1502,37 @@ local function scanModuleInventory()
                 dataEntries = dataEntries + 1
                 if EXCLUDED_ITEM_KEYS[tostring(itemKey)] then continue end
                 local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
-                seen[tile] = true
-                frameCount = frameCount + 1
-                if not tile.Parent then
+                local tileValid = typeof(tile) == "Instance" and tile:IsA("GuiObject")
+                if tileValid and seen[tile] then continue end
+                if tileValid then
+                    seen[tile] = true
+                    frameCount = frameCount + 1
+                    if not tile.Parent then
+                        detachedFrames = detachedFrames + 1
+                        if #frameSamples < 8 then
+                            table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
+                        end
+                    else
+                        parentedFrames = parentedFrames + 1
+                        local tileIsVisible = visible(tile)
+                        if tileIsVisible then
+                            visibleFrames = visibleFrames + 1
+                        elseif #frameSamples < 8 then
+                            table.insert(frameSamples, tostring(itemKey) .. "=>" .. instancePath(tile, playerGui)
+                                .. "{Visible=" .. tostring(tile.Visible) .. "}")
+                        end
+                    end
+                else
+                    tile = nil
                     detachedFrames = detachedFrames + 1
                     if #frameSamples < 8 then
-                        table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
+                        table.insert(frameSamples, tostring(itemKey) .. "=>NO_FRAME")
                     end
-                    continue
-                end
-                parentedFrames = parentedFrames + 1
-                local tileIsVisible = visible(tile)
-                if tileIsVisible then
-                    visibleFrames = visibleFrames + 1
-                elseif #frameSamples < 8 then
-                    table.insert(frameSamples, tostring(itemKey) .. "=>" .. instancePath(tile, playerGui)
-                        .. "{Visible=" .. tostring(tile.Visible) .. "}")
                 end
 
-                -- Do not depend on ItemName text: PulseHub's inventory tiles
-                -- are reliably identified by Container.Icon -> MM2 database.
+                -- The itemKey is authoritative, so valuation does not require a
+                -- live GUI Frame. This keeps totals correct while the inventory
+                -- screen is closed or PulseHub has detached its item tiles.
                 local name, quantity = itemData(tile)
                 if type(entry.Amount) == "number" and quantity <= 1 then
                     quantity = math.max(1, math.floor(entry.Amount))
@@ -1543,9 +1553,11 @@ local function scanModuleInventory()
                 end
                 count = count + quantity
                 if resolvedValue == nil and not tierText and resolutionStatus == "unknown" then
-                    recordUnmatched(tile, name, quantity, state.unmatchedInventory)
+                    recordUnmatched(tile, name or tostring(itemKey), quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category, name, resolutionStatus)
+                if tile and tile.Parent then
+                    updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category, name, resolutionStatus)
+                end
             end
         end
     end
@@ -1621,6 +1633,7 @@ local function scanInventory()
     state.unmatchedInventory = {}
     state.inventoryNoValue = 0
     state.inventoryUnknown = 0
+    state.inventoryDataEntries = 0
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
     local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
     local weaponTierCount = moduleTierCount or 0
@@ -1628,7 +1641,7 @@ local function scanInventory()
 
     -- Fallback for UI-only builds where InventoryModule does not expose frames.
     -- Keep the explicit MainGUI/MainMobile paths as a secondary option.
-    if visibleFrames == 0 then
+    if state.inventoryDataEntries == 0 then
         for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
             local screen = playerGui:FindFirstChild(guiName)
             if screen and screen:IsA("ScreenGui") and screen.Enabled then
