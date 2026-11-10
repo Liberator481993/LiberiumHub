@@ -85,7 +85,8 @@ local state = {
     tradeNoValue = 0,
     tradeUnknown = 0,
     unmappedDb = {},
-    unmappedDbCount = 0
+    unmappedDbCount = 0,
+    numericParserStatus = "not run"
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -192,6 +193,28 @@ local function fetchPage(url)
     return nil, table.concat(errors, "; ")
 end
 
+local function parseNumber(raw)
+    if raw == nil then return nil end
+    return tonumber(tostring(raw):gsub(",", ""))
+end
+
+local function numericParserSelfTest()
+    local cases = {
+        {"5,000", 5000},
+        {"1,000,000", 1000000},
+        {"0.25", 0.25},
+        {"35", 35}
+    }
+    for _, case in ipairs(cases) do
+        local actual = parseNumber(case[1])
+        if actual == nil or math.abs(actual - case[2]) > 0.000001 then
+            return false
+        end
+    end
+    return true
+end
+state.numericParserStatus = numericParserSelfTest() and "passed" or "failed"
+
 -- Supreme Values item cards expose numeric or tier-based values as visible text.
 -- Parse the displayed value first; data-value is only a numeric fallback.
 local function parseCategory(category, html, output)
@@ -212,11 +235,11 @@ local function parseCategory(category, html, output)
         -- and 1,000,000). Strip commas before tonumber or the parser silently
         -- reads only the leading digit and severely undervalues the item.
         local rawAmount = cardText:match("Value%s*%-%s*([%d,%.]+)")
-        local amount = rawAmount and tonumber(rawAmount:gsub(",", "")) or nil
+        local amount = parseNumber(rawAmount)
         local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
         if not amount and not tierText then
             local rawDataAmount = card:match('data%-value="([%d,%.]+)"') or ""
-            local dataAmount = tonumber(rawDataAmount:gsub(",", ""))
+            local dataAmount = parseNumber(rawDataAmount)
             if dataAmount and dataAmount > 0 then amount = dataAmount end
         end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
@@ -225,7 +248,9 @@ local function parseCategory(category, html, output)
             or card:match("<img[^>]-alt='([^']*)'")
         imageAlt = decodeText(imageAlt or "")
         local pageEvent = card:match('data%-event="([^"]+)"')
-        if (amount or tierText) and (not amount or amount < 500000)
+        -- Supreme currently publishes legitimate values above 500,000
+        -- (including 1,000,000); reject only negative or non-finite numbers.
+        if (amount or tierText) and (not amount or (amount >= 0 and amount < math.huge))
             and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
@@ -1913,6 +1938,7 @@ local function buildDiagnostic()
             .. HttpService:JSONEncode(state.referenceValueCounts or {}),
         "All page card counts: " .. HttpService:JSONEncode(state.categoryCardCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
+        "Numeric parser self-test: " .. tostring(state.numericParserStatus),
         "Local values cache: " .. tostring(state.cacheStatus or "not checked"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
