@@ -1598,7 +1598,7 @@ local function scanModuleInventory()
         state.inventoryGuiStructure = "GUI reference type=" .. typeof(gui)
     end
     state.inventoryFrameParents = "parented=" .. tostring(parentedFrames)
-        .. ", detached=" .. tostring(detachedFrames)
+        .. ", missing_or_detached=" .. tostring(detachedFrames)
         .. ", visible=" .. tostring(visibleFrames)
         .. " | samples=" .. (#frameSamples > 0 and table.concat(frameSamples, "; ") or "none")
 
