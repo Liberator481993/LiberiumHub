@@ -595,38 +595,43 @@ local function buildMapping(entries, database, rustIndexData)
     -- carries the exact weapon type/year while the value title is generic.
     local function splitVariant(raw)
         local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
-        local year
+        local kind, year
+        local function stripKind()
+            local base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
+            if not base or (suffix ~= "Knife" and suffix ~= "Gun") then
+                base, suffix = text:match("^(.-)%s+(%a+)$")
+            end
+            if base and (suffix == "Knife" or suffix == "Gun") then
+                text, kind = clean(base), suffix
+            end
+        end
+
+        -- Type and year suffixes can appear in either order in Supreme
+        -- card titles, e.g. "Carrot 2023 Knife" and "Carrot Knife 2023".
+        stripKind()
         local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
         if not base then
             base, suffix = text:match("^(.-)%s+(20%d%d)$")
         end
         if base then text, year = clean(base), suffix end
-
-        local kind
-        base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
-        if base and (suffix == "Knife" or suffix == "Gun") then
-            text, kind = clean(base), suffix
-        else
-            base, suffix = text:match("^(.-)%s+(%a+)$")
-            if base and (suffix == "Knife" or suffix == "Gun") then
-                text, kind = clean(base), suffix
-            end
-        end
+        stripKind()
         return text, kind, year
     end
 
     local function variantParserSelfTest()
         local cases = {
-            {"Carrot (2023)", "Carrot", "2023"},
-            {"Carrot 2023", "Carrot", "2023"},
-            {"Swirly Gun", "Swirly", nil},
-            {"Frozen (Gun)", "Frozen", nil}
+            {"Carrot (2023)", "Carrot", "2023", nil},
+            {"Carrot 2023", "Carrot", "2023", nil},
+            {"Carrot 2023 Knife", "Carrot", "2023", "Knife"},
+            {"Carrot Knife 2023", "Carrot", "2023", "Knife"},
+            {"Swirly Gun", "Swirly", nil, "Gun"},
+            {"Frozen (Gun)", "Frozen", nil, "Gun"}
         }
         for _, case in ipairs(cases) do
             local name, kind, year = splitVariant(case[1])
-            if name ~= case[2] or year ~= case[3] then return "failed: " .. case[1] end
-            if case[2] == "Swirly" and kind ~= "Gun" then return "failed: Swirly Gun" end
-            if case[2] == "Frozen" and kind ~= "Gun" then return "failed: Frozen (Gun)" end
+            if name ~= case[2] or year ~= case[3] or kind ~= case[4] then
+                return "failed: " .. case[1]
+            end
         end
         return "passed"
     end
