@@ -431,7 +431,8 @@ local function buildMapping(entries, database, rustIndexData)
             name = tostring(item.ItemName or item.Name or ""),
             itemType = tostring(item.ItemType or ""),
             rarity = tostring(item.Rarity or ""),
-            chroma = item.Chroma == true,
+            chroma = item.Chroma == true
+                or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
             year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
             event = tostring(item.Event or "")
         }
@@ -856,6 +857,7 @@ local function valueOf(tile, name)
     end
 
     local chroma = hasChromaTag(tile)
+        or clean(name):lower():match("^chroma%s") ~= nil
     local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
