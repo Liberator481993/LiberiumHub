@@ -1675,7 +1675,7 @@ local function scanOffer(offer, group)
         local icon = findTileIcon(tile)
         local name, quantity = itemData(tile)
         local hasIdentifier = icon ~= nil or clean(name) ~= ""
-        local cardContainer = tile:FindFirstChild("Container")
+        local cardContainer = tile:FindFirstChild("Container", true)
         local itemNameNode = tile:FindFirstChild("ItemName", true)
         local normalCard = cardContainer ~= nil and icon ~= nil
         local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
