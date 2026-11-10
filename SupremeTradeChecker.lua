@@ -1582,7 +1582,7 @@ local function scanOffer(offer, group)
     -- expose NewItem slots or named image cards directly under the offer.
     local root = offer:FindFirstChild("Container") or offer
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
-    local seen, seenIcons = {}, {}
+    local seen, seenIcons, seenNameNodes = {}, {}, {}
     for _, tile in ipairs(root:GetDescendants()) do
         if not tile:IsA("GuiObject") or not visible(tile) or seen[tile] then continue end
 
@@ -1590,17 +1590,20 @@ local function scanOffer(offer, group)
         local name, quantity = itemData(tile)
         local hasIdentifier = icon ~= nil or clean(name) ~= ""
         local cardContainer = tile:FindFirstChild("Container")
+        local itemNameNode = tile:FindFirstChild("ItemName", true)
         local normalCard = cardContainer ~= nil and icon ~= nil
         local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
-        local namedCard = tile:FindFirstChild("ItemName") ~= nil and hasIdentifier
+        local namedCard = itemNameNode ~= nil and hasIdentifier
 
         if normalCard or directSlot or namedCard then
-            -- A parent card and its nested Container can expose the same Icon.
-            -- Count each icon instance once, but never collapse separate copies
-            -- that happen to use the same asset ID.
+            -- Nested wrappers can expose the same image or ItemName node.
+            -- Deduplicate by GUI object identity, not asset ID, so separate
+            -- copies of an identical item still contribute independently.
             if icon and seenIcons[icon] then continue end
+            if itemNameNode and seenNameNodes[itemNameNode] then continue end
             seen[tile] = true
             if icon then seenIcons[icon] = true end
+            if itemNameNode then seenNameNodes[itemNameNode] = true end
 
             local value, resolvedName, tierText, category, resolveStatus = valueOf(tile, name)
 
