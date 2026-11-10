@@ -591,6 +591,47 @@ local function buildMapping(entries, database, rustIndexData)
         table.insert(petEntries, entry)
     end
 
+    -- Parse both the value title and image label; the image label often
+    -- carries the exact weapon type/year while the value title is generic.
+    local function splitVariant(raw)
+        local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
+        local year
+        local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
+        if not base then
+            base, suffix = text:match("^(.-)%s+(20%d%d)$")
+        end
+        if base then text, year = clean(base), suffix end
+
+        local kind
+        base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
+        if base and (suffix == "Knife" or suffix == "Gun") then
+            text, kind = clean(base), suffix
+        else
+            base, suffix = text:match("^(.-)%s+(%a+)$")
+            if base and (suffix == "Knife" or suffix == "Gun") then
+                text, kind = clean(base), suffix
+            end
+        end
+        return text, kind, year
+    end
+
+    local function variantParserSelfTest()
+        local cases = {
+            {"Carrot (2023)", "Carrot", "2023"},
+            {"Carrot 2023", "Carrot", "2023"},
+            {"Swirly Gun", "Swirly", nil},
+            {"Frozen (Gun)", "Frozen", nil}
+        }
+        for _, case in ipairs(cases) do
+            local name, kind, year = splitVariant(case[1])
+            if name ~= case[2] or year ~= case[3] then return "failed: " .. case[1] end
+            if case[2] == "Swirly" and kind ~= "Gun" then return "failed: Swirly Gun" end
+            if case[2] == "Frozen" and kind ~= "Gun" then return "failed: Frozen (Gun)" end
+        end
+        return "passed"
+    end
+    state.variantParserStatus = variantParserSelfTest()
+
     local byKey, mappedCount = {}, 0
     for entryIndex, value in ipairs(entries) do
         if entryIndex % 150 == 0 then task.wait() end
@@ -598,46 +639,7 @@ local function buildMapping(entries, database, rustIndexData)
         local tierText = clean(value.t)
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
 
-        -- Parse both the value title and image label; the image label often
-        -- carries the exact weapon type/year while the value title is generic.
-        local function splitVariant(raw)
-            local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
-            local year
-            local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
-            if not base then
-                base, suffix = text:match("^(.-)%s+(20%d%d)$")
-            end
-            if base then text, year = clean(base), suffix end
 
-            local kind
-            base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
-            if base and (suffix == "Knife" or suffix == "Gun") then
-                text, kind = clean(base), suffix
-            else
-                base, suffix = text:match("^(.-)%s+(%a+)$")
-                if base and (suffix == "Knife" or suffix == "Gun") then
-                    text, kind = clean(base), suffix
-                end
-            end
-            return text, kind, year
-        end
-
-        local function variantParserSelfTest()
-            local cases = {
-                {"Carrot (2023)", "Carrot", "2023"},
-                {"Carrot 2023", "Carrot", "2023"},
-                {"Swirly Gun", "Swirly", nil},
-                {"Frozen (Gun)", "Frozen", nil}
-            }
-            for _, case in ipairs(cases) do
-                local name, kind, year = splitVariant(case[1])
-                if name ~= case[2] or year ~= case[3] then return "failed: " .. case[1] end
-                if case[2] == "Swirly" and kind ~= "Gun" then return "failed: Swirly Gun" end
-                if case[2] == "Frozen" and kind ~= "Gun" then return "failed: Frozen (Gun)" end
-            end
-            return "passed"
-        end
-        state.variantParserStatus = variantParserSelfTest()
 
         local name, kind, titleYear = splitVariant(value.n)
         local year = value.y or titleYear
