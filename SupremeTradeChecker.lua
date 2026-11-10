@@ -679,7 +679,7 @@ end
 
 local function valueOf(tile, name, itemKey, itemKind)
     local mapped = state.mapped
-    if not mapped then return nil, nil, nil, nil, "unknown" end
+    if not mapped then return nil, nil, nil, nil, "loading" end
 
     -- InventoryModule exposes the authoritative MM2 database key directly.
     -- Prefer it over icon/name heuristics whenever the caller has that key.
@@ -1031,8 +1031,14 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
 
     local existing = container:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
+    local hasIdentifier = clean(itemName) ~= ""
+    if not hasIdentifier then
+        local iconObject = container:FindFirstChild("Icon")
+        hasIdentifier = iconObject ~= nil and assetId(iconObject.Image) ~= nil
+    end
     if value == nil and not hasTier
-        and resolutionStatus ~= "no_value" and resolutionStatus ~= "unknown" then
+        and (resolutionStatus ~= "no_value"
+            and (resolutionStatus ~= "unknown" or not hasIdentifier)) then
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
     end
@@ -1107,7 +1113,8 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and resolutionStatus == "unknown" and group == "inventory" then
+        if value == nil and not tierText and resolutionStatus == "unknown"
+            and group == "inventory" and hasIdentifier then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
         updateTileBadge(tile, value, quantity, group, tierText, category, name, resolutionStatus)
@@ -1172,8 +1179,13 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and resolutionStatus == "unknown" and group == "inventory" then
-            recordUnmatched(card, name, quantity, state.unmatchedInventory)
+        if value == nil and not tierText and resolutionStatus == "unknown"
+            and group == "inventory" then
+            local iconObject = card:FindFirstChild("Container")
+                and card.Container:FindFirstChild("Icon")
+            if clean(name) ~= "" or (iconObject and assetId(iconObject.Image)) then
+                recordUnmatched(card, name, quantity, state.unmatchedInventory)
+            end
         end
         updateTileBadge(card, value, quantity, group, tierText, category, name, resolutionStatus)
     end
