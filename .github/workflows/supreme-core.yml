@@ -20,11 +20,22 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      export_present: ${{ steps.export-presence.outputs.present }}
     defaults:
       run:
         working-directory: tools/supreme-core
     steps:
       - uses: actions/checkout@v4
+      - name: Detect user-side export
+        id: export-presence
+        working-directory: .
+        run: |
+          if [ -s data/supreme-export.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run Rust unit tests
@@ -35,10 +46,10 @@ jobs:
         run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
 
   publish-supreme-snapshot:
-    # Publish only when a user-side Arceus X export is present. Do not scrape
-    # Supreme Values from GitHub Actions runners; the source blocks those requests.
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && hashFiles('data/supreme-export.json') != '' }}
+    # Only publish after tests pass and a complete user-side export exists.
+    # GitHub-hosted runners must not scrape Supreme Values directly.
     needs: test
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.test.outputs.export_present == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
