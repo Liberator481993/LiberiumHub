@@ -603,7 +603,10 @@ local function buildMapping(entries, database, rustIndexData)
         local function splitVariant(raw)
             local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
             local year
-            local base, suffix = text:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
+            local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
+            if not base then
+                base, suffix = text:match("^(.-)%s+(20%d%d)$")
+            end
             if base then text, year = clean(base), suffix end
 
             local kind
@@ -618,6 +621,23 @@ local function buildMapping(entries, database, rustIndexData)
             end
             return text, kind, year
         end
+
+        local function variantParserSelfTest()
+            local cases = {
+                {"Carrot (2023)", "Carrot", "2023"},
+                {"Carrot 2023", "Carrot", "2023"},
+                {"Swirly Gun", "Swirly", nil},
+                {"Frozen (Gun)", "Frozen", nil}
+            }
+            for _, case in ipairs(cases) do
+                local name, kind, year = splitVariant(case[1])
+                if name ~= case[2] or year ~= case[3] then return "failed: " .. case[1] end
+                if case[2] == "Swirly" and kind ~= "Gun" then return "failed: Swirly Gun" end
+                if case[2] == "Frozen" and kind ~= "Gun" then return "failed: Frozen (Gun)" end
+            end
+            return "passed"
+        end
+        state.variantParserStatus = variantParserSelfTest()
 
         local name, kind, titleYear = splitVariant(value.n)
         local year = value.y or titleYear
@@ -3135,6 +3155,7 @@ local function buildDiagnostic(includeDeepDump)
         "Numeric parser self-test: " .. tostring(state.numericParserStatus or "not run"),
         "Trophy detector self-test: " .. tostring(state.trophyDetectorStatus or "not run"),
         "Chroma detector self-test: " .. tostring(state.chromaDetectorStatus or "not run"),
+        "Variant parser self-test: " .. tostring(state.variantParserStatus or "not run"),
         "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
