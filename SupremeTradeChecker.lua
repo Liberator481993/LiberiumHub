@@ -2123,8 +2123,9 @@ local function scanModuleInventory()
 
     local myInventory = module.MyInventory
     local data = type(myInventory) == "table" and myInventory.Data or nil
-    if type(data) ~= "table" or type(data.Weapons) ~= "table" then
-        state.inventoryModuleStatus = "loaded, MyInventory.Data.Weapons unavailable"
+    if type(data) ~= "table"
+        or (type(data.Weapons) ~= "table" and type(data.Pets) ~= "table") then
+        state.inventoryModuleStatus = "loaded, MyInventory.Data.Weapons/Data.Pets unavailable"
         return 0, 0, 0, 0, nil
     end
 
