@@ -79,7 +79,11 @@ local state = {
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
-    unmatchedTrade = {}
+    unmatchedTrade = {},
+    inventoryNoValue = 0,
+    inventoryUnknown = 0,
+    tradeNoValue = 0,
+    tradeUnknown = 0
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -1185,6 +1189,13 @@ local function scanOffer(offer, group)
                     known = known + quantity
                     tierCount = tierCount + quantity
                 end
+                if group == "trade" then
+                    if resolutionStatus == "no_value" then
+                        state.tradeNoValue = state.tradeNoValue + quantity
+                    elseif resolutionStatus == "unknown" then
+                        state.tradeUnknown = state.tradeUnknown + quantity
+                    end
+                end
                 if value == nil and not tierText and resolutionStatus == "unknown" then
                     recordUnmatched(tile, name, quantity, state.unmatchedTrade)
                 end
@@ -1286,6 +1297,8 @@ end
 
 local function scanTrade()
     state.unmatchedTrade = {}
+    state.tradeNoValue = 0
+    state.tradeUnknown = 0
     local screen, container, trade = findTrade()
     if not screen then
         state.latestTrade = "No active trade detected."
@@ -1309,8 +1322,10 @@ local function scanTrade()
             .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " recognized, "
             .. tostring(yourTierCount) .. " tier)",
         "THEIR OFFER NUMERIC: " .. formatValue(theirTotal)
-            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " recognized, "
-            .. tostring(theirTierCount) .. " tier)"
+            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " valued, "
+            .. tostring(theirTierCount) .. " tier)",
+        "UNPRICED ITEMS: NO VALUE=" .. tostring(state.tradeNoValue)
+            .. " | UNKNOWN=" .. tostring(state.tradeUnknown)
     }
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
@@ -1386,6 +1401,7 @@ local function scanModuleInventory()
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
+    local noValueCount, unknownCount = 0, 0
     local parentedFrames, detachedFrames = 0, 0
     local frameSamples = {}
     local seen = {}
@@ -1447,6 +1463,11 @@ local function scanModuleInventory()
                     known = known + quantity
                     tierCount = tierCount + quantity
                 end
+                if resolutionStatus == "no_value" then
+                    noValueCount = noValueCount + quantity
+                elseif resolutionStatus == "unknown" then
+                    unknownCount = unknownCount + quantity
+                end
                 count = count + quantity
                 if resolvedValue == nil and not tierText and resolutionStatus == "unknown" then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
@@ -1458,6 +1479,8 @@ local function scanModuleInventory()
 
     scanCollection(data.Weapons, "Weapons")
     scanCollection(data.Pets, "Pets")
+    state.inventoryNoValue = noValueCount
+    state.inventoryUnknown = unknownCount
 
     local guiInstance = typeof(gui) == "Instance" and gui or nil
     if guiInstance then
@@ -1523,6 +1546,8 @@ end
 
 local function scanInventory()
     state.unmatchedInventory = {}
+    state.inventoryNoValue = 0
+    state.inventoryUnknown = 0
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
     local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
     local weaponTierCount = moduleTierCount or 0
@@ -1617,6 +1642,8 @@ local function scanInventory()
         .. " | GUI structure: " .. tostring(state.inventoryGuiStructure)
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
+        .. " | NO VALUE: " .. tostring(state.inventoryNoValue)
+        .. " | UNKNOWN: " .. tostring(state.inventoryUnknown)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
@@ -1792,6 +1819,10 @@ local function buildDiagnostic()
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
+        "Inventory NO VALUE count: " .. tostring(state.inventoryNoValue),
+        "Inventory UNKNOWN count: " .. tostring(state.inventoryUnknown),
+        "Trade NO VALUE count: " .. tostring(state.tradeNoValue),
+        "Trade UNKNOWN count: " .. tostring(state.tradeUnknown),
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
         "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
