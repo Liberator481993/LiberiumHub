@@ -372,7 +372,7 @@ local function buildMapping(entries, database, rustIndexData)
     local weapons = database.Item
     local pets = type(database.Pets) == "table" and database.Pets or {}
     local index, petEntries = {}, {}
-    local dbByName, dbByImage = {}, {}
+    local dbByName, dbByImage, dbByKey = {}, {}, {}
     local dbIds = {}
     local supremeByName = {}
     local function addSupremeCandidate(key, value)
@@ -421,6 +421,17 @@ local function buildMapping(entries, database, rustIndexData)
     end
 
     local function addDiagnosticCandidate(item, id, kind)
+        local recordKey = (kind == "Pet" and "p:" or "i:") .. tostring(id)
+        dbByKey[recordKey] = {
+            id = tostring(id),
+            kind = kind,
+            name = tostring(item.ItemName or item.Name or ""),
+            itemType = tostring(item.ItemType or ""),
+            rarity = tostring(item.Rarity or ""),
+            chroma = item.Chroma == true,
+            year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
+            event = tostring(item.Event or "")
+        }
         local name = normalize(item.ItemName or item.Name or "")
         if name ~= "" then
             dbByName[name] = dbByName[name] or {}
@@ -781,6 +792,7 @@ local function buildMapping(entries, database, rustIndexData)
     -- These two built-in defaults have no Supreme value by design.
     -- They remain part of the MM2 database total but are not coverage failures.
     local intentionalNoValue = {DefaultGun = true, DefaultKnife = true}
+    local dbExcludedKeys = {}
     local function auditDatabase(items, kind, nameField)
         for id, item in pairs(items) do
             if type(item) ~= "table" then continue end
@@ -795,8 +807,10 @@ local function buildMapping(entries, database, rustIndexData)
                     dbNumericMapped = dbNumericMapped + 1
                 end
             elseif kind == "i" and intentionalNoValue[idText] then
+                dbExcludedKeys[idKey] = "default"
                 dbExcludedNoValue = dbExcludedNoValue + 1
             elseif kind == "i" and isTrophyRecord(item, idText) then
+                dbExcludedKeys[idKey] = "trophy"
                 dbExcludedTrophy = dbExcludedTrophy + 1
             else
                 dbUnmapped = dbUnmapped + 1
@@ -825,6 +839,8 @@ local function buildMapping(entries, database, rustIndexData)
         chromaKeys = chromaKeys,
         dbByName = dbByName,
         dbByImage = dbByImage,
+        dbByKey = dbByKey,
+        dbExcludedKeys = dbExcludedKeys,
         dbIds = dbIds,
         dbTotal = dbTotal,
         dbNumericMapped = dbNumericMapped,
@@ -1936,12 +1952,13 @@ local function scanModuleInventory()
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
+    local detachedFrames, parentedFrames = 0, 0
     local frameProbe, probeCount = {}, 0
     local seen = {}
     local keyHits, keyMisses, keySamples = 0, 0, {}
     local exactNumericQty, exactTierQty, knownNoSupremeQty, dbKeyMissQty = 0, 0, 0, 0
-    local intentionalDefaultQty = 0
-    local noSupremeSamples, dbMissSamples, intentionalDefaultSamples = {}, {}, {}
+    local intentionalDefaultQty, excludedTrophyQty = 0, 0
+    local noSupremeSamples, dbMissSamples, intentionalDefaultSamples, excludedTrophySamples = {}, {}, {}, {}
     local mappedIds = state.mapped and state.mapped.dbIds or nil
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
@@ -1982,50 +1999,82 @@ local function scanModuleInventory()
                         .. " Name=" .. tostring(entry.Name or entry.ItemName or "nil"))
                 end
                 local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
-                seen[tile] = true
-                frameCount = frameCount + 1
-                if not tile.Parent then continue end
-                local isVisible = visible(tile)
-                if isVisible then visibleFrames = visibleFrames + 1 end
-                if isVisible and probeCount < 5 then
-                    probeCount = probeCount + 1
-                    local icon = findTileIcon(tile)
-                    local container = tile:FindFirstChild("Container", true)
-                    local badge = tile:FindFirstChild("__SupremeItemValue", true)
-                    local amountNode = tile:FindFirstChild("Amount", true)
-                    local nameNode = tile:FindFirstChild("ItemName", true)
-                    table.insert(frameProbe,
-                        tostring(tile.Name)
-                        .. "{class=" .. tile.ClassName
-                        .. ",size=" .. tostring(tile.AbsoluteSize.X) .. "x" .. tostring(tile.AbsoluteSize.Y)
-                        .. ",z=" .. tostring(tile.ZIndex)
-                        .. ",clip=" .. tostring(tile.ClipsDescendants)
-                        .. ",container=" .. tostring(container and container.Name or "none")
-                        .. ",icon=" .. tostring(icon and assetId(icon.Image) or "none")
-                        .. ",nameNode=" .. tostring(nameNode ~= nil)
-                        .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
-                        .. ",badge=" .. tostring(badge ~= nil)
-                        .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
-                        .. ",badgeText=" .. tostring(badge and badge.Text or "none")
-                        .. ",nameText=" .. tostring(nameNode and (nameNode:IsA("TextLabel") and nameNode.Text or (nameNode:FindFirstChildWhichIsA("TextLabel", true) and nameNode:FindFirstChildWhichIsA("TextLabel", true).Text)) or "none")
-                        .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
-                        .. "}")
+                local tileValid = typeof(tile) == "Instance" and tile:IsA("GuiObject")
+                if tileValid and seen[tile] then
+                    -- A duplicated frame should not be decorated twice, but the
+                    -- underlying itemKey still contributes to the inventory total.
+                    tile = nil
+                    tileValid = false
+                end
+                if tileValid then
+                    seen[tile] = true
+                    frameCount = frameCount + 1
+                    if tile.Parent then
+                        parentedFrames = parentedFrames + 1
+                        local isVisible = visible(tile)
+                        if isVisible then visibleFrames = visibleFrames + 1 end
+                        if isVisible and probeCount < 5 then
+    
+                        probeCount = probeCount + 1
+                        local icon = findTileIcon(tile)
+                        local container = tile:FindFirstChild("Container", true)
+                        local badge = tile:FindFirstChild("__SupremeItemValue", true)
+                        local amountNode = tile:FindFirstChild("Amount", true)
+                        local nameNode = tile:FindFirstChild("ItemName", true)
+                        table.insert(frameProbe,
+                            tostring(tile.Name)
+                            .. "{class=" .. tile.ClassName
+                            .. ",size=" .. tostring(tile.AbsoluteSize.X) .. "x" .. tostring(tile.AbsoluteSize.Y)
+                            .. ",z=" .. tostring(tile.ZIndex)
+                            .. ",clip=" .. tostring(tile.ClipsDescendants)
+                            .. ",container=" .. tostring(container and container.Name or "none")
+                            .. ",icon=" .. tostring(icon and assetId(icon.Image) or "none")
+                            .. ",nameNode=" .. tostring(nameNode ~= nil)
+                            .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
+                            .. ",badge=" .. tostring(badge ~= nil)
+                            .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
+                            .. ",badgeText=" .. tostring(badge and badge.Text or "none")
+                            .. ",nameText=" .. tostring(nameNode and (nameNode:IsA("TextLabel") and nameNode.Text or (nameNode:FindFirstChildWhichIsA("TextLabel", true) and nameNode:FindFirstChildWhichIsA("TextLabel", true).Text)) or "none")
+                            .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
+                            .. "}")
+    
+                        end
+                    else
+                        detachedFrames = detachedFrames + 1
+                        if #frameProbe < 5 then
+                            table.insert(frameProbe, keyText .. "=>DETACHED:" .. tostring(tile.Name))
+                        end
+                    end
+                else
+                    tile = nil
+                    detachedFrames = detachedFrames + 1
+                    if #frameProbe < 5 then
+                        table.insert(frameProbe, keyText .. "=>NO_FRAME")
+                    end
                 end
 
                 -- Do not depend on ItemName text: MM2's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
+                local exactPrefix = dbKind == "Pet" and "p:"
+                    or dbKind == "Item" and "i:"
+                    or (collectionName == "Pets" and "p:" or "i:")
+                local recordKey = exactPrefix .. keyText
                 local name, quantity = itemData(tile)
+                local databaseRecord = state.mapped and state.mapped.dbByKey
+                    and state.mapped.dbByKey[recordKey] or nil
+                if not name or name == "" then
+                    name = (databaseRecord and databaseRecord.name)
+                        or clean(entry.Name or entry.ItemName or "")
+                end
                 local dataAmount = tonumber(entry.Amount)
                 if dataAmount and dataAmount > 0 then
                     quantity = math.max(1, math.floor(dataAmount))
                 end
 
-                local exactPrefix = dbKind == "Pet" and "p:"
-                    or dbKind == "Item" and "i:"
-                    or (collectionName == "Pets" and "p:" or "i:")
                 local exactValue = mappedIds and state.mapped
-                    and state.mapped.byKey[exactPrefix .. keyText] or nil
+                    and state.mapped.byKey[recordKey] or nil
+                local excludedKind = state.mapped and state.mapped.dbExcludedKeys
+                    and state.mapped.dbExcludedKeys[recordKey] or nil
                 local resolvedValue, resolvedName, tierText, category
                 if exactValue then
                     resolvedValue = exactValue.v
@@ -2048,12 +2097,20 @@ local function scanModuleInventory()
                 elseif dbKind then
                     -- Default Knife and Default Gun are built-in placeholders,
                     -- not Supreme-priced skins; do not report them as missing values.
-                    if keyText == "DefaultKnife" or keyText == "DefaultGun" then
+                    if excludedKind == "default" or keyText == "DefaultKnife" or keyText == "DefaultGun" then
                         intentionalDefaultQty = intentionalDefaultQty + quantity
                         if #intentionalDefaultSamples < 10 then
                             table.insert(intentionalDefaultSamples,
                                 tostring(collectionName) .. "/" .. tostring(subgroupName)
                                 .. "/" .. keyText .. " qty=" .. tostring(quantity))
+                        end
+                    elseif excludedKind == "trophy" then
+                        excludedTrophyQty = excludedTrophyQty + quantity
+                        if #excludedTrophySamples < 20 then
+                            table.insert(excludedTrophySamples,
+                                tostring(collectionName) .. "/" .. tostring(subgroupName)
+                                .. "/" .. keyText .. " name=" .. tostring(databaseRecord and databaseRecord.name or name)
+                                .. " qty=" .. tostring(quantity))
                         end
                     else
                         knownNoSupremeQty = knownNoSupremeQty + quantity
@@ -2070,11 +2127,21 @@ local function scanModuleInventory()
                 end
                 count = count + quantity
                 local dbRecognized = dbKind ~= nil
-                if resolvedValue == nil and not tierText and not dbRecognized then
+                if resolvedValue == nil and not tierText and not dbRecognized and tile then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
-                    resolvedName or name, dbRecognized and "NO VALUE" or nil)
+                local badgeStatus
+                if dbRecognized then
+                    if excludedKind == "trophy" then
+                        badgeStatus = "UNTRADABLE"
+                    elseif excludedKind ~= "default" and keyText ~= "DefaultKnife" and keyText ~= "DefaultGun" then
+                        badgeStatus = "NO VALUE"
+                    end
+                end
+                if tile and tile.Parent then
+                    updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
+                        resolvedName or name, badgeStatus)
+                end
             end
         end
     end
@@ -2138,7 +2205,10 @@ local function scanModuleInventory()
         label.Visible = count > 0
     end
 
-    state.inventoryFrameProbe = #frameProbe > 0 and table.concat(frameProbe, " | ") or "no visible data Frames"
+    state.inventoryFrameProbe = "parented=" .. tostring(parentedFrames)
+        .. ", missing_or_detached=" .. tostring(detachedFrames)
+        .. ", visible=" .. tostring(visibleFrames)
+        .. " | samples: " .. (#frameProbe > 0 and table.concat(frameProbe, " | ") or "none")
     state.inventoryKeyStats = "HITS=" .. tostring(keyHits)
         .. " MISSES=" .. tostring(keyMisses)
         .. " | samples: " .. (#keySamples > 0 and table.concat(keySamples, " || ") or "none")
@@ -2153,7 +2223,9 @@ local function scanModuleInventory()
         .. " DB_KNOWN_NO_SUPREME=" .. tostring(knownNoSupremeQty)
         .. " DB_KEY_MISS=" .. tostring(dbKeyMissQty)
         .. " INTENTIONAL_DEFAULTS=" .. tostring(intentionalDefaultQty)
+        .. " EXCLUDED_UNTRADABLE_TROPHIES=" .. tostring(excludedTrophyQty)
         .. " | default samples: " .. (#intentionalDefaultSamples > 0 and table.concat(intentionalDefaultSamples, " || ") or "none")
+        .. " | excluded trophy samples: " .. (#excludedTrophySamples > 0 and table.concat(excludedTrophySamples, " || ") or "none")
         .. " | no-Supreme samples: " .. (#noSupremeSamples > 0 and table.concat(noSupremeSamples, " || ") or "none")
         .. " | DB-key misses: " .. (#dbMissSamples > 0 and table.concat(dbMissSamples, " || ") or "none")
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
@@ -2171,7 +2243,7 @@ local function scanInventory()
 
     -- Fallback for UI-only builds where InventoryModule does not expose frames.
     -- Keep the explicit MainGUI/MainMobile paths as a secondary option.
-    if visibleFrames == 0 then
+    if state.inventoryDataEntries == 0 then
         for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
             local screen = playerGui:FindFirstChild(guiName)
             if screen and screen:IsA("ScreenGui") and screen.Enabled then
