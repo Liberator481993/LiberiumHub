@@ -2258,6 +2258,23 @@ local function scanModuleInventory()
                     -- only those use the cautious icon/name resolver fallback.
                     resolvedValue, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
                 end
+                if excludedKind == "trophy" then
+                    excludedTrophyQty = excludedTrophyQty + quantity
+                    if #excludedTrophySamples < 20 then
+                        table.insert(excludedTrophySamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(databaseRecord and databaseRecord.name or name)
+                            .. " qty=" .. tostring(quantity))
+                    end
+                    if tile and tile.Parent then
+                        updateTileBadge(tile, nil, quantity, "inventory", nil, category,
+                            resolvedName or name, "UNTRADABLE")
+                    end
+                    -- Leaderboard trophies cannot be traded; do not include
+                    -- their showcase values or quantities in tradeable totals.
+                    continue
+                end
+
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
@@ -2267,27 +2284,15 @@ local function scanModuleInventory()
                     tierCount = tierCount + quantity
                     if dbKind then exactTierQty = exactTierQty + quantity end
                 elseif dbKind then
-                    -- Default Knife and Default Gun are built-in placeholders,
-                    -- not Supreme-priced skins; do not report them as missing values.
-                    if excludedKind == "trophy" then
-                        excludedTrophyQty = excludedTrophyQty + quantity
-                        if #excludedTrophySamples < 20 then
-                            table.insert(excludedTrophySamples,
-                                tostring(collectionName) .. "/" .. tostring(subgroupName)
-                                .. "/" .. keyText .. " name=" .. tostring(databaseRecord and databaseRecord.name or name)
-                                .. " qty=" .. tostring(quantity))
-                        end
-                    else
-                        knownNoSupremeQty = knownNoSupremeQty + quantity
-                        if #noSupremeSamples < 30 then
-                            local image = findTileIcon(tile)
-                            table.insert(noSupremeSamples,
-                                tostring(collectionName) .. "/" .. tostring(subgroupName)
-                                .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
-                                .. " type=" .. tostring(dbKind)
-                                .. " icon=" .. tostring(image and assetId(image.Image) or "none")
-                                .. " qty=" .. tostring(quantity))
-                        end
+                    knownNoSupremeQty = knownNoSupremeQty + quantity
+                    if #noSupremeSamples < 30 then
+                        local image = findTileIcon(tile)
+                        table.insert(noSupremeSamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
+                            .. " type=" .. tostring(dbKind)
+                            .. " icon=" .. tostring(image and assetId(image.Image) or "none")
+                            .. " qty=" .. tostring(quantity))
                     end
                 end
                 count = count + quantity
@@ -2298,11 +2303,7 @@ local function scanModuleInventory()
                 end
                 local badgeStatus
                 if dbRecognized then
-                    if excludedKind == "trophy" then
-                        badgeStatus = "UNTRADABLE"
-                    elseif excludedKind ~= "default" then
-                        badgeStatus = "NO VALUE"
-                    end
+                    if excludedKind ~= "default" then badgeStatus = "NO VALUE" end
                 else
                     badgeStatus = resolutionStatus
                 end
