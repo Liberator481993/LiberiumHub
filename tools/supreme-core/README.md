@@ -9,9 +9,19 @@ Rust is the data/indexing core for the MM2 Supreme Trade Checker. The in-game cl
 3. Upload the exported file to the repository as `data/supreme-export.json` on branch `supreme-trade-checker-rust-core`.
    - If `writefile` is unavailable, create `data/supreme-export.json` from the copied clipboard contents instead.
    - The export includes parsed category/card counts and uses schema version `1`; the Rust importer accepts numeric or string `v` fields.
-4. GitHub Actions runs the Rust core's `build` command, validates the output schema, generates normalized `by_name` and `by_image_alt` indexes, and publishes `data/SupremeTradeChecker.mapping.json` to the stable `supreme-values-data` branch.
+4. GitHub Actions validates that the reported category counts exactly match the exported entries and that all 14 category pages have non-zero card counts. It then runs the Rust core's `build` command, validates the output schema, generates normalized `by_name` and `by_image_alt` indexes, and publishes `data/SupremeTradeChecker.mapping.json` to the stable `supreme-values-data` branch.
 5. Luau downloads that stable JSON snapshot, validates schema version and age, then matches its item entries against the live `ReplicatedStorage.Database.Sync` database and displays item values and trade/inventory totals.
 6. If the Rust snapshot is unavailable, Luau retains its existing Supreme page scraper as a fallback.
+
+6. If the Rust snapshot is unavailable, Luau retains its existing Supreme page scraper as a fallback.
+
+## MM2 item resolution
+- Inventory totals use exact, namespaced database keys (`i:` for weapons and `p:` for pets) from `InventoryModule.Data`. GUI Frames are used for labels only and are not required for totals.
+- Starter placeholders `DefaultGun` and `DefaultKnife` are omitted from tradeable totals.
+- Leaderboard trophies are identified per database record: the item must be `Unique` and have an exact color word at the beginning of its name (for example, `Gold Icepiercer`), or an exact recognized color suffix in its database key. Arbitrary substring matches are not used. These trophies are shown as `UNTRADABLE` and omitted from tradeable inventory totals.
+- Chroma detection is consistent across names, item flags, icon indexes, name indexes, and Chroma-to-base relationships. Both prefixed and base names are indexed.
+- Trade cards support normal containers, image-only cards, and direct `NewItem` slots. Duplicate card instances are counted independently; stack quantities are read from `Amount`.
+- Item states are kept separate: `LOADING`, `UNKNOWN`, `NO VALUE`, and `UNTRADABLE`. Unknown items are not silently converted to zero.
 
 GitHub Actions publishes only when `data/supreme-export.json` exists. A code-only push runs the Rust tests but skips snapshot publication; a push that includes the export builds and validates the mapping before replacing the `supreme-values-data` snapshot. The workflow does not fetch Supreme Values from GitHub-hosted runners.
 
