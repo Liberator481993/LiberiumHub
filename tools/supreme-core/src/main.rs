@@ -324,7 +324,7 @@ fn validate_export(input: &InputFile) -> Result<BTreeMap<String, usize>, String>
         *derived_counts.entry(category).or_insert(0) += 1;
     }
 
-    if !input.category_counts.is_empty() {
+    let category_counts = if !input.category_counts.is_empty() {
         for (category, actual_count) in &derived_counts {
             let reported_count = input.category_counts.get(category).copied().unwrap_or(0);
             if reported_count != *actual_count {
@@ -340,10 +340,23 @@ fn validate_export(input: &InputFile) -> Result<BTreeMap<String, usize>, String>
                 ));
             }
         }
-        Ok(input.category_counts.clone())
+        input.category_counts.clone()
     } else {
-        Ok(derived_counts)
+        derived_counts
+    };
+
+    if !input.category_counts.is_empty() && input.page_card_counts.is_empty() {
+        return Err("export is missing page_card_counts; the full Supreme page audit is required".into());
     }
+    if !input.page_card_counts.is_empty() {
+        for category in CATEGORIES {
+            let card_count = input.page_card_counts.get(*category).copied().unwrap_or(0);
+            if card_count == 0 {
+                return Err(format!("Supreme page '{}' is missing from page_card_counts", category));
+            }
+        }
+    }
+    Ok(category_counts)
 }
 
 fn run() -> Result<(), String> {
@@ -414,6 +427,13 @@ mod tests {
         ]}"#;
         let input: InputFile = serde_json::from_str(raw).unwrap();
         assert!(validate_export(&input).unwrap_err().contains("category count mismatch"));
+    }
+    #[test] fn input_rejects_exports_without_complete_page_audit() {
+        let raw = r#"{"schema_version":1,"category_counts":{"godlies":1},"entries":[
+            {"c":"godlies","n":"Lightbringer","v":45}
+        ]}"#;
+        let input: InputFile = serde_json::from_str(raw).unwrap();
+        assert!(validate_export(&input).unwrap_err().contains("page_card_counts"));
     }
     #[test] fn input_derives_category_counts_when_not_reported() {
         let raw = r#"{"schema_version":1,"entries":[
