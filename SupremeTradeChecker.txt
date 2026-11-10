@@ -83,7 +83,9 @@ local state = {
     inventoryNoValue = 0,
     inventoryUnknown = 0,
     tradeNoValue = 0,
-    tradeUnknown = 0
+    tradeUnknown = 0,
+    unmappedDb = {},
+    unmappedDbCount = 0
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -629,6 +631,31 @@ local function buildMapping(entries, database)
 
     local iconCount = 0
     for _ in pairs(icon) do iconCount = iconCount + 1 end
+
+    -- Keep a complete audit list of database records without a Supreme value.
+    -- This is a review queue, not an error list: it can include non-tradable trophies
+    -- and other records that Supreme intentionally does not price.
+    local unmappedDb = {}
+    for key, record in pairs(dbByKey) do
+        if not byKey[key] and not EXCLUDED_ITEM_KEYS[record.id] then
+            table.insert(unmappedDb, {
+                id = record.id,
+                kind = record.kind,
+                name = record.name,
+                itemType = record.itemType,
+                rarity = record.rarity,
+                chroma = record.chroma,
+                year = record.year,
+                event = record.event
+            })
+        end
+    end
+    table.sort(unmappedDb, function(a, b)
+        if a.kind ~= b.kind then return a.kind < b.kind end
+        if a.name ~= b.name then return a.name < b.name end
+        return a.id < b.id
+    end)
+
     return {
         byKey = byKey,
         icon = icon,
@@ -636,6 +663,7 @@ local function buildMapping(entries, database)
         dbByName = dbByName,
         dbByImage = dbByImage,
         dbByKey = dbByKey,
+        unmappedDb = unmappedDb,
         byName = byName,
         n = mappedCount,
         iconCount = iconCount,
@@ -821,6 +849,8 @@ local function loadValues(force)
             state.dbPets = mapping.dbPets
             state.mappedCount = mapping.n
             state.iconCount = mapping.iconCount
+            state.unmappedDb = mapping.unmappedDb or {}
+            state.unmappedDbCount = #state.unmappedDb
             state.status = "ok"
             state.source = dbSource .. (cacheUsed and " (local Supreme cache)" or "")
             if not cacheUsed then
@@ -1174,7 +1204,7 @@ local function scanOffer(offer, group)
             seen[tile] = true
             local name, quantity = itemData(tile)
             local value, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
-            if name or value ~= nil or tierText then
+            if name or resolvedName or value ~= nil or tierText then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
                     value = value,
@@ -1789,6 +1819,28 @@ local function formatUnmatchedItems(items)
     return #output > 0 and table.concat(output, " | ") or "none"
 end
 
+local function formatUnmappedDatabase(items)
+    local rows = {}
+    for _, entry in ipairs(items or {}) do
+        table.insert(rows, tostring(entry.kind) .. ":" .. tostring(entry.id)
+            .. "=" .. tostring(entry.name)
+            .. "{type=" .. tostring(entry.itemType)
+            .. ",rarity=" .. tostring(entry.rarity)
+            .. ",chroma=" .. tostring(entry.chroma)
+            .. (entry.year ~= "" and ",year=" .. tostring(entry.year) or "")
+            .. (entry.event ~= "" and ",event=" .. tostring(entry.event) or "")
+            .. "}")
+    end
+    local output = {}
+    for index = 1, math.min(#rows, 50) do
+        output[index] = rows[index]
+    end
+    if #rows > 50 then
+        table.insert(output, "... +" .. tostring(#rows - 50) .. " more database records")
+    end
+    return #output > 0 and table.concat(output, " | ") or "none"
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
@@ -1809,6 +1861,8 @@ local function buildDiagnostic()
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
+        "Unmapped MM2 database records (review queue): " .. tostring(state.unmappedDbCount),
+        "Unmapped database sample (first 50): " .. formatUnmappedDatabase(state.unmappedDb),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
