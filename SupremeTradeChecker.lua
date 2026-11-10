@@ -2860,28 +2860,10 @@ local function resolveTestItem(rawName)
     if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
 
     local isChromaInput = name:lower():match("^chroma%s+") ~= nil
-    local lookupName = clean(name:gsub("^[Cc][Hh][Rr][Oo][Mm][Aa]%s+", ""))
-    local requestedType, requestedYear
-
-    -- Accept explicit discriminators so duplicate MM2 names can be resolved:
-    -- "Laser Gun", "Laser Knife", "Laser (Gun)", "Laser (Knife)", and years.
-    local yearBase, yearSuffix = lookupName:match("^(.-)%s*%((%d%d%d%d)%)$")
-    if yearBase then
-        lookupName, requestedYear = clean(yearBase), yearSuffix
-    else
-        local trailingYearBase, trailingYear = lookupName:match("^(.-)%s+(20%d%d)$")
-        if trailingYearBase then lookupName, requestedYear = clean(trailingYearBase), trailingYear end
-    end
-
-    local typeBase, typeSuffix = lookupName:match("^(.-)%s*%((%a+)%)$")
-    if typeBase and (typeSuffix == "Knife" or typeSuffix == "Gun") then
-        lookupName, requestedType = clean(typeBase), typeSuffix
-    else
-        local trailingTypeBase, trailingType = lookupName:match("^(.-)%s+(%a+)$")
-        if trailingTypeBase and (trailingType == "Knife" or trailingType == "Gun") then
-            lookupName, requestedType = clean(trailingTypeBase), trailingType
-        end
-    end
+    local rawLookupName = clean(name:gsub("^[Cc][Hh][Rr][Oo][Mm][Aa]%s+", ""))
+    -- Use the same variant parser as the live tile resolver and mapping
+    -- builder, so year/type suffix order never changes the selected item.
+    local lookupName, requestedType, requestedYear = splitVariant(rawLookupName)
 
     local normalizedInput = normalize(lookupName)
     local candidates = state.mapped and state.mapped.byName[normalizedInput] or nil
