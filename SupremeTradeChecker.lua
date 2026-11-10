@@ -1495,20 +1495,26 @@ local function scanOffer(offer, group)
     -- expose NewItem slots or named image cards directly under the offer.
     local root = offer:FindFirstChild("Container") or offer
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
-    local seen = {}
+    local seen, seenIcons = {}, {}
     for _, tile in ipairs(root:GetDescendants()) do
         if not tile:IsA("GuiObject") or not visible(tile) or seen[tile] then continue end
 
-        local cardContainer = tile:FindFirstChild("Container")
         local icon = findTileIcon(tile)
-        local hasIdentifier = icon ~= nil or itemData(tile) ~= nil
+        local name, quantity = itemData(tile)
+        local hasIdentifier = icon ~= nil or clean(name) ~= ""
+        local cardContainer = tile:FindFirstChild("Container")
         local normalCard = cardContainer ~= nil and icon ~= nil
         local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
-        local namedCard = tile:FindFirstChild("ItemName", true) ~= nil and hasIdentifier
+        local namedCard = tile:FindFirstChild("ItemName") ~= nil and hasIdentifier
 
         if normalCard or directSlot or namedCard then
+            -- A parent card and its nested Container can expose the same Icon.
+            -- Count each icon instance once, but never collapse separate copies
+            -- that happen to use the same asset ID.
+            if icon and seenIcons[icon] then continue end
             seen[tile] = true
-            local name, quantity = itemData(tile)
+            if icon then seenIcons[icon] = true end
+
             local value, resolvedName, tierText, category, resolveStatus = valueOf(tile, name)
 
             -- Image-only trade slots may encode stack quantity in an Amount label.
