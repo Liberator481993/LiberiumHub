@@ -76,7 +76,9 @@ local state = {
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
-    unmatchedTrade = {}
+    unmatchedTrade = {},
+    tradeNoValue = 0,
+    tradeUnknown = 0
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -1843,6 +1845,8 @@ end
 
 local function scanTrade()
     state.unmatchedTrade = {}
+    state.tradeNoValue = 0
+    state.tradeUnknown = 0
     local screen, container, trade = findTrade()
     if not screen then
         clearTradeLabels(lastTradeRoot)
@@ -2933,6 +2937,8 @@ local function buildDiagnostic(includeDeepDump)
         "",
         "CURRENT TRADE:",
         tostring(state.latestTrade),
+        "TRADE RESOLUTION: NO_VALUE=" .. tostring(state.tradeNoValue or 0)
+            .. " UNKNOWN=" .. tostring(state.tradeUnknown or 0),
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
