@@ -1446,11 +1446,12 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.Visible = true
 end
 
-local function scanRoot(root, group)
+local function scanRoot(root, group, skipFrames)
     local total, known, count, tierCount = 0, 0, 0, 0
     if not root then return total, known, count, tierCount end
 
     for _, tile in ipairs(getTiles(root)) do
+        if skipFrames and skipFrames[tile] then continue end
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
         local value, _, tierText, category, resolveStatus = valueOf(tile, name)
@@ -1472,7 +1473,7 @@ end
 
 -- Some mobile MM2 builds omit ItemName nodes from the inventory list and expose
 -- only an image card. Resolve the nearest card from its Container.Icon instead.
-local function scanImageCards(root, group)
+local function scanImageCards(root, group, skipFrames)
     if not root then return 0, 0, 0, 0 end
     local seen = {}
     local total, known, count, tierCount = 0, 0, 0, 0
@@ -1517,7 +1518,7 @@ local function scanImageCards(root, group)
     for _, node in ipairs(root:GetDescendants()) do
         if not (node:IsA("ImageLabel") or node:IsA("ImageButton")) then continue end
         local card = cardForImage(node)
-        if not card or seen[card] or not card.Parent then continue end
+        if not card or (skipFrames and skipFrames[card]) or seen[card] or not card.Parent then continue end
         seen[card] = true
         if not cardVisible(card) then continue end
 
@@ -2276,11 +2277,13 @@ local function scanModuleInventory()
         local guiTiles = getTiles(guiInstance)
         state.inventoryGuiFrames = #guiTiles
 
-        -- Data.Weapons/Data.Pets remains the only source for inventory totals.
-        -- Scan GUI cards independently to attach labels even when MM2 has
-        -- detached/replaced the Frames stored in InventoryModule.Data.
-        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay")
+        -- The Data scan already used exact itemKey mappings on its Frame
+        -- objects. Exclude those same Frames here so the weaker image/name
+        -- resolver cannot overwrite an exact value with an ambiguous result.
+        -- Remaining GUI-only cards still receive labels, but never affect the
+        -- authoritative total calculated from InventoryModule.Data.
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay", seen)
+        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay", seen)
         state.inventoryGuiValued = (guiKnown or 0) + (imageKnown or 0)
         state.inventoryGuiItems = (guiCount or 0) + (imageCount or 0)
     else
