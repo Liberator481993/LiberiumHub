@@ -7,6 +7,7 @@ on:
     paths:
       - "tools/supreme-core/**"
       - ".github/workflows/supreme-core.yml"
+      - "data/supreme-export.json"
   pull_request:
     paths:
       - "tools/supreme-core/**"
@@ -26,27 +27,46 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test
-      - run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
-      - run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
+      - name: Run Rust unit tests
+        run: cargo test
+      - name: Test export builder with fixture data
+        run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+      - name: Test duplicate-aware total calculator
+        run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
 
   publish-supreme-snapshot:
-    if: github.event_name != 'pull_request'
+    # Publish only when a user-side Arceus X export is present. Do not scrape
+    # Supreme Values from GitHub Actions runners; the source blocks those requests.
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && hashFiles('data/supreme-export.json') != '' }}
+    needs: test
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Fetch and parse all Supreme Values categories with Rust
+      - name: Build mapping from the uploaded Arceus X export
         working-directory: tools/supreme-core
-        run: cargo run --release -- fetch ../../SupremeTradeChecker.mapping.json
-      - name: Validate generated snapshot
+        run: cargo run --release -- build ../../data/supreme-export.json ../../SupremeTradeChecker.mapping.json
+      - name: Validate complete snapshot before publishing
         working-directory: .
         run: |
           test -s SupremeTradeChecker.mapping.json
-          jq -e '.schema_version == 1 and (.entries | length >= 300) and (.by_name | length > 0) and (.by_image_alt | type == "object")' SupremeTradeChecker.mapping.json >/dev/null
-      - name: Publish immutable data branch snapshot
+          jq -e '
+            .schema_version == 1
+            and (.entry_count == (.entries | length))
+            and (.entry_count >= 300)
+            and (.by_name | length > 0)
+            and (.by_image_alt | type == "object")
+            and ((.category_counts.godlies // 0) >= 80)
+            and ((.category_counts.chromas // 0) >= 30)
+            and ((.category_counts.commons // 0) >= 150)
+            and ((.category_counts.uncommons // 0) >= 100)
+            and ((.category_counts.rares // 0) >= 80)
+            and ((.category_counts.legendaries // 0) >= 40)
+            and ((.category_counts.ancients // 0) >= 8)
+            and ((.category_counts.pets // 0) >= 40)
+            and ((.category_counts.uniques // 0) >= 1)
+          ' SupremeTradeChecker.mapping.json >/dev/null
+      - name: Publish validated mapping on the stable data branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -57,5 +77,5 @@ jobs:
           mkdir -p data
           mv SupremeTradeChecker.mapping.json data/SupremeTradeChecker.mapping.json
           git add data/SupremeTradeChecker.mapping.json
-          git commit -m "Publish Supreme Values snapshot"
+          git commit -m "Publish validated Supreme Values snapshot"
           git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:supreme-values-data
