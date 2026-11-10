@@ -259,7 +259,7 @@ end
 local function parseNumber(raw)
     if raw == nil then return nil end
     local value = tonumber(tostring(raw):gsub(",", ""))
-    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+    if value == nil or value <= 0 or value ~= value or value == math.huge or value == -math.huge then
         return nil
     end
     return value
@@ -276,6 +276,7 @@ local function numericParserSelfTest()
         local actual = parseNumber(case[1])
         if actual == nil or math.abs(actual - case[2]) > 0.000001 then return false end
     end
+    if parseNumber("0") ~= nil or parseNumber("-5") ~= nil then return false end
     return true
 end
 state.numericParserStatus = numericParserSelfTest() and "passed" or "failed"
@@ -1146,6 +1147,7 @@ local function fetchRustMapping()
             end
         end
 
+        local actualCategoryCounts = {}
         for index, entry in ipairs(entries) do
             if type(entry) ~= "table" or normalize(entry.n) == "" then
                 table.insert(errors, method .. ": invalid item entry at index " .. tostring(index))
@@ -1155,6 +1157,33 @@ local function fetchRustMapping()
             local hasTier = type(entry.t) == "string" and clean(entry.t) ~= ""
             if not hasNumeric and not hasTier then
                 table.insert(errors, method .. ": item has no numeric or tier value at index " .. tostring(index))
+                return nil
+            end
+            local category = normalize(entry.c)
+            if category == "" then
+                table.insert(errors, method .. ": item has no category at index " .. tostring(index))
+                return nil
+            end
+            actualCategoryCounts[category] = (actualCategoryCounts[category] or 0) + 1
+        end
+        for category, actual in pairs(actualCategoryCounts) do
+            local reported = tonumber(decoded.category_counts[category]) or 0
+            if reported ~= actual then
+                table.insert(errors, method .. ": category count mismatch for " .. category)
+                return nil
+            end
+        end
+        for category, reportedValue in pairs(decoded.category_counts) do
+            local reported = tonumber(reportedValue) or 0
+            if reported ~= (actualCategoryCounts[normalize(category)] or 0) then
+                table.insert(errors, method .. ": category count mismatch for " .. tostring(category))
+                return nil
+            end
+        end
+        for _, category in ipairs(CATEGORIES) do
+            local cards = tonumber(decoded.page_card_counts[category]) or 0
+            if cards < 1 then
+                table.insert(errors, method .. ": missing cards for page " .. category)
                 return nil
             end
         end
