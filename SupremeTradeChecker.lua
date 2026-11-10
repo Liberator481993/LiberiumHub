@@ -677,6 +677,22 @@ local function buildMapping(entries, database)
     }
 end
 
+local function getTileIcon(tile)
+    if not tile then return nil end
+    local container = tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon")
+    if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+        return icon
+    end
+    icon = tile:FindFirstChild("Icon", true)
+    if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+        return icon
+    end
+    if tile:IsA("ImageLabel") or tile:IsA("ImageButton") then return tile end
+    return tile:FindFirstChildWhichIsA("ImageLabel", true)
+        or tile:FindFirstChildWhichIsA("ImageButton", true)
+end
+
 local function valueOf(tile, name, itemKey, itemKind)
     local mapped = state.mapped
     if not mapped then return nil, nil, nil, nil, "loading" end
@@ -702,8 +718,7 @@ local function valueOf(tile, name, itemKey, itemKind)
 
     -- A globally unique database icon is the strongest identifier. Resolve it
     -- before the visible name because seasonal skins often share one label.
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
+    local iconObject = getTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
@@ -903,8 +918,7 @@ end
 
 local function recordUnmatched(tile, name, quantity, target)
     if type(target) ~= "table" then return end
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
+    local iconObject = getTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
@@ -1027,15 +1041,14 @@ local VALUE_TEXT_COLORS = {
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName, resolutionStatus)
     local container = tile and tile:FindFirstChild("Container")
-    if not container then return end
+    local badgeParent = container or tile
+    if not badgeParent or not badgeParent:IsA("GuiObject") then return end
 
-    local existing = container:FindFirstChild("__SupremeItemValue")
+    local existing = badgeParent:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
+    local iconObject = getTileIcon(tile)
     local hasIdentifier = clean(itemName) ~= ""
-    if not hasIdentifier then
-        local iconObject = container:FindFirstChild("Icon")
-        hasIdentifier = iconObject ~= nil and assetId(iconObject.Image) ~= nil
-    end
+        or (iconObject ~= nil and assetId(iconObject.Image) ~= nil)
     if value == nil and not hasTier
         and (resolutionStatus ~= "no_value"
             and (resolutionStatus ~= "unknown" or not hasIdentifier)) then
@@ -1043,7 +1056,7 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         return
     end
 
-    local label = makeLabel(container, "__SupremeItemValue", group)
+    local label = makeLabel(badgeParent, "__SupremeItemValue", group)
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
     label.Font = Enum.Font.GothamBlack
@@ -1104,8 +1117,7 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local iconObject = tile:FindFirstChild("Container")
-            and tile.Container:FindFirstChild("Icon")
+        local iconObject = getTileIcon(tile)
         local hasIdentifier = clean(name) ~= ""
             or (iconObject ~= nil and assetId(iconObject.Image) ~= nil)
         local value, _, tierText, category, resolutionStatus = valueOf(tile, name)
@@ -1185,8 +1197,7 @@ local function scanImageCards(root, group)
         count = count + quantity
         if value == nil and not tierText and resolutionStatus == "unknown"
             and group == "inventory" then
-            local iconObject = card:FindFirstChild("Container")
-                and card.Container:FindFirstChild("Icon")
+            local iconObject = getTileIcon(card)
             if clean(name) ~= "" or (iconObject and assetId(iconObject.Image)) then
                 recordUnmatched(card, name, quantity, state.unmatchedInventory)
             end
@@ -1232,8 +1243,11 @@ local function scanOffer(offer, group)
         if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
+            local iconObject = getTileIcon(tile)
+            local hasIdentifier = clean(name) ~= ""
+                or (iconObject ~= nil and assetId(iconObject.Image) ~= nil)
             local value, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
-            if name or resolvedName or value ~= nil or tierText then
+            if name or resolvedName or value ~= nil or tierText or hasIdentifier then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
                     value = value,
@@ -1255,7 +1269,7 @@ local function scanOffer(offer, group)
                         state.tradeUnknown = state.tradeUnknown + quantity
                     end
                 end
-                if value == nil and not tierText and resolutionStatus == "unknown" then
+                if value == nil and not tierText and resolutionStatus == "unknown" and hasIdentifier then
                     recordUnmatched(tile, name, quantity, state.unmatchedTrade)
                 end
                 updateTileBadge(tile, value, quantity, group, tierText, category, name, resolutionStatus)
