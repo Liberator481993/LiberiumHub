@@ -333,6 +333,23 @@ fn run() -> Result<(), String> {
                 }
                 *derived_counts.entry(category).or_insert(0) += 1;
             }
+            if !input.category_counts.is_empty() {
+                for (category, actual_count) in &derived_counts {
+                    let reported_count = input.category_counts.get(category).copied().unwrap_or(0);
+                    if reported_count != *actual_count {
+                        return Err(format!(
+                            "category count mismatch for {category}: export reports {reported_count}, entries contain {actual_count}"
+                        ));
+                    }
+                }
+                for (category, reported_count) in &input.category_counts {
+                    if !derived_counts.contains_key(category) && *reported_count != 0 {
+                        return Err(format!(
+                            "category count mismatch for {category}: export reports {reported_count}, entries contain 0"
+                        ));
+                    }
+                }
+            }
             let category_counts = if input.category_counts.is_empty() {
                 derived_counts
             } else {
@@ -386,6 +403,17 @@ mod tests {
         assert_eq!(parse_numeric_value("1,000,000").as_deref(), Some("1000000"));
         assert_eq!(parse_numeric_value("0.25").as_deref(), Some("0.25"));
         assert_eq!(parse_numeric_value("35").as_deref(), Some("35"));
+    }
+    #[test] fn input_rejects_mismatched_category_counts() {
+        let raw = r#"{"schema_version":1,"category_counts":{"godlies":2},"entries":[
+            {"c":"godlies","n":"Traveler's Gun","v":1000000}
+        ]}"#;
+        let input: InputFile = serde_json::from_str(raw).unwrap();
+        let mut actual = BTreeMap::<String, usize>::new();
+        for entry in &input.entries {
+            *actual.entry(entry.c.trim().to_ascii_lowercase()).or_insert(0) += 1;
+        }
+        assert_ne!(input.category_counts.get("godlies"), actual.get("godlies"));
     }
     #[test] fn input_accepts_numeric_or_string_values() {
         let raw = r#"{"schema_version":1,"entries":[
