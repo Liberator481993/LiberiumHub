@@ -22,14 +22,34 @@ struct SupremeEntry {
     #[serde(default)] e: String,
     #[serde(default)] o: String,
     #[serde(default)] cl: String,
-    #[serde(default)] v: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_value")] v: Option<String>,
     #[serde(default)] t: String,
     #[serde(default)] dm: String,
 }
 #[derive(Debug, Deserialize)]
 struct InputFile {
     #[serde(default)] schema_version: u32,
+    #[serde(default)] category_counts: BTreeMap<String, usize>,
+    #[serde(default)] page_card_counts: BTreeMap<String, usize>,
     entries: Vec<SupremeEntry>,
+}
+
+fn deserialize_optional_value<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum InputValue {
+        Text(String),
+        Number(f64),
+    }
+
+    let value = Option::<InputValue>::deserialize(deserializer)?;
+    Ok(value.map(|v| match v {
+        InputValue::Text(text) => text,
+        InputValue::Number(number) => number.to_string(),
+    }))
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct MappingFile {
@@ -68,6 +88,15 @@ fn is_chroma(e: &SupremeEntry) -> bool {
 fn add(index: &mut BTreeMap<String, Vec<usize>>, key: String, id: usize) {
     if !key.is_empty() { index.entry(key).or_default().push(id); }
 }
+fn parse_numeric_value(raw: &str) -> Option<String> {
+    let value = raw.trim().replace(',', "").parse::<f64>().ok()?;
+    if !value.is_finite() || value <= 0.0 { return None; }
+    let mut formatted = format!("{value:.4}");
+    while formatted.contains('.') && formatted.ends_with('0') { formatted.pop(); }
+    if formatted.ends_with('.') { formatted.pop(); }
+    Some(formatted)
+}
+
 fn build(entries: Vec<SupremeEntry>, category_counts: BTreeMap<String, usize>,
          page_card_counts: BTreeMap<String, usize>) -> MappingFile {
     let mut by_name = BTreeMap::new();
@@ -101,15 +130,9 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
         if name.is_empty() { continue; }
         let text = card.text().collect::<Vec<_>>().join(" ");
         let tier = tier_re.captures(&text).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
-        let value = value_re.captures(&text).and_then(|c| c.get(1))
-            .and_then(|m| m.as_str().replace(',', "").parse::<f64>().ok())
-            .filter(|v| *v > 0.0 && *v < 500000.0)
-            .map(|v| {
-                let mut s = format!("{v:.4}");
-                while s.contains('.') && s.ends_with('0') { s.pop(); }
-                if s.ends_with('.') { s.pop(); }
-                s
-            });
+        let value = value_re.captures(&text)
+            .and_then(|c| c.get(1))
+            .and_then(|m| parse_numeric_value(m.as_str()));
         if value.is_none() && tier.is_empty() { continue; }
         let origin = card.select(&origin_selector).next()
             .map(|x| x.text().collect::<Vec<_>>().join(" ").trim().to_string()).unwrap_or_default();
@@ -139,13 +162,7 @@ fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEnt
             cards += 1;
             let image_alt = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
             let name = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
-            let value = caps.get(3).and_then(|m| m.as_str().replace(',', "").parse::<f64>().ok())
-                .filter(|v| *v > 0.0 && *v < 500000.0).map(|v| {
-                    let mut s = format!("{v:.4}");
-                    while s.contains('.') && s.ends_with('0') { s.pop(); }
-                    if s.ends_with('.') { s.pop(); }
-                    s
-                });
+            let value = caps.get(3).and_then(|m| parse_numeric_value(m.as_str()));
             current = Some(SupremeEntry {
                 c: category.to_string(), n: name.to_string(), im: image_alt.to_string(),
                 y: String::new(), e: String::new(), o: String::new(), cl: String::new(),
@@ -295,7 +312,33 @@ fn run() -> Result<(), String> {
         Some("build") if args.len() == 4 => {
             let raw = fs::read_to_string(&args[2]).map_err(|e| e.to_string())?;
             let input: InputFile = serde_json::from_str(&raw).map_err(|e| format!("invalid input JSON: {e}"))?;
-            let mapping = build(input.entries, BTreeMap::new(), BTreeMap::new());
+            if input.schema_version != 1 {
+                return Err(format!("unsupported export schema_version {}; expected 1", input.schema_version));
+            }
+            if input.entries.is_empty() {
+                return Err("export contains no Supreme entries".into());
+            }
+            let mut derived_counts = BTreeMap::<String, usize>::new();
+            for (index, entry) in input.entries.iter().enumerate() {
+                let category = entry.c.trim().to_ascii_lowercase();
+                if normalize(&entry.n).is_empty() {
+                    return Err(format!("entry {} has an empty item name", index + 1));
+                }
+                if !CATEGORIES.contains(&category.as_str())
+                    || matches!(category.as_str(), "sets" | "evos" | "untradables") {
+                    return Err(format!("entry {} has unsupported value category '{}'", index + 1, entry.c));
+                }
+                if entry.v.as_deref().and_then(parse_numeric_value).is_none() && entry.t.trim().is_empty() {
+                    return Err(format!("entry {} ('{}') has neither a valid numeric nor tier value", index + 1, entry.n));
+                }
+                *derived_counts.entry(category).or_insert(0) += 1;
+            }
+            let category_counts = if input.category_counts.is_empty() {
+                derived_counts
+            } else {
+                input.category_counts
+            };
+            let mapping = build(input.entries, category_counts, input.page_card_counts);
             let json = serde_json::to_string_pretty(&mapping).map_err(|e| e.to_string())?;
             fs::write(&args[3], json).map_err(|e| e.to_string())?;
             println!("Built {} entries; name keys: {}; image-alt keys: {}", mapping.entry_count, mapping.by_name.len(), mapping.by_image_alt.len());
@@ -337,6 +380,21 @@ mod tests {
         assert_eq!(entries[0].v.as_deref(), Some("5100"));
         assert_eq!(entries[0].y, "2023");
         assert_eq!(entries[0].dm, "5");
+    }
+    #[test] fn numeric_parser_handles_thousands_and_millions() {
+        assert_eq!(parse_numeric_value("5,000").as_deref(), Some("5000"));
+        assert_eq!(parse_numeric_value("1,000,000").as_deref(), Some("1000000"));
+        assert_eq!(parse_numeric_value("0.25").as_deref(), Some("0.25"));
+        assert_eq!(parse_numeric_value("35").as_deref(), Some("35"));
+    }
+    #[test] fn input_accepts_numeric_or_string_values() {
+        let raw = r#"{"schema_version":1,"entries":[
+            {"c":"godlies","n":"Traveler's Gun","v":1000000},
+            {"c":"godlies","n":"Lightbringer","v":"5000"}
+        ]}"#;
+        let input: InputFile = serde_json::from_str(raw).unwrap();
+        assert_eq!(input.entries[0].v.as_deref(), Some("1000000"));
+        assert_eq!(input.entries[1].v.as_deref(), Some("5000"));
     }
     #[test] fn normalization_ignores_spaces_punctuation_and_case() { assert_eq!(normalize("  Lightbringer! "), "lightbringer"); }
     #[test] fn index_resolves_names() {
