@@ -378,6 +378,12 @@ local function buildMapping(entries, database, rustIndexData)
     local dbByName, dbByImage, dbByKey = {}, {}, {}
     local dbIds = {}
     local supremeByName = {}
+    local function databaseIsChroma(item)
+        if type(item) ~= "table" then return false end
+        local itemName = tostring(item.ItemName or item.Name or "")
+        return item.Chroma == true
+            or itemName:lower():match("^chroma%s") ~= nil
+    end
     local function addSupremeCandidate(key, value)
         if key == "" then return end
         supremeByName[key] = supremeByName[key] or {}
@@ -431,8 +437,7 @@ local function buildMapping(entries, database, rustIndexData)
             name = tostring(item.ItemName or item.Name or ""),
             itemType = tostring(item.ItemType or ""),
             rarity = tostring(item.Rarity or ""),
-            chroma = item.Chroma == true
-                or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
+            chroma = databaseIsChroma(item),
             year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
             event = tostring(item.Event or "")
         }
@@ -445,8 +450,7 @@ local function buildMapping(entries, database, rustIndexData)
                 name = tostring(item.ItemName or item.Name or ""),
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true
-                    or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
+                chroma = databaseIsChroma(item),
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
@@ -462,8 +466,7 @@ local function buildMapping(entries, database, rustIndexData)
                 name = tostring(item.ItemName or item.Name or ""),
                 itemType = tostring(item.ItemType or ""),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true
-                    or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
+                chroma = databaseIsChroma(item),
                 year = tostring(item.Year or tostring(id):match("(20%d%d)$") or ""),
                 event = tostring(item.Event or "")
             })
@@ -634,16 +637,16 @@ local function buildMapping(entries, database, rustIndexData)
                 local item = candidate.item
                 local eligible = false
                 if candidate.kind == "p" then
-                    eligible = (item.Chroma == true) == chroma
+                    eligible = databaseIsChroma(item) == chroma
                         and (category == "pets" or category == "chromas")
                 elseif category ~= "pets" then
                     if category == "misc" then
                         eligible = item.ItemType == "Misc"
                             or item.Rarity == "Christmas" or item.Rarity == "Halloween"
                     elseif chroma then
-                        eligible = item.Chroma == true
+                        eligible = databaseIsChroma(item)
                     else
-                        eligible = item.Chroma ~= true and item.Rarity == RARITIES[category]
+                        eligible = not databaseIsChroma(item) and item.Rarity == RARITIES[category]
                     end
                 end
                 if eligible then table.insert(matches, candidate) end
@@ -745,11 +748,11 @@ local function buildMapping(entries, database, rustIndexData)
         if type(item) == "table" then
             local idKey = "i:" .. tostring(id)
             addIcon(item, idKey)
-            if item.Chroma == true then chromaKeys[idKey] = true end
+            if databaseIsChroma(item) then chromaKeys[idKey] = true end
         end
     end
     for id, item in pairs(weapons) do
-        if type(item) == "table" and not item.Chroma and item.ItemID then
+        if type(item) == "table" and not databaseIsChroma(item) and item.ItemID then
             local imageId = tostring(item.ItemID)
             iconCandidates[imageId] = iconCandidates[imageId] or {}
             table.insert(iconCandidates[imageId], "i:" .. tostring(id))
@@ -759,7 +762,7 @@ local function buildMapping(entries, database, rustIndexData)
         if type(item) == "table" then
             local idKey = "p:" .. tostring(id)
             addIcon(item, idKey)
-            if item.Chroma == true then chromaKeys[idKey] = true end
+            if databaseIsChroma(item) then chromaKeys[idKey] = true end
         end
     end
     -- Only unique asset IDs are safe for icon-based identification.
@@ -781,7 +784,7 @@ local function buildMapping(entries, database, rustIndexData)
     }) do
         local regular = {}
         for id, item in pairs(group.items) do
-            if type(item) == "table" and not item.Chroma then
+            if type(item) == "table" and not databaseIsChroma(item) then
                 local regularKey = normalize(item[group.field])
                     .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
                 if not regular[regularKey] then
@@ -794,7 +797,7 @@ local function buildMapping(entries, database, rustIndexData)
             if type(item) ~= "table" then continue end
             local idKey = group.kind .. ":" .. tostring(id)
             local nameKey = normalize(item[group.field])
-            if item.Chroma then
+            if databaseIsChroma(item) then
                 local regularKey = nameKey
                     .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
                 local base = regular[regularKey]
@@ -804,8 +807,7 @@ local function buildMapping(entries, database, rustIndexData)
                 byName[nameKey] = byName[nameKey] or {}
                 table.insert(byName[nameKey], {
                     key = idKey,
-                    chroma = item.Chroma == true
-                        or tostring(item.ItemName or item.Name or ""):lower():match("^chroma%s") ~= nil,
+                    chroma = databaseIsChroma(item),
                     itemType = tostring(item.ItemType or ""),
                     year = tostring(item.Year or "")
                 })
