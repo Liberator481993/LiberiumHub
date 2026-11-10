@@ -208,10 +208,15 @@ local function parseCategory(category, html, output)
         local cardText = decodeText(card)
         -- Read the displayed value first: tier cards may carry data-value="0",
         -- which is a placeholder and must never become a numeric price.
-        local amount = tonumber(cardText:match("Value%s*%-%s*([%d%.]+)"))
+        -- Supreme formats large values with thousands separators (e.g. 5,000
+        -- and 1,000,000). Strip commas before tonumber or the parser silently
+        -- reads only the leading digit and severely undervalues the item.
+        local rawAmount = cardText:match("Value%s*%-%s*([%d,%.]+)")
+        local amount = rawAmount and tonumber(rawAmount:gsub(",", "")) or nil
         local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
         if not amount and not tierText then
-            local dataAmount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
+            local rawDataAmount = card:match('data%-value="([%d,%.]+)"') or ""
+            local dataAmount = tonumber(rawDataAmount:gsub(",", ""))
             if dataAmount and dataAmount > 0 then amount = dataAmount end
         end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
