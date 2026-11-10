@@ -1325,9 +1325,8 @@ local function loadValues(force)
                     local result = fetched[index]
                     local html, fetchInfo = result and result.html, result and result.info
                     if not html then
-                        if VALUE_CATEGORIES[category] then
-                            table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
-                        end
+                        categoryCardCounts[category] = 0
+                        table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
                     else
                         pageCount = pageCount + 1
                         if VALUE_CATEGORIES[category] then requiredPageCount = requiredPageCount + 1 end
