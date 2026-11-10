@@ -431,7 +431,7 @@ local function buildMapping(entries, database, rustIndexData)
         if type(item) ~= "table" then return "" end
         local explicit = clean(item.ItemType)
         if explicit ~= "" then return explicit end
-        if kind == "Pet" then return "" end
+        if kind == "Pet" or kind == "p" then return "" end
 
         -- Some MM2 database keys encode the weapon slot as an exact token:
         -- Carrot_K_2023 / Carrot_G_2023. Infer only when ItemType is absent.
@@ -462,6 +462,7 @@ local function buildMapping(entries, database, rustIndexData)
             {item = {}, key = "Carrot_G_2023", kind = "Item", expected = "Gun"},
             {item = {ItemType = "Misc"}, key = "Carrot_K_2023", kind = "Item", expected = "Misc"},
             {item = {}, key = "Phoenix_2023", kind = "Pet", expected = ""},
+            {item = {}, key = "Phoenix_K_2023", kind = "p", expected = ""},
             {item = {}, key = "Carrot_K_G_2023", kind = "Item", expected = ""}
         }
         for _, case in ipairs(cases) do
@@ -781,7 +782,7 @@ local function buildMapping(entries, database, rustIndexData)
                 local prefix = normalize(name)
                 for _, candidate in ipairs(petEntries) do
                     if normalize(candidate.id):sub(1, #prefix) == prefix
-                        and tostring(candidate.item.Year or "") == tostring(year)
+                        and databaseItemYear(candidate.item, candidate.id) == tostring(year)
                         and not databaseIsChroma(candidate.item) then
                         table.insert(correct, candidate)
                     end
