@@ -1538,6 +1538,10 @@ local function scanRoot(root, group, skipFrames)
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
         local value, _, tierText, category, resolveStatus = valueOf(tile, name)
+        if resolveStatus == "DEFAULT" or resolveStatus == "UNTRADABLE" then
+            updateTileBadge(tile, nil, quantity, group, nil, category, name, resolveStatus)
+            continue
+        end
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
@@ -1610,6 +1614,10 @@ local function scanImageCards(root, group, skipFrames)
         -- the text is temporarily blank or still says Loading.
         if card:FindFirstChild("ItemName", true) then continue end
         local value, _, tierText, category, resolveStatus = valueOf(card, name)
+        if resolveStatus == "DEFAULT" or resolveStatus == "UNTRADABLE" then
+            updateTileBadge(card, nil, quantity, group, nil, category, name, resolveStatus)
+            continue
+        end
         if value == nil and not tierText then
             local amountContainer = card:FindFirstChild("Container", true)
             local amountNode = amountContainer and amountContainer:FindFirstChild("Amount", true)
