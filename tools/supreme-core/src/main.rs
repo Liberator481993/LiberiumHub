@@ -300,6 +300,52 @@ fn resolve<'a>(map: &'a MappingFile, item: &RequestedItem) -> Result<&'a Supreme
     if candidates.len() != 1 { return Err(if candidates.is_empty() { "not_found" } else { "ambiguous" }); }
     Ok(candidates[0])
 }
+fn validate_export(input: &InputFile) -> Result<BTreeMap<String, usize>, String> {
+    if input.schema_version != 1 {
+        return Err(format!("unsupported export schema_version {}; expected 1", input.schema_version));
+    }
+    if input.entries.is_empty() {
+        return Err("export contains no Supreme entries".into());
+    }
+
+    let mut derived_counts = BTreeMap::<String, usize>::new();
+    for (index, entry) in input.entries.iter().enumerate() {
+        let category = entry.c.trim().to_ascii_lowercase();
+        if normalize(&entry.n).is_empty() {
+            return Err(format!("entry {} has an empty item name", index + 1));
+        }
+        if !CATEGORIES.contains(&category.as_str())
+            || matches!(category.as_str(), "sets" | "evos" | "untradables") {
+            return Err(format!("entry {} has unsupported value category '{}'", index + 1, entry.c));
+        }
+        if entry.v.as_deref().and_then(parse_numeric_value).is_none() && entry.t.trim().is_empty() {
+            return Err(format!("entry {} ('{}') has neither a valid numeric nor tier value", index + 1, entry.n));
+        }
+        *derived_counts.entry(category).or_insert(0) += 1;
+    }
+
+    if !input.category_counts.is_empty() {
+        for (category, actual_count) in &derived_counts {
+            let reported_count = input.category_counts.get(category).copied().unwrap_or(0);
+            if reported_count != *actual_count {
+                return Err(format!(
+                    "category count mismatch for {category}: export reports {reported_count}, entries contain {actual_count}"
+                ));
+            }
+        }
+        for (category, reported_count) in &input.category_counts {
+            if !derived_counts.contains_key(category) && *reported_count != 0 {
+                return Err(format!(
+                    "category count mismatch for {category}: export reports {reported_count}, entries contain 0"
+                ));
+            }
+        }
+        Ok(input.category_counts.clone())
+    } else {
+        Ok(derived_counts)
+    }
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -312,49 +358,7 @@ fn run() -> Result<(), String> {
         Some("build") if args.len() == 4 => {
             let raw = fs::read_to_string(&args[2]).map_err(|e| e.to_string())?;
             let input: InputFile = serde_json::from_str(&raw).map_err(|e| format!("invalid input JSON: {e}"))?;
-            if input.schema_version != 1 {
-                return Err(format!("unsupported export schema_version {}; expected 1", input.schema_version));
-            }
-            if input.entries.is_empty() {
-                return Err("export contains no Supreme entries".into());
-            }
-            let mut derived_counts = BTreeMap::<String, usize>::new();
-            for (index, entry) in input.entries.iter().enumerate() {
-                let category = entry.c.trim().to_ascii_lowercase();
-                if normalize(&entry.n).is_empty() {
-                    return Err(format!("entry {} has an empty item name", index + 1));
-                }
-                if !CATEGORIES.contains(&category.as_str())
-                    || matches!(category.as_str(), "sets" | "evos" | "untradables") {
-                    return Err(format!("entry {} has unsupported value category '{}'", index + 1, entry.c));
-                }
-                if entry.v.as_deref().and_then(parse_numeric_value).is_none() && entry.t.trim().is_empty() {
-                    return Err(format!("entry {} ('{}') has neither a valid numeric nor tier value", index + 1, entry.n));
-                }
-                *derived_counts.entry(category).or_insert(0) += 1;
-            }
-            if !input.category_counts.is_empty() {
-                for (category, actual_count) in &derived_counts {
-                    let reported_count = input.category_counts.get(category).copied().unwrap_or(0);
-                    if reported_count != *actual_count {
-                        return Err(format!(
-                            "category count mismatch for {category}: export reports {reported_count}, entries contain {actual_count}"
-                        ));
-                    }
-                }
-                for (category, reported_count) in &input.category_counts {
-                    if !derived_counts.contains_key(category) && *reported_count != 0 {
-                        return Err(format!(
-                            "category count mismatch for {category}: export reports {reported_count}, entries contain 0"
-                        ));
-                    }
-                }
-            }
-            let category_counts = if input.category_counts.is_empty() {
-                derived_counts
-            } else {
-                input.category_counts
-            };
+            let category_counts = validate_export(&input)?;
             let mapping = build(input.entries, category_counts, input.page_card_counts);
             let json = serde_json::to_string_pretty(&mapping).map_err(|e| e.to_string())?;
             fs::write(&args[3], json).map_err(|e| e.to_string())?;
@@ -409,11 +413,17 @@ mod tests {
             {"c":"godlies","n":"Traveler's Gun","v":1000000}
         ]}"#;
         let input: InputFile = serde_json::from_str(raw).unwrap();
-        let mut actual = BTreeMap::<String, usize>::new();
-        for entry in &input.entries {
-            *actual.entry(entry.c.trim().to_ascii_lowercase()).or_insert(0) += 1;
-        }
-        assert_ne!(input.category_counts.get("godlies"), actual.get("godlies"));
+        assert!(validate_export(&input).unwrap_err().contains("category count mismatch"));
+    }
+    #[test] fn input_derives_category_counts_when_not_reported() {
+        let raw = r#"{"schema_version":1,"entries":[
+            {"c":"godlies","n":"Traveler's Gun","v":1000000},
+            {"c":"pets","n":"Phoenix","v":"50"}
+        ]}"#;
+        let input: InputFile = serde_json::from_str(raw).unwrap();
+        let counts = validate_export(&input).unwrap();
+        assert_eq!(counts.get("godlies"), Some(&1));
+        assert_eq!(counts.get("pets"), Some(&1));
     }
     #[test] fn input_accepts_numeric_or_string_values() {
         let raw = r#"{"schema_version":1,"entries":[
