@@ -1104,6 +1104,10 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
+        local iconObject = tile:FindFirstChild("Container")
+            and tile.Container:FindFirstChild("Icon")
+        local hasIdentifier = clean(name) ~= ""
+            or (iconObject ~= nil and assetId(iconObject.Image) ~= nil)
         local value, _, tierText, category, resolutionStatus = valueOf(tile, name)
         if value ~= nil then
             total = total + value * quantity
