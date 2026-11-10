@@ -78,7 +78,8 @@ local state = {
     unmatchedInventory = {},
     unmatchedTrade = {},
     tradeNoValue = 0,
-    tradeUnknown = 0
+    tradeUnknown = 0,
+    tradeUntradable = 0
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -850,7 +851,9 @@ end
 
 local function valueOf(tile, name)
     local mapped = state.mapped
-    if not mapped or state.status ~= "ok" then return nil end
+    if not mapped or state.status ~= "ok" then
+        return nil, nil, nil, nil, state.status == "loading" and "LOADING" or "UNKNOWN"
+    end
 
     local chroma = hasChromaTag(tile)
     local iconObject = findTileIcon(tile)
@@ -862,10 +865,13 @@ local function valueOf(tile, name)
     if iconKey then
         if chroma and not (mapped.chromaKeys and mapped.chromaKeys[iconKey]) then
             iconKey = mapped.chromaOf[iconKey]
-            if not iconKey then return nil end
+            if not iconKey then return nil, nil, nil, nil, "UNKNOWN" end
         end
         local entry = mapped.byKey[iconKey]
         if entry then return entry.v, entry.name, entry.t, entry.category end
+        local excluded = mapped.dbExcludedKeys and mapped.dbExcludedKeys[iconKey]
+        if excluded == "trophy" then return nil, nil, nil, nil, "UNTRADABLE" end
+        if excluded == "default" then return nil, nil, nil, nil, "DEFAULT" end
         return nil, nil, nil, nil, "NO VALUE"
     end
 
@@ -897,6 +903,9 @@ local function valueOf(tile, name)
         local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
         local entry = mapped.byKey[key]
         if entry then return entry.v, entry.name, entry.t, entry.category end
+        local excluded = mapped.dbExcludedKeys and mapped.dbExcludedKeys[key]
+        if excluded == "trophy" then return nil, nil, nil, nil, "UNTRADABLE" end
+        if excluded == "default" then return nil, nil, nil, nil, "DEFAULT" end
         return nil, nil, nil, nil, "NO VALUE"
     end
 
@@ -930,7 +939,7 @@ local function valueOf(tile, name)
         end
         if #matches == 1 then return mappedValue(matches[1]) end
     end
-    return nil
+    return nil, nil, nil, nil, "UNKNOWN"
 end
 
 local function fetchRustMapping()
@@ -947,22 +956,98 @@ local function fetchRustMapping()
             table.insert(errors, method .. ": invalid JSON")
             return nil
         end
+
+        local entries = decoded.entries
+        local entryCount = tonumber(decoded.entry_count)
         if tonumber(decoded.schema_version) ~= 1
-            or type(decoded.entries) ~= "table"
-            or #decoded.entries < 300
+            or type(entries) ~= "table"
+            or #entries < 300
+            or entryCount ~= #entries
             or type(decoded.by_name) ~= "table"
-            or type(decoded.by_image_alt) ~= "table" then
-            table.insert(errors, method .. ": unsupported schema or incomplete mapping")
+            or type(decoded.by_image_alt) ~= "table"
+            or type(decoded.category_counts) ~= "table"
+            or type(decoded.page_card_counts) ~= "table" then
+            table.insert(errors, method .. ": unsupported schema or inconsistent entry counts")
             return nil
         end
+
+        local requiredCategories = {
+            godlies = 80,
+            chromas = 30,
+            commons = 150,
+            uncommons = 100,
+            rares = 80,
+            legendaries = 40,
+            ancients = 8,
+            pets = 40,
+            uniques = 1
+        }
+        for category, minimum in pairs(requiredCategories) do
+            local actual = tonumber(decoded.category_counts[category]) or 0
+            if actual < minimum then
+                table.insert(errors, method .. ": incomplete category " .. category
+                    .. " (" .. tostring(actual) .. "/" .. tostring(minimum) .. ")")
+                return nil
+            end
+        end
+
+        for index, entry in ipairs(entries) do
+            if type(entry) ~= "table" or normalize(entry.n) == "" then
+                table.insert(errors, method .. ": invalid item entry at index " .. tostring(index))
+                return nil
+            end
+            local hasNumeric = entry.v ~= nil and parseNumber(entry.v) ~= nil
+            local hasTier = type(entry.t) == "string" and clean(entry.t) ~= ""
+            if not hasNumeric and not hasTier then
+                table.insert(errors, method .. ": item has no numeric or tier value at index " .. tostring(index))
+                return nil
+            end
+        end
+
+        local function validateIndex(indexMap, label, requireKeys)
+            local keyCount = 0
+            for key, ids in pairs(indexMap) do
+                if type(key) ~= "string" or key == ""
+                    or type(ids) ~= "table" or #ids == 0 then
+                    return false, label .. " contains an invalid key or id list"
+                end
+                keyCount = keyCount + 1
+                for _, rawId in ipairs(ids) do
+                    local id = tonumber(rawId)
+                    if not id or id % 1 ~= 0 or id < 0 or id >= entryCount then
+                        return false, label .. " contains an out-of-range entry index"
+                    end
+                end
+            end
+            if requireKeys and keyCount == 0 then
+                return false, label .. " is empty"
+            end
+            return true
+        end
+
+        local validNames, nameError = validateIndex(decoded.by_name, "by_name", true)
+        if not validNames then
+            table.insert(errors, method .. ": " .. nameError)
+            return nil
+        end
+        local validImages, imageError = validateIndex(decoded.by_image_alt, "by_image_alt", false)
+        if not validImages then
+            table.insert(errors, method .. ": " .. imageError)
+            return nil
+        end
+
         local generated = tonumber(decoded.generated_at_unix)
-        if generated and os.time() - generated > 7 * 24 * 60 * 60 then
-            table.insert(errors, method .. ": mapping is older than 7 days")
+        if not generated then
+            table.insert(errors, method .. ": missing snapshot timestamp")
+            return nil
+        end
+        local age = os.time() - generated
+        if age > 7 * 24 * 60 * 60 or age < -24 * 60 * 60 then
+            table.insert(errors, method .. ": snapshot timestamp is outside the accepted age window")
             return nil
         end
         return decoded
     end
-
     local function attempt(fn, method)
         if type(fn) ~= "function" then return nil end
         local headers = {
@@ -1375,7 +1460,7 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and not resolveStatus and group == "inventory" then
+        if value == nil and not tierText and resolveStatus == "UNKNOWN" and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
         updateTileBadge(tile, value, quantity, group, tierText, category, name, resolveStatus)
@@ -1454,7 +1539,7 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and not resolveStatus and group == "inventory" then
+        if value == nil and not tierText and resolveStatus == "UNKNOWN" and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
         updateTileBadge(card, value, quantity, group, tierText, category, name, resolveStatus)
@@ -1543,11 +1628,13 @@ local function scanOffer(offer, group)
             if group == "trade" then
                 if resolveStatus == "NO VALUE" then
                     state.tradeNoValue = (state.tradeNoValue or 0) + quantity
-                elseif resolveStatus == "UNKNOWN" or (not value and not tierText and not resolveStatus) then
+                elseif resolveStatus == "UNKNOWN" then
                     state.tradeUnknown = (state.tradeUnknown or 0) + quantity
+                elseif resolveStatus == "UNTRADABLE" then
+                    state.tradeUntradable = (state.tradeUntradable or 0) + quantity
                 end
             end
-            if value == nil and not tierText and not resolveStatus and hasIdentifier then
+            if value == nil and not tierText and resolveStatus == "UNKNOWN" and hasIdentifier then
                 recordUnmatched(tile, name or resolvedLabel, quantity, state.unmatchedTrade)
             end
             updateTileBadge(tile, value, quantity, group, tierText, category, resolvedLabel, resolveStatus)
@@ -1847,6 +1934,7 @@ local function scanTrade()
     state.unmatchedTrade = {}
     state.tradeNoValue = 0
     state.tradeUnknown = 0
+    state.tradeUntradable = 0
     local screen, container, trade = findTrade()
     if not screen then
         clearTradeLabels(lastTradeRoot)
@@ -1950,6 +2038,19 @@ local function getInventoryModule()
 end
 
 local function scanModuleInventory()
+    -- Reset observable counters before any early return so a temporarily
+    -- unavailable InventoryModule cannot leave stale "data is present" state.
+    state.inventoryDataEntries = 0
+    state.inventoryFrames = 0
+    state.inventoryVisibleFrames = 0
+    state.inventoryGroups = 0
+    state.inventoryGuiFrames = 0
+    state.inventoryGuiValued = 0
+    state.inventoryGuiItems = 0
+    state.inventoryFrameProbe = "not scanned"
+    state.inventoryKeyStats = "not scanned"
+    state.inventoryResolutionStats = "not scanned"
+
     local module = getInventoryModule()
     if not module then return 0, 0, 0, 0, nil end
 
@@ -2011,7 +2112,7 @@ local function scanModuleInventory()
                         .. " ItemKey=" .. tostring(entry.ItemKey or entry.Key or "nil")
                         .. " Name=" .. tostring(entry.Name or entry.ItemName or "nil"))
                 end
-                if (dbKind == "Item" and (keyText == "DefaultKnife" or keyText == "DefaultGun")) then
+                if collectionName == "Weapons" and (keyText == "DefaultKnife" or keyText == "DefaultGun") then
                     intentionalDefaultQty = intentionalDefaultQty
                         + math.max(1, math.floor(tonumber(entry.Amount) or 1))
                     if #intentionalDefaultSamples < 10 then
@@ -2095,7 +2196,7 @@ local function scanModuleInventory()
                     and state.mapped.byKey[recordKey] or nil
                 local excludedKind = state.mapped and state.mapped.dbExcludedKeys
                     and state.mapped.dbExcludedKeys[recordKey] or nil
-                local resolvedValue, resolvedName, tierText, category
+                local resolvedValue, resolvedName, tierText, category, resolutionStatus
                 if exactValue then
                     resolvedValue = exactValue.v
                     resolvedName = exactValue.name
@@ -2104,7 +2205,7 @@ local function scanModuleInventory()
                 elseif not dbKind then
                     -- Unknown keys may come from a UI-specific data wrapper;
                     -- only those use the cautious icon/name resolver fallback.
-                    resolvedValue, resolvedName, tierText, category = valueOf(tile, name)
+                    resolvedValue, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
                 end
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
@@ -2140,16 +2241,19 @@ local function scanModuleInventory()
                 end
                 count = count + quantity
                 local dbRecognized = dbKind ~= nil
-                if resolvedValue == nil and not tierText and not dbRecognized and tile then
+                if resolvedValue == nil and not tierText and not dbRecognized
+                    and tile and resolutionStatus == "UNKNOWN" then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
                 local badgeStatus
                 if dbRecognized then
                     if excludedKind == "trophy" then
                         badgeStatus = "UNTRADABLE"
-                    elseif excludedKind ~= "default" and keyText ~= "DefaultKnife" and keyText ~= "DefaultGun" then
+                    elseif excludedKind ~= "default" then
                         badgeStatus = "NO VALUE"
                     end
+                else
+                    badgeStatus = resolutionStatus
                 end
                 if tile and tile.Parent then
                     updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
@@ -2167,18 +2271,13 @@ local function scanModuleInventory()
         local guiTiles = getTiles(guiInstance)
         state.inventoryGuiFrames = #guiTiles
 
-        if frameCount > 0 then
-            -- InventoryModule.Data frames were already resolved by their exact
-            -- database keys above. Do not rescan and hide those badges using
-            -- the less reliable display-name/icon resolver.
-            state.inventoryGuiValued = known
-            state.inventoryGuiItems = count
-        else
-            local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-            scanImageCards(guiInstance, "inventoryOverlay")
-            state.inventoryGuiValued = guiKnown or 0
-            state.inventoryGuiItems = guiCount or 0
-        end
+        -- Data.Weapons/Data.Pets remains the only source for inventory totals.
+        -- Scan GUI cards independently to attach labels even when MM2 has
+        -- detached/replaced the Frames stored in InventoryModule.Data.
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
+        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay")
+        state.inventoryGuiValued = (guiKnown or 0) + (imageKnown or 0)
+        state.inventoryGuiItems = (guiCount or 0) + (imageCount or 0)
     else
         state.inventoryGuiFrames = 0
         state.inventoryGuiValued = 0
@@ -2938,7 +3037,8 @@ local function buildDiagnostic(includeDeepDump)
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "TRADE RESOLUTION: NO_VALUE=" .. tostring(state.tradeNoValue or 0)
-            .. " UNKNOWN=" .. tostring(state.tradeUnknown or 0),
+            .. " UNKNOWN=" .. tostring(state.tradeUnknown or 0)
+            .. " UNTRADABLE=" .. tostring(state.tradeUntradable or 0),
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
