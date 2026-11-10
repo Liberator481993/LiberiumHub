@@ -1490,28 +1490,36 @@ end
 
 local function scanOffer(offer, group)
     if not offer or not visible(offer) then return {}, 0, 0, 0, 0 end
-    local container = offer:FindFirstChild("Container")
-    if not container then return {}, 0, 0, 0, 0 end
 
+    -- Some desktop builds wrap cards in Container; compact/mobile layouts
+    -- expose NewItem slots or named image cards directly under the offer.
+    local root = offer:FindFirstChild("Container") or offer
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
     local seen = {}
-    -- Normal MM2 cards own Container.Icon. In the compact offer layout,
-    -- NewItem1..NewItem3 may be the ImageLabel/ImageButton themselves.
-    for _, tile in ipairs(container:GetDescendants()) do
+    for _, tile in ipairs(root:GetDescendants()) do
         if not tile:IsA("GuiObject") or not visible(tile) or seen[tile] then continue end
 
         local cardContainer = tile:FindFirstChild("Container")
-        local normalCard = cardContainer and findTileIcon(tile) ~= nil
-        local directSlot = tile.Name:match("^NewItem%d+$") ~= nil
-            and findTileIcon(tile) ~= nil
+        local icon = findTileIcon(tile)
+        local hasIdentifier = icon ~= nil or itemData(tile) ~= nil
+        local normalCard = cardContainer ~= nil and icon ~= nil
+        local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
+        local namedCard = tile:FindFirstChild("ItemName", true) ~= nil and hasIdentifier
 
-        if normalCard or directSlot then
+        if normalCard or directSlot or namedCard then
             seen[tile] = true
             local name, quantity = itemData(tile)
             local value, resolvedName, tierText, category, resolveStatus = valueOf(tile, name)
 
+            -- Image-only trade slots may encode stack quantity in an Amount label.
+            if value == nil and not tierText then
+                local amountNode = tile:FindFirstChild("Amount", true)
+                local amount = amountNode and tonumber(tostring(amountNode.Text):match("%d+"))
+                if amount and amount > 0 then quantity = math.floor(amount) end
+            end
+            local resolvedLabel = resolvedName or name or "Unknown item"
             table.insert(items, {
-                name = resolvedName or name or "Unknown item",
+                name = resolvedLabel,
                 value = value,
                 tier = tierText,
                 quantity = quantity
@@ -1524,10 +1532,17 @@ local function scanOffer(offer, group)
                 known = known + quantity
                 tierCount = tierCount + quantity
             end
-            if value == nil and not tierText and not resolveStatus then
-                recordUnmatched(tile, name, quantity, state.unmatchedTrade)
+            if group == "trade" then
+                if resolveStatus == "NO VALUE" then
+                    state.tradeNoValue = (state.tradeNoValue or 0) + quantity
+                elseif resolveStatus == "UNKNOWN" or (not value and not tierText and not resolveStatus) then
+                    state.tradeUnknown = (state.tradeUnknown or 0) + quantity
+                end
             end
-            updateTileBadge(tile, value, quantity, group, tierText, category, name, resolveStatus)
+            if value == nil and not tierText and not resolveStatus and hasIdentifier then
+                recordUnmatched(tile, name or resolvedLabel, quantity, state.unmatchedTrade)
+            end
+            updateTileBadge(tile, value, quantity, group, tierText, category, resolvedLabel, resolveStatus)
         end
     end
     return items, total, known, count, tierCount
