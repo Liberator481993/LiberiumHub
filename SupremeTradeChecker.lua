@@ -35,14 +35,17 @@ local RARITIES = {
     vintages = "Classic", uniques = "Unique"
 }
 local BASE = "https://www.supremevalues.com/mm2/"
+local RUST_MAPPING_URL = "https://raw.githubusercontent.com/Liberator481993/LiberiumHub/supreme-values-data/data/SupremeTradeChecker.mapping.json"
 
 local state = {
     status = "loading",
     mapped = nil,
+    supremeEntries = nil,
     updated = 0,
     loadDuration = 0,
     lastUpdate = "Not loaded",
     source = "",
+    dataPipeline = "not loaded",
     pageCount = 0,
     parsedPages = 0,
     entryCount = 0,
@@ -65,13 +68,18 @@ local state = {
     inventoryGuiItems = 0,
     inventoryDataEntries = 0,
     inventoryGroups = 0,
+    inventoryFrameProbe = "not scanned",
+    inventoryKeyStats = "not scanned",
     inventoryGuiPath = "unknown",
     inventoryScreenList = "not scanned",
     busy = false,
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
-    unmatchedTrade = {}
+    unmatchedTrade = {},
+    tradeNoValue = 0,
+    tradeUnknown = 0,
+    tradeUntradable = 0
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -183,14 +191,19 @@ local function fetchPage(url)
     for _, targetUrl in ipairs(urls) do
         local function attempt(fn, label)
             if type(fn) ~= "function" then return nil end
+            local headers = {
+                ["User-Agent"] = "Mozilla/5.0",
+                ["Accept"] = "text/html,application/xhtml+xml"
+            }
+            -- Delta and Arceus X expose slightly different request wrappers.
+            -- Try the executor-style options table first, then URL-string form.
             local ok, response = pcall(fn, {
-                Url = targetUrl,
-                Method = "GET",
-                Headers = {
-                    ["User-Agent"] = "Mozilla/5.0",
-                    ["Accept"] = "text/html,application/xhtml+xml"
-                }
+                Url = targetUrl, URL = targetUrl, url = targetUrl,
+                Method = "GET", method = "GET", Headers = headers, headers = headers
             })
+            if not ok or response == nil then
+                ok, response = pcall(fn, targetUrl)
+            end
             if not ok then
                 table.insert(errors, label .. ": error")
                 return nil
@@ -243,6 +256,31 @@ end
 
 -- Supreme Values item cards expose numeric or tier-based values as visible text.
 -- Parse the displayed value first; data-value is only a numeric fallback.
+local function parseNumber(raw)
+    if raw == nil then return nil end
+    local value = tonumber(tostring(raw):gsub(",", ""))
+    if value == nil or value <= 0 or value ~= value or value == math.huge or value == -math.huge then
+        return nil
+    end
+    return value
+end
+
+local function numericParserSelfTest()
+    local cases = {
+        {"5,000", 5000},
+        {"1,000,000", 1000000},
+        {"0.25", 0.25},
+        {"35", 35}
+    }
+    for _, case in ipairs(cases) do
+        local actual = parseNumber(case[1])
+        if actual == nil or math.abs(actual - case[2]) > 0.000001 then return false end
+    end
+    if parseNumber("0") ~= nil or parseNumber("-5") ~= nil then return false end
+    return true
+end
+state.numericParserStatus = numericParserSelfTest() and "passed" or "failed"
+
 local function parseCategory(category, html, output)
     local count, tierCount, cursor, scanned = 0, 0, 1, 0
     while true do
@@ -258,10 +296,10 @@ local function parseCategory(category, html, output)
         -- Read the displayed value first: tier cards may carry data-value="0",
         -- which is a placeholder and must never become a numeric price.
         local amountText = cardText:match("Value%s*%-%s*([%d,%.]+)")
-        local amount = amountText and tonumber((amountText:gsub(",", ""))) or nil
+        local amount = parseNumber(amountText)
         local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
         if not amount and not tierText then
-            local dataAmount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
+            local dataAmount = parseNumber(card:match('data%-value="([%d%.]+)"'))
             if dataAmount and dataAmount > 0 then amount = dataAmount end
         end
         local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
@@ -270,8 +308,7 @@ local function parseCategory(category, html, output)
             or card:match("<img[^>]-alt='([^']*)'")
         imageAlt = decodeText(imageAlt or "")
         local pageEvent = card:match('data%-event="([^"]+)"')
-        if (amount or tierText) and (not amount or amount < 500000)
-            and nameMarkup and not origin:find("Deletion", 1, true) then
+        if (amount or tierText) and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
                 table.insert(output, {
@@ -331,7 +368,49 @@ local function loadGameDatabase()
     return data, "ReplicatedStorage.Database.Sync"
 end
 
-local function buildMapping(entries, database)
+local function splitVariant(raw)
+    local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
+    local kind, year
+    local function stripKind()
+        local base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
+        if not base or (suffix ~= "Knife" and suffix ~= "Gun") then
+            base, suffix = text:match("^(.-)%s+(%a+)$")
+        end
+        if base and (suffix == "Knife" or suffix == "Gun") then
+            text, kind = clean(base), suffix
+        end
+    end
+
+    stripKind()
+    local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
+    if not base then
+        base, suffix = text:match("^(.-)%s+(20%d%d)$")
+    end
+    if base then text, year = clean(base), suffix end
+    stripKind()
+    return text, kind, year
+end
+
+local function variantParserSelfTest()
+    local cases = {
+        {"Carrot (2023)", "Carrot", "2023", nil},
+        {"Carrot 2023", "Carrot", "2023", nil},
+        {"Carrot 2023 Knife", "Carrot", "2023", "Knife"},
+        {"Carrot Knife 2023", "Carrot", "2023", "Knife"},
+        {"Swirly Gun", "Swirly", nil, "Gun"},
+        {"Frozen (Gun)", "Frozen", nil, "Gun"}
+    }
+    for _, case in ipairs(cases) do
+        local name, kind, year = splitVariant(case[1])
+        if name ~= case[2] or year ~= case[3] or kind ~= case[4] then
+            return "failed: " .. case[1]
+        end
+    end
+    return "passed"
+end
+state.variantParserStatus = variantParserSelfTest()
+
+local function buildMapping(entries, database, rustIndexData)
     if type(database) ~= "table" or type(database.Item) ~= "table" then
         return nil, "invalid MM2 item database"
     end
@@ -339,73 +418,238 @@ local function buildMapping(entries, database)
     local weapons = database.Item
     local pets = type(database.Pets) == "table" and database.Pets or {}
     local index, petEntries = {}, {}
-    local dbByName, dbByImage = {}, {}
+    local dbByName, dbByImage, dbByKey = {}, {}, {}
+    local dbIds = {}
     local supremeByName = {}
-    for _, value in ipairs(entries) do
-        local key = normalize(value.n)
-        if key ~= "" then
-            supremeByName[key] = supremeByName[key] or {}
-            table.insert(supremeByName[key], {
-                category = tostring(value.c or ""),
-                title = tostring(value.n or ""),
-                imageAlt = tostring(value.im or ""),
-                year = tostring(value.y or ""),
-                event = tostring(value.e or ""),
-                origin = tostring(value.o or ""),
-                class = tostring(value.cl or ""),
-                value = tostring(value.v or ""),
-                tier = tostring(value.t or "")
-            })
+    local function databaseIsChroma(item)
+        if type(item) ~= "table" then return false end
+        local itemName = tostring(item.ItemName or item.Name or "")
+        return item.Chroma == true
+            or itemName:lower():match("^chroma%s") ~= nil
+    end
+
+    local function databaseItemType(item, itemKey, kind)
+        if type(item) ~= "table" then return "" end
+        local explicit = clean(item.ItemType)
+        if explicit ~= "" then return explicit end
+        if kind == "Pet" or kind == "p" then return "" end
+
+        -- Some MM2 database keys encode the weapon slot as an exact token:
+        -- Carrot_K_2023 / Carrot_G_2023. Infer only when ItemType is absent.
+        local inferred
+        for token in tostring(itemKey or ""):gmatch("[^_]+") do
+            if token == "K" then
+                if inferred and inferred ~= "Knife" then return "" end
+                inferred = "Knife"
+            elseif token == "G" then
+                if inferred and inferred ~= "Gun" then return "" end
+                inferred = "Gun"
+            end
         end
-        local altKey = normalize(value.im)
-        if altKey ~= "" and altKey ~= key then
-            supremeByName[altKey] = supremeByName[altKey] or {}
-            table.insert(supremeByName[altKey], {
-                category = tostring(value.c or ""),
-                title = tostring(value.n or ""),
-                imageAlt = tostring(value.im or ""),
-                year = tostring(value.y or ""),
-                event = tostring(value.e or ""),
-                origin = tostring(value.o or ""),
-                class = tostring(value.cl or ""),
-                value = tostring(value.v or ""),
-                tier = tostring(value.t or "")
-            })
+        return inferred or ""
+    end
+
+    local function databaseItemYear(item, itemKey)
+        if type(item) == "table" then
+            local explicit = clean(item.Year)
+            if explicit ~= "" then return explicit end
+        end
+        return tostring(itemKey or ""):match("(20%d%d)$") or ""
+    end
+
+    local function itemTypeDetectorSelfTest()
+        local cases = {
+            {item = {}, key = "Carrot_K_2023", kind = "Item", expected = "Knife"},
+            {item = {}, key = "Carrot_G_2023", kind = "Item", expected = "Gun"},
+            {item = {ItemType = "Misc"}, key = "Carrot_K_2023", kind = "Item", expected = "Misc"},
+            {item = {}, key = "Phoenix_2023", kind = "Pet", expected = ""},
+            {item = {}, key = "Phoenix_K_2023", kind = "p", expected = ""},
+            {item = {}, key = "Carrot_K_G_2023", kind = "Item", expected = ""}
+        }
+        for _, case in ipairs(cases) do
+            if databaseItemType(case.item, case.key, case.kind) ~= case.expected then
+                return "failed: " .. case.key
+            end
+        end
+        local yearCases = {
+            {item = {}, key = "Carrot_K_2023", expected = "2023"},
+            {item = {Year = 2024}, key = "Carrot_K_2023", expected = "2024"},
+            {item = {}, key = "Phoenix", expected = ""}
+        }
+        for _, case in ipairs(yearCases) do
+            if databaseItemYear(case.item, case.key) ~= case.expected then
+                return "failed year: " .. case.key
+            end
+        end
+        return "passed"
+    end
+    state.itemTypeDetectorStatus = itemTypeDetectorSelfTest()
+    local function chromaDetectorSelfTest()
+        local cases = {
+            {item = {ItemName = "Chroma Seer"}, expected = true},
+            {item = {Name = "Chroma Luger", Chroma = false}, expected = true},
+            {item = {ItemName = "Seer", Chroma = false}, expected = false},
+            {item = {ItemName = "Chromatic", Chroma = false}, expected = false},
+            {item = {ItemName = "Seer", Chroma = true}, expected = true}
+        }
+        for _, case in ipairs(cases) do
+            if databaseIsChroma(case.item) ~= case.expected then return "failed" end
+        end
+        return "passed"
+    end
+    state.chromaDetectorStatus = chromaDetectorSelfTest()
+    local function addSupremeCandidate(key, value)
+        if key == "" then return end
+        supremeByName[key] = supremeByName[key] or {}
+        table.insert(supremeByName[key], {
+            category = tostring(value.c or ""),
+            title = tostring(value.n or ""),
+            imageAlt = tostring(value.im or ""),
+            year = tostring(value.y or ""),
+            event = tostring(value.e or ""),
+            origin = tostring(value.o or ""),
+            class = tostring(value.cl or ""),
+            value = tostring(value.v or ""),
+            tier = tostring(value.t or "")
+        })
+    end
+
+    -- Prefer the indexes generated by Rust. This makes the same normalized
+    -- keys that Rust validated available to the Luau matching/diagnostic layer.
+    local usedRustIndexes = false
+    if type(rustIndexData) == "table"
+        and type(rustIndexData.by_name) == "table"
+        and type(rustIndexData.by_image_alt) == "table" then
+        usedRustIndexes = true
+        for key, sourceIds in pairs(rustIndexData.by_name) do
+            for _, sourceId in ipairs(sourceIds) do
+                local value = entries[(tonumber(sourceId) or -1) + 1]
+                if value then addSupremeCandidate(tostring(key), value) end
+            end
+        end
+        for key, sourceIds in pairs(rustIndexData.by_image_alt) do
+            for _, sourceId in ipairs(sourceIds) do
+                local value = entries[(tonumber(sourceId) or -1) + 1]
+                if value then addSupremeCandidate(tostring(key), value) end
+            end
+        end
+    end
+    if not usedRustIndexes then
+        for _, value in ipairs(entries) do
+            local key = normalize(value.n)
+            addSupremeCandidate(key, value)
+            local altKey = normalize(value.im)
+            if altKey ~= key then addSupremeCandidate(altKey, value) end
         end
     end
 
     local function addDiagnosticCandidate(item, id, kind)
-        local name = normalize(item.ItemName or item.Name or "")
+        local recordKey = (kind == "Pet" and "p:" or "i:") .. tostring(id)
+        dbByKey[recordKey] = {
+            id = tostring(id),
+            kind = kind,
+            name = tostring(item.ItemName or item.Name or ""),
+            itemType = databaseItemType(item, id, kind),
+            rarity = tostring(item.Rarity or ""),
+            chroma = databaseIsChroma(item),
+            year = databaseItemYear(item, id),
+            event = tostring(item.Event or "")
+        }
+        local rawName = tostring(item.ItemName or item.Name or "")
+        local name = normalize(rawName)
         if name ~= "" then
-            dbByName[name] = dbByName[name] or {}
-            table.insert(dbByName[name], {
+            local candidate = {
                 id = tostring(id),
                 kind = kind,
-                name = tostring(item.ItemName or item.Name or ""),
-                itemType = tostring(item.ItemType or ""),
+                name = rawName,
+                itemType = databaseItemType(item, id, kind),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true,
-                year = tostring(item.Year or ""),
+                chroma = databaseIsChroma(item),
+                year = databaseItemYear(item, id),
                 event = tostring(item.Event or ""),
                 image = assetId(item.Image) or "",
                 itemId = tostring(item.ItemID or "")
-            })
+            }
+            local function addNameKey(key)
+                if key == "" then return end
+                dbByName[key] = dbByName[key] or {}
+                table.insert(dbByName[key], candidate)
+            end
+            addNameKey(name)
+            local withoutChroma = normalize(rawName:gsub("^[Cc]hroma%s+", ""))
+            if withoutChroma ~= name then addNameKey(withoutChroma) end
         end
-        local image = assetId(item.Image)
-        if image then
+        local function addImageCandidate(image)
+            if not image then return end
             dbByImage[image] = dbByImage[image] or {}
             table.insert(dbByImage[image], {
                 id = tostring(id),
                 kind = kind,
                 name = tostring(item.ItemName or item.Name or ""),
-                itemType = tostring(item.ItemType or ""),
+                itemType = databaseItemType(item, id, kind),
                 rarity = tostring(item.Rarity or ""),
-                chroma = item.Chroma == true,
-                year = tostring(item.Year or ""),
+                chroma = databaseIsChroma(item),
+                year = databaseItemYear(item, id),
                 event = tostring(item.Event or "")
             })
         end
+        addImageCandidate(assetId(item.Image))
+        -- Some MM2 GUI builds expose ItemID as the card image asset instead
+        -- of Image; index both identifiers for the same database record.
+        addImageCandidate(assetId(item.ItemID))
     end
+
+    -- Exclude leaderboard trophies only when the exact MM2 database key
+    -- carries a recognized color suffix and the record has Unique rarity.
+    -- Avoid name-prefix or substring guesses that could hide tradable items.
+    local TROPHY_KEY_SUFFIXES = {
+        gold = true, silver = true, bronze = true,
+        red = true, blue = true, purple = true
+    }
+    local TROPHY_NAME_PREFIXES = {
+        "Gold", "Silver", "Bronze", "Red", "Blue", "Purple"
+    }
+    local function isTrophyRecord(item, recordKey)
+        if type(item) ~= "table" or normalize(item.Rarity) ~= "unique" then return false end
+
+        -- Real leaderboard trophies use an exact color word at the beginning
+        -- of their item name (for example "Gold Icepiercer"). Require a word
+        -- boundary and Unique rarity so ordinary names containing color words
+        -- elsewhere can never be excluded by a substring match.
+        local itemName = clean(item.ItemName or item.Name or "")
+        for _, prefix in ipairs(TROPHY_NAME_PREFIXES) do
+            if itemName:sub(1, #prefix):lower() == prefix:lower()
+                and itemName:sub(#prefix + 1, #prefix + 1):match("%s") then
+                return true
+            end
+        end
+
+        -- A few exact database keys encode trophy color as a suffix instead.
+        local keySuffix = tostring(recordKey or ""):match("_([^_]+)$")
+        return keySuffix ~= nil and TROPHY_KEY_SUFFIXES[keySuffix:lower()] == true
+    end
+
+    local function trophyDetectorSelfTest()
+        local cases = {
+            {name = "Gold Icepiercer", rarity = "Unique", key = "GoldIcepiercer", expected = true},
+            {name = "Silver Candy", rarity = "Unique", key = "SilverCandy", expected = true},
+            {name = "Red Icepiercer", rarity = "Unique", key = "RedIcepiercer", expected = true},
+            {name = "Goldfish", rarity = "Unique", key = "Goldfish", expected = false},
+            {name = "Gold Luger", rarity = "Godly", key = "GoldLuger", expected = false},
+            {name = "Vampire's Edge", rarity = "Unique", key = "VampiresEdge", expected = false}
+        }
+        for _, testCase in ipairs(cases) do
+            local actual = isTrophyRecord({
+                ItemName = testCase.name,
+                Rarity = testCase.rarity
+            }, testCase.key)
+            if actual ~= testCase.expected then
+                return "failed: " .. testCase.name
+            end
+        end
+        return "passed"
+    end
+    state.trophyDetectorStatus = trophyDetectorSelfTest()
 
     local function addIndex(name, entry)
         if name == "" then return end
@@ -415,21 +659,39 @@ local function buildMapping(entries, database)
 
     for id, item in pairs(weapons) do
         if type(item) ~= "table" then continue end
+        dbIds["i:" .. tostring(id)] = "Item"
         local name = tostring(item.ItemName or item.Name or "")
         local entry = {kind = "i", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Item")
-        addIndex(normalize(name), entry)
-        local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
-        if withoutYear ~= name then addIndex(normalize(withoutYear), entry) end
+        if not isTrophyRecord(item, id) then
+            addIndex(normalize(name), entry)
+            local withoutChroma = name:gsub("^[Cc]hroma%s+", "")
+            if withoutChroma ~= name then addIndex(normalize(withoutChroma), entry) end
+            local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
+            if withoutYear ~= name then
+                addIndex(normalize(withoutYear), entry)
+                local withoutYearChroma = withoutYear:gsub("^[Cc]hroma%s+", "")
+                if withoutYearChroma ~= withoutYear then
+                    addIndex(normalize(withoutYearChroma), entry)
+                end
+            end
+        end
     end
 
     for id, item in pairs(pets) do
         if type(item) ~= "table" then continue end
+        dbIds["p:" .. tostring(id)] = "Pet"
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
         addIndex("pet:" .. normalize(item.Name), entry)
+        local petWithoutChroma = tostring(item.Name or ""):gsub("^[Cc]hroma%s+", "")
+        if petWithoutChroma ~= tostring(item.Name or "") then
+            addIndex("pet:" .. normalize(petWithoutChroma), entry)
+        end
         table.insert(petEntries, entry)
     end
+
+
 
     local byKey, mappedCount = {}, 0
     for entryIndex, value in ipairs(entries) do
@@ -438,26 +700,7 @@ local function buildMapping(entries, database)
         local tierText = clean(value.t)
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
 
-        -- Parse both the value title and image label; the image label often
-        -- carries the exact weapon type/year while the value title is generic.
-        local function splitVariant(raw)
-            local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
-            local year
-            local base, suffix = text:match("^(.-)%s*%((%d%d%d%d)%)%s*$")
-            if base then text, year = clean(base), suffix end
 
-            local kind
-            base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
-            if base and (suffix == "Knife" or suffix == "Gun") then
-                text, kind = clean(base), suffix
-            else
-                base, suffix = text:match("^(.-)%s+(%a+)$")
-                if base and (suffix == "Knife" or suffix == "Gun") then
-                    text, kind = clean(base), suffix
-                end
-            end
-            return text, kind, year
-        end
 
         local name, kind, titleYear = splitVariant(value.n)
         local year = value.y or titleYear
@@ -487,6 +730,16 @@ local function buildMapping(entries, database)
         end
 
         local aliases = {name}
+        if chroma then table.insert(aliases, "Chroma " .. name) end
+        -- MM2's Database.Sync sometimes stores the item name with its type
+        -- suffix (for example "Swirly Gun"), while Supreme titles may be
+        -- parsed into base name + kind ("Swirly", "Gun"). Keep both forms:
+        -- the base form handles entries such as "Frozen (Gun)" -> "Frozen",
+        -- and the typed form handles DB names such as "Swirly Gun".
+        if kind then
+            table.insert(aliases, name .. " " .. kind)
+            table.insert(aliases, name .. " (" .. kind .. ")")
+        end
         local wrapping = name:match("^(%a+) Papers$")
         if wrapping then table.insert(aliases, "Box of " .. wrapping .. " Wrapping Paper") end
         if name == "Ultra Wrap" then table.insert(aliases, "Box of Ultra Wrapping Paper") end
@@ -502,16 +755,16 @@ local function buildMapping(entries, database)
                 local item = candidate.item
                 local eligible = false
                 if candidate.kind == "p" then
-                    eligible = (item.Chroma == true) == chroma
+                    eligible = databaseIsChroma(item) == chroma
                         and (category == "pets" or category == "chromas")
                 elseif category ~= "pets" then
                     if category == "misc" then
                         eligible = item.ItemType == "Misc"
                             or item.Rarity == "Christmas" or item.Rarity == "Halloween"
                     elseif chroma then
-                        eligible = item.Chroma == true
+                        eligible = databaseIsChroma(item)
                     else
-                        eligible = item.Chroma ~= true and item.Rarity == RARITIES[category]
+                        eligible = not databaseIsChroma(item) and item.Rarity == RARITIES[category]
                     end
                 end
                 if eligible then table.insert(matches, candidate) end
@@ -530,8 +783,8 @@ local function buildMapping(entries, database)
                 local prefix = normalize(name)
                 for _, candidate in ipairs(petEntries) do
                     if normalize(candidate.id):sub(1, #prefix) == prefix
-                        and tostring(candidate.item.Year or "") == tostring(year)
-                        and not candidate.item.Chroma then
+                        and databaseItemYear(candidate.item, candidate.id) == tostring(year)
+                        and not databaseIsChroma(candidate.item) then
                         table.insert(correct, candidate)
                     end
                 end
@@ -542,14 +795,19 @@ local function buildMapping(entries, database)
         local function filterMatches(predicate)
             local filtered = {}
             for _, candidate in ipairs(matches) do
-                if predicate(candidate.item) then table.insert(filtered, candidate) end
+                if predicate(candidate.item, candidate) then table.insert(filtered, candidate) end
             end
             -- A supplied discriminator that does not match must reject the
             -- candidate set; never silently fall back to a different skin.
             matches = filtered
         end
 
-        if kind then filterMatches(function(item) return item.ItemType == kind end) end
+        if kind then
+            filterMatches(function(item, candidate)
+                return normalize(databaseItemType(item, candidate.id, candidate.kind))
+                    == normalize(kind)
+            end)
+        end
         if value.cl then
             filterMatches(function(item)
                 return normalize(item.Rarity) == normalize(value.cl)
@@ -562,6 +820,9 @@ local function buildMapping(entries, database)
             local exact, unknown = {}, {}
             for _, candidate in ipairs(matches) do
                 local actual = clean(candidate.item[field])
+                if actual == "" and field == "Year" then
+                    actual = tostring(candidate.id):match("(20%d%d)$") or ""
+                end
                 if actual == "" then
                     table.insert(unknown, candidate)
                 elseif normalizer(actual) == normalizer(wanted) then
@@ -589,7 +850,9 @@ local function buildMapping(entries, database)
                     t = tierText ~= "" and tierText or nil,
                     n = 1,
                     name = name,
-                    category = category
+                    category = category,
+                    itemType = databaseItemType(candidate.item, candidate.id, candidate.kind),
+                    year = databaseItemYear(candidate.item, candidate.id)
                 }
             end
         end
@@ -608,11 +871,11 @@ local function buildMapping(entries, database)
         if type(item) == "table" then
             local idKey = "i:" .. tostring(id)
             addIcon(item, idKey)
-            if item.Chroma == true then chromaKeys[idKey] = true end
+            if databaseIsChroma(item) then chromaKeys[idKey] = true end
         end
     end
     for id, item in pairs(weapons) do
-        if type(item) == "table" and not item.Chroma and item.ItemID then
+        if type(item) == "table" and not databaseIsChroma(item) and item.ItemID then
             local imageId = tostring(item.ItemID)
             iconCandidates[imageId] = iconCandidates[imageId] or {}
             table.insert(iconCandidates[imageId], "i:" .. tostring(id))
@@ -622,7 +885,7 @@ local function buildMapping(entries, database)
         if type(item) == "table" then
             local idKey = "p:" .. tostring(id)
             addIcon(item, idKey)
-            if item.Chroma == true then chromaKeys[idKey] = true end
+            if databaseIsChroma(item) then chromaKeys[idKey] = true end
         end
     end
     -- Only unique asset IDs are safe for icon-based identification.
@@ -644,9 +907,9 @@ local function buildMapping(entries, database)
     }) do
         local regular = {}
         for id, item in pairs(group.items) do
-            if type(item) == "table" and not item.Chroma then
+            if type(item) == "table" and not databaseIsChroma(item) then
                 local regularKey = normalize(item[group.field])
-                    .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
+                    .. (group.kind == "i" and "|" .. databaseItemType(item, id, "Item") or "")
                 if not regular[regularKey] then
                     regular[regularKey] = group.kind .. ":" .. tostring(id)
                 end
@@ -657,21 +920,75 @@ local function buildMapping(entries, database)
             if type(item) ~= "table" then continue end
             local idKey = group.kind .. ":" .. tostring(id)
             local nameKey = normalize(item[group.field])
-            if item.Chroma then
+            if databaseIsChroma(item) then
                 local regularKey = nameKey
-                    .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
+                    .. (group.kind == "i" and "|" .. databaseItemType(item, id, "Item") or "")
                 local base = regular[regularKey]
                 if base then chromaOf[base] = idKey end
             end
             if byKey[idKey] then
                 byName[nameKey] = byName[nameKey] or {}
-                table.insert(byName[nameKey], {key = idKey, chroma = item.Chroma == true})
+                table.insert(byName[nameKey], {
+                    key = idKey,
+                    chroma = databaseIsChroma(item),
+                    itemType = databaseItemType(item, id, group.kind == "p" and "Pet" or "Item"),
+                    year = databaseItemYear(item, id)
+                })
             end
         end
     end
 
     local iconCount = 0
     for _ in pairs(icon) do iconCount = iconCount + 1 end
+
+    -- Full database coverage audit: every MM2 catalog record is recognized
+    -- by its canonical key, whether or not Supreme publishes a value for it.
+    local dbTotal, dbUnmapped, dbUnmappedSample = 0, 0, {}
+    local dbUnmappedAll, dbUniqueUnmapped = {}, {}
+    local dbNumericMapped, dbTierMapped, dbExcludedNoValue, dbExcludedTrophy = 0, 0, 0, 0
+    -- These two built-in defaults have no Supreme value by design.
+    -- They remain part of the MM2 database total but are not coverage failures.
+    local intentionalNoValue = {DefaultGun = true, DefaultKnife = true}
+    local dbExcludedKeys = {}
+    local function auditDatabase(items, kind, nameField)
+        for id, item in pairs(items) do
+            if type(item) ~= "table" then continue end
+            dbTotal = dbTotal + 1
+            local idText = tostring(id)
+            local idKey = kind .. ":" .. idText
+            local mappedEntry = byKey[idKey]
+            if mappedEntry then
+                if clean(mappedEntry.t) ~= "" then
+                    dbTierMapped = dbTierMapped + 1
+                elseif tonumber(mappedEntry.v) ~= nil then
+                    dbNumericMapped = dbNumericMapped + 1
+                end
+            elseif kind == "i" and intentionalNoValue[idText] then
+                dbExcludedKeys[idKey] = "default"
+                dbExcludedNoValue = dbExcludedNoValue + 1
+            elseif kind == "i" and isTrophyRecord(item, idText) then
+                dbExcludedKeys[idKey] = "trophy"
+                dbExcludedTrophy = dbExcludedTrophy + 1
+            else
+                dbUnmapped = dbUnmapped + 1
+                local row = idText .. "=" .. tostring(item[nameField] or item.Name or "")
+                    .. "{itemId=" .. tostring(item.ItemID or "none")
+                    .. ",type=" .. tostring(item.ItemType or "Pet")
+                    .. ",rarity=" .. tostring(item.Rarity or "none")
+                    .. ",chroma=" .. tostring(databaseIsChroma(item))
+                    .. ",year=" .. tostring(item.Year or idText:match("(20%d%d)$") or "none")
+                    .. ",event=" .. tostring(item.Event or "none") .. "}"
+                table.insert(dbUnmappedAll, row)
+                if clean(item.Rarity) == "Unique" then
+                    table.insert(dbUniqueUnmapped, row)
+                end
+                if #dbUnmappedSample < 40 then table.insert(dbUnmappedSample, row) end
+            end
+        end
+    end
+    auditDatabase(weapons, "i", "ItemName")
+    auditDatabase(pets, "p", "Name")
+
     return {
         byKey = byKey,
         icon = icon,
@@ -679,6 +996,18 @@ local function buildMapping(entries, database)
         chromaKeys = chromaKeys,
         dbByName = dbByName,
         dbByImage = dbByImage,
+        dbByKey = dbByKey,
+        dbExcludedKeys = dbExcludedKeys,
+        dbIds = dbIds,
+        dbTotal = dbTotal,
+        dbNumericMapped = dbNumericMapped,
+        dbTierMapped = dbTierMapped,
+        dbExcludedNoValue = dbExcludedNoValue,
+        dbExcludedTrophy = dbExcludedTrophy,
+        dbUnmapped = dbUnmapped,
+        dbUnmappedSample = dbUnmappedSample,
+        dbUnmappedAll = dbUnmappedAll,
+        dbUniqueUnmapped = dbUniqueUnmapped,
         supremeByName = supremeByName,
         byName = byName,
         n = mappedCount,
@@ -690,48 +1019,270 @@ end
 
 local function valueOf(tile, name)
     local mapped = state.mapped
-    if not mapped or state.status ~= "ok" then return nil end
+    if not mapped or state.status ~= "ok" then
+        return nil, nil, nil, nil, state.status == "loading" and "LOADING" or "UNKNOWN"
+    end
 
     local chroma = hasChromaTag(tile)
-
-    -- A globally unique database icon is the strongest identifier. Resolve it
-    -- before the visible name because seasonal skins often share one label.
-    -- NewItem slots can be ImageLabels themselves, without Container.Icon.
+        or clean(name):lower():match("^chroma%s") ~= nil
     local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
+
+    -- Prefer the exact, globally unique icon mapping, as PulseHub does.
+    -- Never fall through from a known-but-unvalued record to another skin.
     if iconKey then
         if chroma and not (mapped.chromaKeys and mapped.chromaKeys[iconKey]) then
             iconKey = mapped.chromaOf[iconKey]
-            -- Never price a Chroma item with its non-Chroma counterpart.
-            if not iconKey then return nil end
+            if not iconKey then return nil, nil, nil, nil, "UNKNOWN" end
         end
         local entry = mapped.byKey[iconKey]
-        -- The icon identifies the exact MM2 record. Do not fall through to a
-        -- different same-name item when Supreme has no value for this record.
         if entry then return entry.v, entry.name, entry.t, entry.category end
-        return nil
+        local excluded = mapped.dbExcludedKeys and mapped.dbExcludedKeys[iconKey]
+        if excluded == "trophy" then return nil, nil, nil, nil, "UNTRADABLE" end
+        if excluded == "default" then return nil, nil, nil, nil, "DEFAULT" end
+        return nil, nil, nil, nil, "NO VALUE"
     end
 
-    -- Use a name only when it identifies exactly one database record after
-    -- applying the visible Chroma state. A unique mapped-name candidate alone
-    -- is insufficient: other same-name skins may simply be unmapped.
-    local normalizedName = normalize(name)
+    -- Some MM2 skins share an image asset. In that case, intersect the icon
+    -- candidates with the visible card name instead of choosing the first
+    -- database entry (the unsafe behavior in the old PulseHub resolver).
+    local displayName, explicitKind, explicitYear = splitVariant(name)
+    local normalizedName = normalize(displayName)
+    local function eligible(candidate)
+        if candidate.chroma ~= chroma then return false end
+        if explicitKind and normalize(candidate.itemType) ~= normalize(explicitKind) then return false end
+        if explicitYear and tostring(candidate.year or "") ~= explicitYear then return false end
+        return true
+    end
+    local function mappedValue(candidate)
+        local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
+        local entry = mapped.byKey[key]
+        if entry then return entry.v, entry.name, entry.t, entry.category end
+        local excluded = mapped.dbExcludedKeys and mapped.dbExcludedKeys[key]
+        if excluded == "trophy" then return nil, nil, nil, nil, "UNTRADABLE" end
+        if excluded == "default" then return nil, nil, nil, nil, "DEFAULT" end
+        return nil, nil, nil, nil, "NO VALUE"
+    end
+
     if normalizedName ~= "" then
-        local databaseMatches = {}
-        for _, candidate in ipairs(mapped.dbByName[normalizedName] or {}) do
-            if candidate.chroma == chroma then
-                table.insert(databaseMatches, candidate)
+        local nameCandidates = mapped.dbByName[normalizedName] or {}
+        local imageCandidates = imageId and mapped.dbByImage and mapped.dbByImage[imageId] or nil
+
+        if imageCandidates and #imageCandidates > 0 then
+            local nameSet, matches = {}, {}
+            for _, candidate in ipairs(nameCandidates) do
+                if eligible(candidate) then
+                    nameSet[candidate.kind .. ":" .. candidate.id] = true
+                end
+            end
+            for _, candidate in ipairs(imageCandidates) do
+                local key = candidate.kind .. ":" .. candidate.id
+                if nameSet[key] and eligible(candidate) then
+                    matches[key] = candidate
+                end
+            end
+            local only, count = nil, 0
+            for _, candidate in pairs(matches) do only, count = candidate, count + 1 end
+            if count == 1 then return mappedValue(only) end
+        end
+
+        -- Name-only fallback is allowed only when the complete MM2 database
+        -- leaves one candidate after Chroma/type/year filters.
+        local matches = {}
+        for _, candidate in ipairs(nameCandidates) do
+            if eligible(candidate) then table.insert(matches, candidate) end
+        end
+        if #matches == 1 then return mappedValue(matches[1]) end
+    end
+    return nil, nil, nil, nil, "UNKNOWN"
+end
+
+local function fetchRustMapping()
+    local errors = {}
+    local function acceptBody(body, method)
+        if type(body) ~= "string" or #body < 1000 then
+            table.insert(errors, method .. ": empty mapping response")
+            return nil
+        end
+        local ok, decoded = pcall(function()
+            return HttpService:JSONDecode(body)
+        end)
+        if not ok or type(decoded) ~= "table" then
+            table.insert(errors, method .. ": invalid JSON")
+            return nil
+        end
+
+        local entries = decoded.entries
+        local entryCount = tonumber(decoded.entry_count)
+        if tonumber(decoded.schema_version) ~= 1
+            or type(entries) ~= "table"
+            or #entries < 300
+            or entryCount ~= #entries
+            or type(decoded.by_name) ~= "table"
+            or type(decoded.by_image_alt) ~= "table"
+            or type(decoded.category_counts) ~= "table"
+            or type(decoded.page_card_counts) ~= "table" then
+            table.insert(errors, method .. ": unsupported schema or inconsistent entry counts")
+            return nil
+        end
+
+        local requiredCategories = {
+            godlies = 80,
+            chromas = 30,
+            commons = 150,
+            uncommons = 100,
+            rares = 80,
+            legendaries = 40,
+            ancients = 8,
+            pets = 40,
+            uniques = 1
+        }
+        for category, minimum in pairs(requiredCategories) do
+            local actual = tonumber(decoded.category_counts[category]) or 0
+            if actual < minimum then
+                table.insert(errors, method .. ": incomplete category " .. category
+                    .. " (" .. tostring(actual) .. "/" .. tostring(minimum) .. ")")
+                return nil
             end
         end
-        if #databaseMatches == 1 then
-            local candidate = databaseMatches[1]
-            local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
-            local entry = mapped.byKey[key]
-            if entry then return entry.v, entry.name, entry.t, entry.category end
+
+        local actualCategoryCounts = {}
+        for index, entry in ipairs(entries) do
+            if type(entry) ~= "table" or normalize(entry.n) == "" then
+                table.insert(errors, method .. ": invalid item entry at index " .. tostring(index))
+                return nil
+            end
+            local hasNumeric = entry.v ~= nil and parseNumber(entry.v) ~= nil
+            local hasTier = type(entry.t) == "string" and clean(entry.t) ~= ""
+            if not hasNumeric and not hasTier then
+                table.insert(errors, method .. ": item has no numeric or tier value at index " .. tostring(index))
+                return nil
+            end
+            local category = normalize(entry.c)
+            if category == "" then
+                table.insert(errors, method .. ": item has no category at index " .. tostring(index))
+                return nil
+            end
+            actualCategoryCounts[category] = (actualCategoryCounts[category] or 0) + 1
         end
+        for category, actual in pairs(actualCategoryCounts) do
+            local reported = tonumber(decoded.category_counts[category]) or 0
+            if reported ~= actual then
+                table.insert(errors, method .. ": category count mismatch for " .. category)
+                return nil
+            end
+        end
+        for category, reportedValue in pairs(decoded.category_counts) do
+            local reported = tonumber(reportedValue) or 0
+            if reported ~= (actualCategoryCounts[normalize(category)] or 0) then
+                table.insert(errors, method .. ": category count mismatch for " .. tostring(category))
+                return nil
+            end
+        end
+        for _, category in ipairs(CATEGORIES) do
+            local cards = tonumber(decoded.page_card_counts[category]) or 0
+            if cards < 1 then
+                table.insert(errors, method .. ": missing cards for page " .. category)
+                return nil
+            end
+        end
+
+        local function validateIndex(indexMap, label, requireKeys)
+            local keyCount = 0
+            for key, ids in pairs(indexMap) do
+                if type(key) ~= "string" or key == ""
+                    or type(ids) ~= "table" or #ids == 0 then
+                    return false, label .. " contains an invalid key or id list"
+                end
+                keyCount = keyCount + 1
+                for _, rawId in ipairs(ids) do
+                    local id = tonumber(rawId)
+                    if not id or id % 1 ~= 0 or id < 0 or id >= entryCount then
+                        return false, label .. " contains an out-of-range entry index"
+                    end
+                end
+            end
+            if requireKeys and keyCount == 0 then
+                return false, label .. " is empty"
+            end
+            return true
+        end
+
+        local validNames, nameError = validateIndex(decoded.by_name, "by_name", true)
+        if not validNames then
+            table.insert(errors, method .. ": " .. nameError)
+            return nil
+        end
+        local validImages, imageError = validateIndex(decoded.by_image_alt, "by_image_alt", false)
+        if not validImages then
+            table.insert(errors, method .. ": " .. imageError)
+            return nil
+        end
+
+        local generated = tonumber(decoded.generated_at_unix)
+        if not generated then
+            table.insert(errors, method .. ": missing snapshot timestamp")
+            return nil
+        end
+        local age = os.time() - generated
+        if age > 7 * 24 * 60 * 60 or age < -24 * 60 * 60 then
+            table.insert(errors, method .. ": snapshot timestamp is outside the accepted age window")
+            return nil
+        end
+        return decoded
     end
-    return nil
+    local function attempt(fn, method)
+        if type(fn) ~= "function" then return nil end
+        local headers = {
+            ["User-Agent"] = "Mozilla/5.0",
+            ["Accept"] = "application/json"
+        }
+        -- Support both common executor request signatures (options table / URL string).
+        local ok, response = pcall(fn, {
+            Url = RUST_MAPPING_URL, URL = RUST_MAPPING_URL, url = RUST_MAPPING_URL,
+            Method = "GET", method = "GET", Headers = headers, headers = headers
+        })
+        if not ok or response == nil then
+            ok, response = pcall(fn, RUST_MAPPING_URL)
+        end
+        if not ok then
+            table.insert(errors, method .. ": request error")
+            return nil
+        end
+        local statusCode
+        if type(response) == "table" then
+            statusCode = tonumber(response.StatusCode or response.Status or response.status_code)
+            response = response.Body or response.body or response.ResponseBody
+        end
+        if statusCode and (statusCode < 200 or statusCode >= 300) then
+            table.insert(errors, method .. ": HTTP " .. tostring(statusCode))
+            return nil
+        end
+        return acceptBody(response, method)
+    end
+
+    local mapping = attempt(request, "request")
+    if mapping then return mapping, "Rust Core JSON / request" end
+    mapping = attempt(http_request, "http_request")
+    if mapping then return mapping, "Rust Core JSON / http_request" end
+    local synRequest = type(syn) == "table" and syn.request or nil
+    mapping = attempt(synRequest, "syn.request")
+    if mapping then return mapping, "Rust Core JSON / syn.request" end
+    local httpRequest = type(http) == "table" and http.request or nil
+    mapping = attempt(httpRequest, "http.request")
+    if mapping then return mapping, "Rust Core JSON / http.request" end
+
+    local ok, body = pcall(function()
+        return game:HttpGet(RUST_MAPPING_URL)
+    end)
+    if ok then
+        mapping = acceptBody(body, "game:HttpGet")
+        if mapping then return mapping, "Rust Core JSON / game:HttpGet" end
+    else
+        table.insert(errors, "game:HttpGet: request error")
+    end
+    return nil, table.concat(errors, "; ")
 end
 
 local function loadValues(force)
@@ -743,76 +1294,98 @@ local function loadValues(force)
         local loadStarted = os.clock()
         local ok, err = pcall(function()
             local entries = {}
+            local rustPayload, rustMethod = fetchRustMapping()
             local pageCount, parsedPages, entryCount, tierEntryCount = 0, 0, 0, 0
             local failed, methods = {}, {}
             local categoryCounts, referenceValueCounts, categoryCardCounts = {}, {}, {}
             local requiredPageCount = 0
 
-            -- Four concurrent workers reduce the sequential network wait without
-            -- flooding the executor with all 14 requests at once.
-            local fetched = {}
-            local nextIndex = 1
-            for worker = 1, 4 do
-                task.spawn(function()
-                    while not stopped do
-                        local index = nextIndex
-                        nextIndex = nextIndex + 1
-                        local category = CATEGORIES[index]
-                        if not category then break end
-                        local ok, html, fetchInfo = pcall(fetchPage, BASE .. category)
-                        if not ok then
-                            fetched[index] = {html = nil, info = "request worker error: " .. tostring(html)}
-                        else
-                            fetched[index] = {html = html, info = fetchInfo}
-                        end
-                    end
-                end)
-            end
-            while not stopped do
-                local complete = true
-                for index = 1, #CATEGORIES do
-                    if fetched[index] == nil then complete = false break end
+            if rustPayload then
+                -- Rust fetches and parses all Supreme categories, validates
+                -- minimum page counts, and publishes this immutable snapshot.
+                entries = rustPayload.entries
+                entryCount = #entries
+                pageCount = #CATEGORIES
+                parsedPages = #CATEGORIES
+                categoryCounts = type(rustPayload.category_counts) == "table"
+                    and rustPayload.category_counts or {}
+                categoryCardCounts = type(rustPayload.page_card_counts) == "table"
+                    and rustPayload.page_card_counts or {}
+                methods[rustMethod] = 1
+                for _, entry in ipairs(entries) do
+                    if clean(entry.t) ~= "" then tierEntryCount = tierEntryCount + 1 end
                 end
-                if complete then break end
-                task.wait(0.05)
-            end
+                requiredPageCount = 0
+                state.dataPipeline = "Rust Core snapshot (" .. rustMethod .. ")"
+            else
+                -- Offline/availability fallback: preserve the prior in-game
+                -- scraper so the checker still works if GitHub JSON is down.
+                state.dataPipeline = "Luau fallback scraper; Rust JSON unavailable: "
+                    .. tostring(rustMethod)
+                local fetched = {}
+                local nextIndex = 1
+                for worker = 1, 4 do
+                    task.spawn(function()
+                        while not stopped do
+                            local index = nextIndex
+                            nextIndex = nextIndex + 1
+                            local category = CATEGORIES[index]
+                            if not category then break end
+                            local ok, html, fetchInfo = pcall(fetchPage, BASE .. category)
+                            if not ok then
+                                fetched[index] = {html = nil, info = "request worker error: " .. tostring(html)}
+                            else
+                                fetched[index] = {html = html, info = fetchInfo}
+                            end
+                        end
+                    end)
+                end
+                while not stopped do
+                    local complete = true
+                    for index = 1, #CATEGORIES do
+                        if fetched[index] == nil then complete = false break end
+                    end
+                    if complete then break end
+                    task.wait(0.05)
+                end
 
-            for index, category in ipairs(CATEGORIES) do
-                if stopped then return end
-                local result = fetched[index]
-                local html, fetchInfo = result and result.html, result and result.info
-                if not html then
-                    -- Sets, Evos and Untradables are reference-only pages; they
-                    -- do not contain individual tradable values and must not
-                    -- prevent the actual value database from loading.
-                    if VALUE_CATEGORIES[category] then
+                for index, category in ipairs(CATEGORIES) do
+                    if stopped then return end
+                    local result = fetched[index]
+                    local html, fetchInfo = result and result.html, result and result.info
+                    if not html then
+                        categoryCardCounts[category] = 0
                         table.insert(failed, category .. ": " .. tostring(fetchInfo or "request cancelled"))
-                    end
-                else
-                    pageCount = pageCount + 1
-                    if VALUE_CATEGORIES[category] then requiredPageCount = requiredPageCount + 1 end
-                    methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
-                    local pageEntries = {}
-                    local count, tierCount = parseCategory(category, html, pageEntries)
-                    local cardCount = countItemCards(html)
-                    categoryCardCounts[category] = cardCount
-                    if cardCount > 0 then parsedPages = parsedPages + 1 end
-                    if VALUE_CATEGORIES[category] then
-                        categoryCounts[category] = count
-                        for _, entry in ipairs(pageEntries) do table.insert(entries, entry) end
-                        entryCount = entryCount + count
-                        tierEntryCount = tierEntryCount + (tierCount or 0)
-                        local minimum = MINIMUM[category] or 1
-                        if count < minimum then
-                            table.insert(failed, category .. ": only " .. tostring(count)
-                                .. " value cards parsed (expected at least " .. tostring(minimum) .. ")")
-                        end
                     else
-                        referenceValueCounts[category] = count
-                        if cardCount < 1 then
-                            table.insert(failed, category .. ": no reference cards detected")
+                        pageCount = pageCount + 1
+                        if VALUE_CATEGORIES[category] then requiredPageCount = requiredPageCount + 1 end
+                        methods[fetchInfo] = (methods[fetchInfo] or 0) + 1
+                        local pageEntries = {}
+                        local count, tierCount = parseCategory(category, html, pageEntries)
+                        local cardCount = countItemCards(html)
+                        categoryCardCounts[category] = cardCount
+                        if cardCount > 0 then parsedPages = parsedPages + 1 end
+                        if VALUE_CATEGORIES[category] then
+                            categoryCounts[category] = count
+                            for _, entry in ipairs(pageEntries) do table.insert(entries, entry) end
+                            entryCount = entryCount + count
+                            tierEntryCount = tierEntryCount + (tierCount or 0)
+                            local minimum = MINIMUM[category] or 1
+                            if count < minimum then
+                                table.insert(failed, category .. ": only " .. tostring(count)
+                                    .. " value cards parsed (expected at least " .. tostring(minimum) .. ")")
+                            end
+                        else
+                            referenceValueCounts[category] = count
+                            if cardCount < 1 then
+                                table.insert(failed, category .. ": no reference cards detected")
+                            end
                         end
                     end
+                end
+
+                if #failed > 0 then
+                    error("Supreme value pages incomplete; refusing to publish partial values")
                 end
             end
 
@@ -826,17 +1399,10 @@ local function loadValues(force)
             state.referenceValueCounts = referenceValueCounts
             state.categoryCardCounts = categoryCardCounts
 
-            local requiredCategoryCount = 0
-            for category in pairs(VALUE_CATEGORIES) do
-                requiredCategoryCount = requiredCategoryCount + 1
-            end
-            if #failed > 0 or requiredPageCount ~= requiredCategoryCount then
-                error("Supreme value pages incomplete; refusing to publish partial values")
-            end
-
+            state.supremeEntries = entries
             local database, dbSource = loadGameDatabase()
             if not database then error(dbSource) end
-            local mapping, mapError = buildMapping(entries, database)
+            local mapping, mapError = buildMapping(entries, database, rustPayload)
             if not mapping then error(mapError or "value mapping failed") end
             if mapping.n < 300 then
                 error("only " .. tostring(mapping.n) .. " MM2 records matched Supreme Values")
@@ -889,6 +1455,7 @@ local function recordUnmatched(tile, name, quantity, target)
     local iconObject = findTileIcon(tile)
     local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
     local chroma = hasChromaTag(tile)
+        or clean(name):lower():match("^chroma%s") ~= nil
     local itemName = clean(name)
     if itemName == "" then itemName = "NO_NAME" end
     local key = normalize(itemName) .. "|" .. tostring(imageId) .. "|" .. tostring(chroma)
@@ -982,106 +1549,98 @@ local function makeLabel(parent, name, group)
     if not label then
         label = Instance.new("TextLabel")
         label.Name = name
-        label.BackgroundColor3 = Color3.fromRGB(25, 30, 48)
-        label.BackgroundTransparency = 0.12
-        label.TextColor3 = Color3.fromRGB(248, 250, 255)
-        label.TextStrokeTransparency = 1
-        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.BackgroundTransparency = 1
+        label.BorderSizePixel = 0
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.TextStrokeTransparency = 0.18
+        label.TextXAlignment = Enum.TextXAlignment.Right
         label.TextYAlignment = Enum.TextYAlignment.Center
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 11
-        label.BorderSizePixel = 0
+        label.TextSize = 12
         label.ZIndex = 90
         label.Parent = parent
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
-        corner.Parent = label
-        local stroke = Instance.new("UIStroke")
-        stroke.Name = "SupremeStroke"
-        stroke.Thickness = 1
-        stroke.Transparency = 0.2
-        stroke.Color = Color3.fromRGB(112, 145, 255)
-        stroke.Parent = label
-        local gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeGradient"
-        gradient.Rotation = 90
-        gradient.Color = ColorSequence.new(Color3.fromRGB(48, 56, 88), Color3.fromRGB(20, 24, 40))
-        gradient.Parent = label
+    end
+    -- Remove decorations left behind by older versions: values are plain text,
+    -- never dark pills, gradients, rounded boxes, or colored borders.
+    for _, child in ipairs(label:GetChildren()) do
+        if child:IsA("UICorner") or child:IsA("UIStroke") or child:IsA("UIGradient") then
+            child:Destroy()
+        end
     end
     label:SetAttribute("SupremeOwner", group)
     return label
 end
 
 local VALUE_TEXT_COLORS = {
-    uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
-    chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
-    vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
-    -- Swap the two low-tier accents to match the in-game item color mapping.
-    rares = Color3.fromRGB(94, 220, 171), uncommons = Color3.fromRGB(104, 174, 255),
-    commons = Color3.fromRGB(228, 235, 248), pets = Color3.fromRGB(116, 225, 210),
-    misc = Color3.fromRGB(190, 190, 205)
+    uniques = Color3.fromRGB(255, 220, 150), godlies = Color3.fromRGB(220, 190, 255),
+    chromas = Color3.fromRGB(255, 190, 235), ancients = Color3.fromRGB(255, 185, 190),
+    vintages = Color3.fromRGB(255, 210, 170), legendaries = Color3.fromRGB(255, 210, 175),
+    rares = Color3.fromRGB(190, 245, 220), uncommons = Color3.fromRGB(190, 220, 255),
+    commons = Color3.fromRGB(245, 245, 245), pets = Color3.fromRGB(190, 240, 235),
+    misc = Color3.fromRGB(220, 220, 225)
 }
 
-local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
-    local container = tile and tile:FindFirstChild("Container", true)
-    local badgeParent = container or tile
-    if not badgeParent or not badgeParent:IsA("GuiObject") then return end
+local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName, statusText)
+    if not tile or not tile:IsA("GuiObject") then return end
 
-    local existing = badgeParent:FindFirstChild("__SupremeItemValue")
+    local existing = tile:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
-    if value == nil and not hasTier then
-        -- Don't clutter the inventory with "N/A" or fake zero values.
+    if value == nil and not hasTier and not statusText then
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
     end
 
-    local label = makeLabel(badgeParent, "__SupremeItemValue", group)
+    local label = makeLabel(tile, "__SupremeItemValue", group)
+    local accent = statusText and value == nil and not hasTier
+        and Color3.fromRGB(170, 180, 195)
+        or (hasTier and Color3.fromRGB(255, 225, 165)
+        or VALUE_TEXT_COLORS[category] or Color3.fromRGB(255, 255, 255))
+    if normalize(itemName) == "emberbow" and value ~= nil then
+        accent = Color3.fromRGB(255, 175, 175)
+    end
+
+    local badgeText = value ~= nil and formatValue(value) or (hasTier and tostring(tierText) or tostring(statusText))
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
-    label.Font = Enum.Font.GothamBlack
+    label.Font = Enum.Font.GothamBold
+    label.Text = badgeText
+    label.TextColor3 = accent
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
-    label.TextScaled = true
+    label.TextScaled = false
+    label.TextSize = hasTier and 10 or 12
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.TextXAlignment = Enum.TextXAlignment.Right
-    label.TextSize = 13
-    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     label.TextStrokeTransparency = 0.12
-    label.ZIndex = 100
     label.AnchorPoint = Vector2.new(1, 0)
-    label.Position = UDim2.new(1, -3, 0, 3)
-    label.Size = UDim2.new(1, -6, 0, 18)
+    label.Position = UDim2.new(1, -7, 0, 5)
+    label.Size = UDim2.fromOffset(math.max(38, math.min(132, #badgeText * 6 + 8)), 16)
 
-    -- Remove the previous dark background treatment and use crisp text only.
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UICorner") or child:IsA("UIStroke")
-            or child:IsA("UIGradient") then
-            child:Destroy()
+    local highestZ = tile.ZIndex
+    for _, descendant in ipairs(tile:GetDescendants()) do
+        if descendant:IsA("GuiObject") and descendant ~= label and descendant.Visible then
+            highestZ = math.max(highestZ, descendant.ZIndex)
         end
     end
-
-    if value ~= nil then
-        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
-        if normalize(itemName) == "emberbow" then
-            accent = Color3.fromRGB(255, 75, 75)
-        end
-        label.Text = formatValue(value)
-        label.TextColor3 = accent
-    else
-        label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
-        label.TextColor3 = Color3.fromRGB(255, 190, 75)
-    end
+    label.ZIndex = math.min(1000, highestZ + 2)
     label.Visible = true
 end
 
-local function scanRoot(root, group)
+local function scanRoot(root, group, skipFrames)
     local total, known, count, tierCount = 0, 0, 0, 0
     if not root then return total, known, count, tierCount end
 
     for _, tile in ipairs(getTiles(root)) do
+        if skipFrames and skipFrames[tile] then continue end
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value, _, tierText, category = valueOf(tile, name)
+        local value, _, tierText, category, resolveStatus = valueOf(tile, name)
+        if resolveStatus == "DEFAULT" or resolveStatus == "UNTRADABLE" then
+            updateTileBadge(tile, nil, quantity, group, nil, category, name, resolveStatus)
+            continue
+        end
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
@@ -1090,17 +1649,17 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
+        if value == nil and not tierText and resolveStatus == "UNKNOWN" and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(tile, value, quantity, group, tierText, category, name)
+        updateTileBadge(tile, value, quantity, group, tierText, category, name, resolveStatus)
     end
     return total, known, count, tierCount
 end
 
 -- Some mobile MM2 builds omit ItemName nodes from the inventory list and expose
 -- only an image card. Resolve the nearest card from its Container.Icon instead.
-local function scanImageCards(root, group)
+local function scanImageCards(root, group, skipFrames)
     if not root then return 0, 0, 0, 0 end
     local seen = {}
     local total, known, count, tierCount = 0, 0, 0, 0
@@ -1145,7 +1704,7 @@ local function scanImageCards(root, group)
     for _, node in ipairs(root:GetDescendants()) do
         if not (node:IsA("ImageLabel") or node:IsA("ImageButton")) then continue end
         local card = cardForImage(node)
-        if not card or seen[card] or not card.Parent then continue end
+        if not card or (skipFrames and skipFrames[card]) or seen[card] or not card.Parent then continue end
         seen[card] = true
         if not cardVisible(card) then continue end
 
@@ -1153,7 +1712,11 @@ local function scanImageCards(root, group)
         -- Cards with an ItemName node were handled by scanRoot, even while
         -- the text is temporarily blank or still says Loading.
         if card:FindFirstChild("ItemName", true) then continue end
-        local value, _, tierText, category = valueOf(card, name)
+        local value, _, tierText, category, resolveStatus = valueOf(card, name)
+        if resolveStatus == "DEFAULT" or resolveStatus == "UNTRADABLE" then
+            updateTileBadge(card, nil, quantity, group, nil, category, name, resolveStatus)
+            continue
+        end
         if value == nil and not tierText then
             local amountContainer = card:FindFirstChild("Container", true)
             local amountNode = amountContainer and amountContainer:FindFirstChild("Amount", true)
@@ -1169,10 +1732,10 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
+        if value == nil and not tierText and resolveStatus == "UNKNOWN" and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(card, value, quantity, group, tierText, category, name)
+        updateTileBadge(card, value, quantity, group, tierText, category, name, resolveStatus)
     end
     return total, known, count, tierCount
 end
@@ -1207,28 +1770,45 @@ end
 
 local function scanOffer(offer, group)
     if not offer or not visible(offer) then return {}, 0, 0, 0, 0 end
-    local container = offer:FindFirstChild("Container")
-    if not container then return {}, 0, 0, 0, 0 end
 
+    -- Some desktop builds wrap cards in Container; compact/mobile layouts
+    -- expose NewItem slots or named image cards directly under the offer.
+    local root = offer:FindFirstChild("Container") or offer
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
-    local seen = {}
-    -- Normal MM2 cards own Container.Icon. In the compact offer layout,
-    -- NewItem1..NewItem3 may be the ImageLabel/ImageButton themselves.
-    for _, tile in ipairs(container:GetDescendants()) do
+    local seen, seenIcons, seenNameNodes = {}, {}, {}
+    for _, tile in ipairs(root:GetDescendants()) do
         if not tile:IsA("GuiObject") or not visible(tile) or seen[tile] then continue end
 
-        local cardContainer = tile:FindFirstChild("Container")
-        local normalCard = cardContainer and findTileIcon(tile) ~= nil
-        local directSlot = tile.Name:match("^NewItem%d+$") ~= nil
-            and findTileIcon(tile) ~= nil
+        local icon = findTileIcon(tile)
+        local name, quantity = itemData(tile)
+        local hasIdentifier = icon ~= nil or clean(name) ~= ""
+        local cardContainer = tile:FindFirstChild("Container", true)
+        local itemNameNode = tile:FindFirstChild("ItemName", true)
+        local normalCard = cardContainer ~= nil and icon ~= nil
+        local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
+        local namedCard = itemNameNode ~= nil and hasIdentifier
 
-        if normalCard or directSlot then
+        if normalCard or directSlot or namedCard then
+            -- Nested wrappers can expose the same image or ItemName node.
+            -- Deduplicate by GUI object identity, not asset ID, so separate
+            -- copies of an identical item still contribute independently.
+            if icon and seenIcons[icon] then continue end
+            if itemNameNode and seenNameNodes[itemNameNode] then continue end
             seen[tile] = true
-            local name, quantity = itemData(tile)
-            local value, resolvedName, tierText, category = valueOf(tile, name)
+            if icon then seenIcons[icon] = true end
+            if itemNameNode then seenNameNodes[itemNameNode] = true end
 
+            local value, resolvedName, tierText, category, resolveStatus = valueOf(tile, name)
+
+            -- Image-only trade slots may encode stack quantity in an Amount label.
+            if value == nil and not tierText then
+                local amountNode = tile:FindFirstChild("Amount", true)
+                local amount = amountNode and tonumber(tostring(amountNode.Text):match("%d+"))
+                if amount and amount > 0 then quantity = math.floor(amount) end
+            end
+            local resolvedLabel = resolvedName or name or "Unknown item"
             table.insert(items, {
-                name = resolvedName or name or "Unknown item",
+                name = resolvedLabel,
                 value = value,
                 tier = tierText,
                 quantity = quantity
@@ -1241,42 +1821,87 @@ local function scanOffer(offer, group)
                 known = known + quantity
                 tierCount = tierCount + quantity
             end
-            if value == nil and not tierText then
-                recordUnmatched(tile, name, quantity, state.unmatchedTrade)
+            if group == "trade" then
+                if resolveStatus == "NO VALUE" then
+                    state.tradeNoValue = (state.tradeNoValue or 0) + quantity
+                elseif resolveStatus == "UNKNOWN" then
+                    state.tradeUnknown = (state.tradeUnknown or 0) + quantity
+                elseif resolveStatus == "UNTRADABLE" or resolveStatus == "DEFAULT" then
+                    state.tradeUntradable = (state.tradeUntradable or 0) + quantity
+                end
             end
-            updateTileBadge(tile, value, quantity, group, tierText, category, name)
+            if value == nil and not tierText and resolveStatus == "UNKNOWN" and hasIdentifier then
+                recordUnmatched(tile, name or resolvedLabel, quantity, state.unmatchedTrade)
+            end
+            updateTileBadge(tile, value, quantity, group, tierText, category, resolvedLabel, resolveStatus)
         end
     end
     return items, total, known, count, tierCount
 end
 
-local function setSummary(parent, name, title, total, known, count, group, tierCount)
+local function setSummary(parent, name, title, total, known, count, group, tierCount, tierText)
     if not parent then return end
     local label = makeLabel(parent, name, group)
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UIGradient") or child:IsA("UIStroke")
-            or child:IsA("UICorner") then
-            child:Destroy()
-        end
-    end
+    local accent = title == "YOU"
+        and Color3.fromRGB(77, 224, 191)
+        or Color3.fromRGB(177, 139, 255)
+
+    -- Keep the offer total in the header strip, never over the item thumbnails.
     label.AnchorPoint = Vector2.new(0.5, 0)
-    label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(210, 22)
-    label.BackgroundTransparency = 1
-    label.TextSize = 14
+    label.Position = UDim2.new(0.5, 0, 0, 30)
+    label.Size = UDim2.fromOffset(210, 20)
+    label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
+    label.BackgroundTransparency = 0.22
+    label.BorderSizePixel = 0
+    label.TextSize = (tierCount or 0) > 0 and 9 or 11
+    label.TextScaled = false
+    label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Font = Enum.Font.GothamBlack
-    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
-    label.TextStrokeTransparency = 0.14
+    label.TextStrokeColor3 = Color3.fromRGB(3, 5, 10)
+    label.TextStrokeTransparency = 0.55
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextColor3 = Color3.fromRGB(245, 250, 255)
-    local gradient = label:FindFirstChild("SupremeTextGradient")
-    if gradient then gradient:Destroy() end
-    label.Text = title .. " " .. formatValue(total)
-        .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
-        .. (known < count and " +?" or "")
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.TextColor3 = accent
+    label.ZIndex = 150
+
+    local corner = label:FindFirstChildOfClass("UICorner")
+    if not corner then
+        corner = Instance.new("UICorner")
+        corner.Parent = label
+    end
+    corner.CornerRadius = UDim.new(0, 7)
+
+    local stroke = label:FindFirstChild("SupremeStroke")
+    if not stroke or not stroke:IsA("UIStroke") then
+        if stroke then stroke:Destroy() end
+        stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Parent = label
+    end
+    stroke.Color = accent
+    stroke.Thickness = 1
+    stroke.Transparency = 0.3
+
+    local gradient = label:FindFirstChild("SupremeGradient")
+    if not gradient or not gradient:IsA("UIGradient") then
+        if gradient then gradient:Destroy() end
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Parent = label
+    end
+    gradient.Rotation = 90
+    gradient.Color = ColorSequence.new(
+        Color3.fromRGB(37, 43, 61),
+        Color3.fromRGB(10, 13, 23)
+    )
+
+    local tierSuffix = (tierCount or 0) > 0 and tierText and tierText ~= "none"
+        and ("  |  " .. tierText) or ""
+    label.Text = title .. "  " .. formatValue(total)
+        .. tierSuffix
+        .. (known < count and "  +?" or "")
     label.Visible = count > 0
 end
-
 local function getVerdict(giveValue, receiveValue)
     local give = tonumber(giveValue) or 0
     local receive = tonumber(receiveValue) or 0
@@ -1288,19 +1913,135 @@ local function getVerdict(giveValue, receiveValue)
     return difference > 0 and "WIN" or "LOSE", difference
 end
 
-local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
-    if not trade then return end
-    local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UIGradient") or child:IsA("UIStroke")
-            or child:IsA("UICorner") then
-            child:Destroy()
+-- A tier expression is a quantity of a specific target class/tier, not a
+-- universal numeric price. Only compare offers when both sides use the same
+-- exact unit set (for example, T1 Commons on both sides).
+local function parseTierUnit(tierText)
+    local multiplier, tier, class = clean(tierText):match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+    if not multiplier or not tier or not class then return nil, nil end
+    -- Supreme's card text is not perfectly consistent about singular/plural
+    -- class names (for example, "T1 Rare" and "T1 Rares").
+    local classAliases = {
+        common = "Commons", commons = "Commons",
+        rare = "Rares", rares = "Rares",
+        uncommon = "Uncommons", uncommons = "Uncommons",
+        legendary = "Legendaries", legendaries = "Legendaries",
+        ancient = "Ancients", ancients = "Ancients",
+        godly = "Godlies", godlies = "Godlies",
+        vintage = "Vintages", vintages = "Vintages",
+        unique = "Uniques", uniques = "Uniques",
+        pet = "Pets", pets = "Pets"
+    }
+    class = classAliases[string.lower(class)] or class
+    return tonumber(multiplier), tier .. " " .. class
+end
+
+local function summarizeTierOffer(items)
+    local units, hasTier, hasNumeric, hasUnknown = {}, false, false, false
+    for _, item in ipairs(items or {}) do
+        local quantity = math.max(1, math.floor(tonumber(item.quantity) or 1))
+        if tonumber(item.value) ~= nil then
+            hasNumeric = true
+        elseif type(item.tier) == "string" and item.tier ~= "" then
+            local multiplier, unit = parseTierUnit(item.tier)
+            if multiplier and unit then
+                units[unit] = (units[unit] or 0) + multiplier * quantity
+                hasTier = true
+            else
+                hasUnknown = true
+            end
+        else
+            hasUnknown = true
         end
     end
+    return units, hasTier, hasNumeric, hasUnknown
+end
+
+local function formatTierUnits(units)
+    local keys = {}
+    for key in pairs(units or {}) do table.insert(keys, key) end
+    table.sort(keys)
+    local rows = {}
+    for _, key in ipairs(keys) do
+        table.insert(rows, tostring(units[key]) .. " " .. key)
+    end
+    return #rows > 0 and table.concat(rows, " + ") or "none"
+end
+
+local function compareTierOffers(yourItems, theirItems)
+    local yours, yourTier, yourNumeric, yourUnknown = summarizeTierOffer(yourItems)
+    local theirs, theirTier, theirNumeric, theirUnknown = summarizeTierOffer(theirItems)
+    local yourText, theirText = formatTierUnits(yours), formatTierUnits(theirs)
+
+    if yourUnknown or theirUnknown then
+        return "CHECK UNKNOWN", "At least one item has no resolved value", yourText, theirText
+    end
+    if yourNumeric or theirNumeric then
+        return "MIXED VALUES", "Numeric values and tier units cannot be added safely", yourText, theirText
+    end
+    if not yourTier or not theirTier then
+        return "NO TIER DATA", "Both offers need recognized tier values", yourText, theirText
+    end
+
+    local keys = {}
+    for key in pairs(yours) do keys[key] = true end
+    for key in pairs(theirs) do keys[key] = true end
+    for key in pairs(keys) do
+        if yours[key] == nil or theirs[key] == nil then
+            return "UNCOMPARABLE", "The offers use different tier units", yourText, theirText
+        end
+    end
+
+    local receivedMore, receivedLess = false, false
+    for key in pairs(keys) do
+        if theirs[key] > yours[key] then receivedMore = true end
+        if theirs[key] < yours[key] then receivedLess = true end
+    end
+    if receivedMore and receivedLess then
+        return "MIXED", "One side gains in some tier units and loses in others", yourText, theirText
+    elseif receivedMore then
+        return "WIN", "The received offer has more of every comparable tier unit", yourText, theirText
+    elseif receivedLess then
+        return "LOSE", "The received offer has less of every comparable tier unit", yourText, theirText
+    end
+    return "FAIR", "Both offers have equal comparable tier units", yourText, theirText
+end
+
+local function runTierSelfTests()
+    local function item(tier, quantity)
+        return {tier = tier, quantity = quantity or 1}
+    end
+    local cases = {
+        {name = "win", yours = {item("x2 T1 Commons")}, theirs = {item("x3 T1 Commons")}, expected = "WIN"},
+        {name = "lose", yours = {item("x3 T1 Commons")}, theirs = {item("x2 T1 Commons")}, expected = "LOSE"},
+        {name = "fair", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Commons")}, expected = "FAIR"},
+        {name = "different units", yours = {item("x2 T1 Commons")}, theirs = {item("x2 T1 Rares")}, expected = "UNCOMPARABLE"},
+        {name = "mixed directions", yours = {item("x1 T1 Commons"), item("x3 T1 Rares")}, theirs = {item("x2 T1 Commons"), item("x2 T1 Rares")}, expected = "MIXED"},
+        {name = "duplicate quantity", yours = {item("x2 T1 Commons", 2)}, theirs = {item("x3 T1 Commons")}, expected = "LOSE"},
+        {name = "singular/plural alias", yours = {item("x2 T1 Rare")}, theirs = {item("x2 T1 Rares")}, expected = "FAIR"},
+        {name = "tier vs numeric", yours = {{value = 10}}, theirs = {item("x2 T1 Commons")}, expected = "MIXED VALUES"},
+        {name = "unknown item blocks tier verdict", yours = {item("x2 T1 Commons")}, theirs = {{name = "unknown"}}, expected = "CHECK UNKNOWN"}
+    }
+    for _, case in ipairs(cases) do
+        local result = compareTierOffers(case.yours, case.theirs)
+        if result ~= case.expected then
+            return "FAIL (" .. case.name .. ": expected " .. case.expected .. ", got " .. tostring(result) .. ")"
+        end
+    end
+    return "PASS (" .. tostring(#cases) .. " cases)"
+end
+
+local TIER_SELF_TEST = runTierSelfTests()
+
+local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount, yourItems, theirItems)
+    if not trade then return end
+    local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -35)
-    label.Size = UDim2.fromOffset(190, 25)
-    label.BackgroundTransparency = 1
+    label.Size = UDim2.fromOffset(245, 25)
+    label.BackgroundColor3 = Color3.fromRGB(11, 15, 27)
+    label.BackgroundTransparency = 0.1
+    label.BorderSizePixel = 0
     label.ZIndex = 150
     label.Font = Enum.Font.GothamBlack
     label.TextSize = 16
@@ -1314,10 +2055,18 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
         caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
-    elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+        caption, color = "NUMERIC VALUES NEEDED", Color3.fromRGB(255, 190, 65)
+    elseif yourTierCount > 0 or theirTierCount > 0 then
+        -- Compare tier units only against the same tier units on the other
+        -- side. Tier quantities are not converted into numeric market prices.
+        local tierVerdict, _, yourTierText, theirTierText =
+            compareTierOffers(yourItems, theirItems)
+        caption = "TIER " .. tierVerdict .. "  |  " .. yourTierText .. " → " .. theirTierText
+        color = (tierVerdict == "WIN" and Color3.fromRGB(45, 255, 135))
+            or (tierVerdict == "LOSE" and Color3.fromRGB(255, 65, 85))
+            or (tierVerdict == "FAIR" and Color3.fromRGB(75, 195, 255))
+            or Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
@@ -1331,6 +2080,39 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     if gradient then gradient:Destroy() end
     label.TextColor3 = color
     label.Text = caption
+    label.TextSize = 14
+    label.TextScaled = true
+
+    local corner = label:FindFirstChildOfClass("UICorner")
+    if not corner then
+        corner = Instance.new("UICorner")
+        corner.Parent = label
+    end
+    corner.CornerRadius = UDim.new(0, 8)
+
+    local stroke = label:FindFirstChild("SupremeStroke")
+    if not stroke or not stroke:IsA("UIStroke") then
+        if stroke then stroke:Destroy() end
+        stroke = Instance.new("UIStroke")
+        stroke.Name = "SupremeStroke"
+        stroke.Parent = label
+    end
+    stroke.Color = color
+    stroke.Thickness = 1.15
+    stroke.Transparency = 0.2
+
+    local gradient = label:FindFirstChild("SupremeGradient")
+    if not gradient or not gradient:IsA("UIGradient") then
+        if gradient then gradient:Destroy() end
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeGradient"
+        gradient.Parent = label
+    end
+    gradient.Rotation = 90
+    gradient.Color = ColorSequence.new(
+        Color3.fromRGB(37, 43, 61),
+        Color3.fromRGB(10, 13, 23)
+    )
     label.Visible = true
 end
 
@@ -1346,6 +2128,9 @@ end
 
 local function scanTrade()
     state.unmatchedTrade = {}
+    state.tradeNoValue = 0
+    state.tradeUnknown = 0
+    state.tradeUntradable = 0
     local screen, container, trade = findTrade()
     if not screen then
         clearTradeLabels(lastTradeRoot)
@@ -1365,10 +2150,16 @@ local function scanTrade()
 
     local yourItems, yourTotal, yourKnown, yourCount, yourTierCount = scanOffer(yours, "trade")
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
-    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
-    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
+    local yourTierUnits = summarizeTierOffer(yourItems)
+    local theirTierUnits = summarizeTierOffer(theirItems)
+    local yourTierText = formatTierUnits(yourTierUnits)
+    local theirTierText = formatTierUnits(theirTierUnits)
+    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount,
+        "trade", yourTierCount, yourTierText)
+    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount,
+        "trade", theirTierCount, theirTierText)
     setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
-        yourCount, theirCount, yourTierCount, theirTierCount)
+        yourCount, theirCount, yourTierCount, theirTierCount, yourItems, theirItems)
 
     local lines = {
         "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
@@ -1379,10 +2170,14 @@ local function scanTrade()
             .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
-        if yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
-        elseif yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+        if yourKnown < yourCount or theirKnown < theirCount then
+            table.insert(lines, "RESULT: NUMERIC VALUES NEEDED — unresolved item")
+        elseif yourTierCount > 0 or theirTierCount > 0 then
+            local tierVerdict, tierReason, yourTierText, theirTierText =
+                compareTierOffers(yourItems, theirItems)
+            table.insert(lines, "RESULT: " .. tierVerdict .. " | YOU: "
+                .. yourTierText .. " | THEM: " .. theirTierText
+                .. " | " .. tierReason)
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -1439,24 +2234,45 @@ local function getInventoryModule()
 end
 
 local function scanModuleInventory()
+    -- Reset observable counters before any early return so a temporarily
+    -- unavailable InventoryModule cannot leave stale "data is present" state.
+    state.inventoryDataEntries = 0
+    state.inventoryFrames = 0
+    state.inventoryVisibleFrames = 0
+    state.inventoryGroups = 0
+    state.inventoryGuiFrames = 0
+    state.inventoryGuiValued = 0
+    state.inventoryGuiItems = 0
+    state.inventoryFrameProbe = "not scanned"
+    state.inventoryKeyStats = "not scanned"
+    state.inventoryResolutionStats = "not scanned"
+
     local module = getInventoryModule()
     if not module then return 0, 0, 0, 0, nil end
 
     local myInventory = module.MyInventory
     local data = type(myInventory) == "table" and myInventory.Data or nil
-    if type(data) ~= "table" or type(data.Weapons) ~= "table" then
-        state.inventoryModuleStatus = "loaded, MyInventory.Data.Weapons unavailable"
+    if type(data) ~= "table"
+        or (type(data.Weapons) ~= "table" and type(data.Pets) ~= "table") then
+        state.inventoryModuleStatus = "loaded, MyInventory.Data.Weapons/Data.Pets unavailable"
         return 0, 0, 0, 0, nil
     end
 
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
+    local detachedFrames, parentedFrames = 0, 0
+    local frameProbe, probeCount = {}, 0
     local seen = {}
+    local keyHits, keyMisses, keySamples = 0, 0, {}
+    local exactNumericQty, exactTierQty, knownNoSupremeQty, dbKeyMissQty = 0, 0, 0, 0
+    local intentionalDefaultQty, excludedTrophyQty = 0, 0
+    local noSupremeSamples, dbMissSamples, intentionalDefaultSamples, excludedTrophySamples = {}, {}, {}, {}
+    local mappedIds = state.mapped and state.mapped.dbIds or nil
 
     -- MM2's actual structure is Data.Weapons[group][itemId] = entry.
-    -- The previous scanner stopped one level too early and counted only the
-    -- category/group tables (5 in the user's diagnostic), not item entries.
+    -- itemKey is the exact key in Database.Sync.Item/Pets, so resolve
+    -- inventory values directly instead of guessing from icon or UI text.
     local function scanCollection(collection, collectionName)
         if type(collection) ~= "table" then return end
         for subgroupName, subgroup in pairs(collection) do
@@ -1465,32 +2281,182 @@ local function scanModuleInventory()
             for itemKey, entry in pairs(subgroup) do
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
+                local keyText = tostring(itemKey)
+                local exactPrefix = collectionName == "Pets" and "p:" or "i:"
+                local recordKey = exactPrefix .. keyText
+                local dbKind = mappedIds and mappedIds[recordKey] or nil
+                if dbKind then keyHits = keyHits + 1 else
+                    keyMisses = keyMisses + 1
+                    dbKeyMissQty = dbKeyMissQty + math.max(1, tonumber(entry.Amount) or 1)
+                    if #dbMissSamples < 20 then
+                        table.insert(dbMissSamples, tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or "nil")
+                            .. " amount=" .. tostring(entry.Amount or 1))
+                    end
+                end
+                if #keySamples < 12 then
+                    local fields = {}
+                    for fieldName in pairs(entry) do
+                        table.insert(fields, tostring(fieldName))
+                    end
+                    table.sort(fields)
+                    table.insert(keySamples,
+                        tostring(collectionName) .. "/" .. tostring(subgroupName)
+                        .. " key=" .. keyText
+                        .. " db=" .. tostring(dbKind or "MISS")
+                        .. " fields={" .. table.concat(fields, ",") .. "}"
+                        .. " ItemID=" .. tostring(entry.ItemID or entry.ItemId or "nil")
+                        .. " ItemKey=" .. tostring(entry.ItemKey or entry.Key or "nil")
+                        .. " Name=" .. tostring(entry.Name or entry.ItemName or "nil"))
+                end
+                if collectionName == "Weapons" and (keyText == "DefaultKnife" or keyText == "DefaultGun") then
+                    intentionalDefaultQty = intentionalDefaultQty
+                        + math.max(1, math.floor(tonumber(entry.Amount) or 1))
+                    if #intentionalDefaultSamples < 10 then
+                        table.insert(intentionalDefaultSamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " qty=" .. tostring(entry.Amount or 1))
+                    end
+                    -- Starter placeholders are not tradeable inventory items
+                    -- and must not affect either the total or known-item count.
+                    continue
+                end
+
                 local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
-                seen[tile] = true
-                frameCount = frameCount + 1
-                if not tile.Parent then continue end
-                if visible(tile) then visibleFrames = visibleFrames + 1 end
+                local tileValid = typeof(tile) == "Instance" and tile:IsA("GuiObject")
+                if tileValid and seen[tile] then
+                    -- A duplicated frame should not be decorated twice, but the
+                    -- underlying itemKey still contributes to the inventory total.
+                    tile = nil
+                    tileValid = false
+                end
+                if tileValid then
+                    seen[tile] = true
+                    frameCount = frameCount + 1
+                    if tile.Parent then
+                        parentedFrames = parentedFrames + 1
+                        local isVisible = visible(tile)
+                        if isVisible then visibleFrames = visibleFrames + 1 end
+                        if isVisible and probeCount < 5 then
+                            probeCount = probeCount + 1
+                            local icon = findTileIcon(tile)
+                            local container = tile:FindFirstChild("Container", true)
+                            local badge = tile:FindFirstChild("__SupremeItemValue", true)
+                            local amountNode = tile:FindFirstChild("Amount", true)
+                            local nameNode = tile:FindFirstChild("ItemName", true)
+                            table.insert(frameProbe,
+                                tostring(tile.Name)
+                                .. "{class=" .. tile.ClassName
+                                .. ",size=" .. tostring(tile.AbsoluteSize.X) .. "x" .. tostring(tile.AbsoluteSize.Y)
+                                .. ",z=" .. tostring(tile.ZIndex)
+                                .. ",clip=" .. tostring(tile.ClipsDescendants)
+                                .. ",container=" .. tostring(container and container.Name or "none")
+                                .. ",icon=" .. tostring(icon and assetId(icon.Image) or "none")
+                                .. ",nameNode=" .. tostring(nameNode ~= nil)
+                                .. ",amount=" .. tostring(amountNode and amountNode.Text or "none")
+                                .. ",badge=" .. tostring(badge ~= nil)
+                                .. ",badgeVisible=" .. tostring(badge and badge.Visible or false)
+                                .. ",badgeText=" .. tostring(badge and badge.Text or "none")
+                                .. ",nameText=" .. tostring(nameNode and (nameNode:IsA("TextLabel") and nameNode.Text or (nameNode:FindFirstChildWhichIsA("TextLabel", true) and nameNode:FindFirstChildWhichIsA("TextLabel", true).Text)) or "none")
+                                .. ",badgeParent=" .. tostring(badge and badge.Parent and badge.Parent.Name or "none")
+                                .. "}")
+                        end
+                    else
+                        detachedFrames = detachedFrames + 1
+                        if #frameProbe < 5 then
+                            table.insert(frameProbe, keyText .. "=>DETACHED:" .. tostring(tile.Name))
+                        end
+                    end
+                else
+                    tile = nil
+                    detachedFrames = detachedFrames + 1
+                    if #frameProbe < 5 then
+                        table.insert(frameProbe, keyText .. "=>NO_FRAME")
+                    end
+                end
 
                 -- Do not depend on ItemName text: MM2's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
-                if type(entry.Amount) == "number" and quantity <= 1 then
-                    quantity = math.max(1, math.floor(entry.Amount))
+                local databaseRecord = state.mapped and state.mapped.dbByKey
+                    and state.mapped.dbByKey[recordKey] or nil
+                if not name or name == "" then
+                    name = (databaseRecord and databaseRecord.name)
+                        or clean(entry.Name or entry.ItemName or "")
                 end
-                local resolvedValue, _, tierText, category = valueOf(tile, name)
+                local dataAmount = tonumber(entry.Amount)
+                if dataAmount and dataAmount > 0 then
+                    quantity = math.max(1, math.floor(dataAmount))
+                end
+
+                local exactValue = mappedIds and state.mapped
+                    and state.mapped.byKey[recordKey] or nil
+                local excludedKind = state.mapped and state.mapped.dbExcludedKeys
+                    and state.mapped.dbExcludedKeys[recordKey] or nil
+                local resolvedValue, resolvedName, tierText, category, resolutionStatus
+                if exactValue then
+                    resolvedValue = exactValue.v
+                    resolvedName = exactValue.name
+                    tierText = exactValue.t
+                    category = exactValue.category
+                elseif not dbKind then
+                    -- Unknown keys may come from a UI-specific data wrapper;
+                    -- only those use the cautious icon/name resolver fallback.
+                    resolvedValue, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
+                end
+                if excludedKind == "trophy" then
+                    excludedTrophyQty = excludedTrophyQty + quantity
+                    if #excludedTrophySamples < 20 then
+                        table.insert(excludedTrophySamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(databaseRecord and databaseRecord.name or name)
+                            .. " qty=" .. tostring(quantity))
+                    end
+                    if tile and tile.Parent then
+                        updateTileBadge(tile, nil, quantity, "inventory", nil, category,
+                            resolvedName or name, "UNTRADABLE")
+                    end
+                    -- Leaderboard trophies cannot be traded; do not include
+                    -- their showcase values or quantities in tradeable totals.
+                    continue
+                end
+
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
+                    if dbKind then exactNumericQty = exactNumericQty + quantity end
                 elseif tierText then
                     known = known + quantity
                     tierCount = tierCount + quantity
+                    if dbKind then exactTierQty = exactTierQty + quantity end
+                elseif dbKind then
+                    knownNoSupremeQty = knownNoSupremeQty + quantity
+                    if #noSupremeSamples < 30 then
+                        local image = findTileIcon(tile)
+                        table.insert(noSupremeSamples,
+                            tostring(collectionName) .. "/" .. tostring(subgroupName)
+                            .. "/" .. keyText .. " name=" .. tostring(entry.Name or entry.ItemName or name)
+                            .. " type=" .. tostring(dbKind)
+                            .. " icon=" .. tostring(image and assetId(image.Image) or "none")
+                            .. " qty=" .. tostring(quantity))
+                    end
                 end
                 count = count + quantity
-                if resolvedValue == nil and not tierText then
+                local dbRecognized = dbKind ~= nil
+                if resolvedValue == nil and not tierText and not dbRecognized
+                    and tile and resolutionStatus == "UNKNOWN" then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
+                local badgeStatus
+                if dbRecognized then
+                    if excludedKind ~= "default" then badgeStatus = "NO VALUE" end
+                else
+                    badgeStatus = resolutionStatus
+                end
+                if tile and tile.Parent then
+                    updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category,
+                        resolvedName or name, badgeStatus)
+                end
             end
         end
     end
@@ -1501,38 +2467,79 @@ local function scanModuleInventory()
     local guiInstance = typeof(gui) == "Instance" and gui or nil
     if guiInstance then
         local guiTiles = getTiles(guiInstance)
-        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-        scanImageCards(guiInstance, "inventoryOverlay")
         state.inventoryGuiFrames = #guiTiles
-        state.inventoryGuiValued = guiKnown or 0
-        state.inventoryGuiItems = guiCount or 0
+
+        -- The Data scan already used exact itemKey mappings on its Frame
+        -- objects. Exclude those same Frames here so the weaker image/name
+        -- resolver cannot overwrite an exact value with an ambiguous result.
+        -- Remaining GUI-only cards still receive labels, but never affect the
+        -- authoritative total calculated from InventoryModule.Data.
+        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay", seen)
+        local _, imageKnown, imageCount = scanImageCards(guiInstance, "inventoryOverlay", seen)
+        state.inventoryGuiValued = (guiKnown or 0) + (imageKnown or 0)
+        state.inventoryGuiItems = (guiCount or 0) + (imageCount or 0)
     else
         state.inventoryGuiFrames = 0
         state.inventoryGuiValued = 0
         state.inventoryGuiItems = 0
     end
 
-    -- MM2's GUI reference is gui.MyInventory.Main.Weapons.Items.
-    -- Put the running total on the visible inventory page when available.
-    local guiInstance = typeof(gui) == "Instance" and gui or nil
-    local main = guiInstance and guiInstance:FindFirstChild("Main")
-    local totalParent = main or guiInstance
-    if totalParent and totalParent:IsA("GuiObject") then
+    -- Attach the total to the actual visible inventory panel, including
+    -- mobile layouts where MyInventory is a ScreenGui rather than a Frame.
+    local totalParent
+    if guiInstance then
+        local main = guiInstance:FindFirstChild("Main", true)
+        if main and main:IsA("GuiObject") then
+            totalParent = main
+        elseif guiInstance:IsA("GuiObject") then
+            totalParent = guiInstance
+        else
+            for _, descendant in ipairs(guiInstance:GetDescendants()) do
+                if descendant:IsA("Frame") and descendant.Visible
+                    and descendant.AbsoluteSize.X > 0 and descendant.AbsoluteSize.Y > 0 then
+                    totalParent = descendant
+                    break
+                end
+            end
+        end
+    end
+    if totalParent then
         local label = makeLabel(totalParent, "__SupremeInventoryTotal", "inventory")
         label.AnchorPoint = Vector2.new(0, 0)
         label.Position = UDim2.new(0, 8, 0, 8)
         label.Size = UDim2.fromOffset(250, 26)
         label.TextSize = 12
+        label.ZIndex = 1000
         label.Text = "INV " .. formatValue(total)
             .. (tierCount > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
             .. " | KNOWN " .. tostring(known) .. "/" .. tostring(count)
+            .. (intentionalDefaultQty > 0 and " | DEFAULT " .. tostring(intentionalDefaultQty) or "")
         label.Visible = count > 0
     end
 
+    state.inventoryFrameProbe = "parented=" .. tostring(parentedFrames)
+        .. ", missing_or_detached=" .. tostring(detachedFrames)
+        .. ", visible=" .. tostring(visibleFrames)
+        .. " | samples: " .. (#frameProbe > 0 and table.concat(frameProbe, " | ") or "none")
+    state.inventoryKeyStats = "HITS=" .. tostring(keyHits)
+        .. " MISSES=" .. tostring(keyMisses)
+        .. " | samples: " .. (#keySamples > 0 and table.concat(keySamples, " || ") or "none")
+        .. (mappedIds and "" or " | MM2 database index unavailable")
     state.inventoryFrames = frameCount
     state.inventoryVisibleFrames = visibleFrames
     state.inventoryDataEntries = dataEntries
     state.inventoryGroups = groupCount
+    state.inventoryResolutionStats =
+        "EXACT_NUMERIC=" .. tostring(exactNumericQty)
+        .. " EXACT_TIER=" .. tostring(exactTierQty)
+        .. " DB_KNOWN_NO_SUPREME=" .. tostring(knownNoSupremeQty)
+        .. " DB_KEY_MISS=" .. tostring(dbKeyMissQty)
+        .. " INTENTIONAL_DEFAULTS=" .. tostring(intentionalDefaultQty)
+        .. " EXCLUDED_UNTRADABLE_TROPHIES=" .. tostring(excludedTrophyQty)
+        .. " | default samples: " .. (#intentionalDefaultSamples > 0 and table.concat(intentionalDefaultSamples, " || ") or "none")
+        .. " | excluded trophy samples: " .. (#excludedTrophySamples > 0 and table.concat(excludedTrophySamples, " || ") or "none")
+        .. " | no-Supreme samples: " .. (#noSupremeSamples > 0 and table.concat(noSupremeSamples, " || ") or "none")
+        .. " | DB-key misses: " .. (#dbMissSamples > 0 and table.concat(dbMissSamples, " || ") or "none")
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
 
@@ -1548,7 +2555,7 @@ local function scanInventory()
 
     -- Fallback for UI-only builds where InventoryModule does not expose frames.
     -- Keep the explicit MainGUI/MainMobile paths as a secondary option.
-    if visibleFrames == 0 then
+    if state.inventoryDataEntries == 0 then
         for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
             local screen = playerGui:FindFirstChild(guiName)
             if screen and screen:IsA("ScreenGui") and screen.Enabled then
@@ -1631,6 +2638,9 @@ local function scanInventory()
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
+        .. " | itemKey vs MM2 DB: " .. tostring(state.inventoryKeyStats)
+        .. " | Resolution: " .. tostring(state.inventoryResolutionStats)
+        .. " | Frame probe: " .. tostring(state.inventoryFrameProbe)
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
 
@@ -1649,8 +2659,9 @@ textGui.Parent = playerGui
 local panel = Instance.new("Frame")
 panel.Name = "SupremePanel"
 panel.Size = UDim2.fromOffset(290, 225)
-panel.Position = UDim2.new(1, -12, 0, 88)
-panel.AnchorPoint = Vector2.new(1, 0)
+-- Keep the diagnostics control away from MM2's Accept/Decline buttons.
+panel.AnchorPoint = Vector2.new(0, 1)
+panel.Position = UDim2.new(0, 12, 1, -12)
 panel.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -1702,27 +2713,55 @@ output.Text = "Connecting to Supreme Values..."
 output.ZIndex = 201
 output.Parent = panel
 
+local testButton = Instance.new("TextButton")
+testButton.Name = "OpenTradeTest"
+testButton.Size = UDim2.new(0, 82, 0, 32)
+testButton.Position = UDim2.new(0, 8, 1, -39)
+testButton.BackgroundColor3 = Color3.fromRGB(105, 75, 165)
+testButton.BorderSizePixel = 0
+testButton.Font = Enum.Font.GothamBold
+testButton.TextSize = 10
+testButton.TextColor3 = Color3.new(1, 1, 1)
+testButton.Text = "СИМУЛЯТОР"
+testButton.ZIndex = 205
+testButton.Parent = panel
+
 local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
-copyButton.Size = UDim2.new(1, -20, 0, 32)
-copyButton.Position = UDim2.new(0, 10, 1, -39)
+copyButton.Size = UDim2.new(0, 88, 0, 32)
+copyButton.Position = UDim2.new(0, 96, 1, -39)
 copyButton.BackgroundColor3 = Color3.fromRGB(35, 125, 145)
 copyButton.BorderSizePixel = 0
 copyButton.Font = Enum.Font.GothamBold
-copyButton.TextSize = 12
+copyButton.TextSize = 11
 copyButton.TextColor3 = Color3.new(1, 1, 1)
-copyButton.Text = "COPY FULL DIAGNOSTIC"
+copyButton.Text = "COPY REPORT"
 copyButton.ZIndex = 205
 copyButton.Parent = panel
 
+local exportButton = Instance.new("TextButton")
+exportButton.Name = "ExportSupremeData"
+exportButton.Size = UDim2.new(0, 88, 0, 32)
+exportButton.Position = UDim2.new(0, 190, 1, -39)
+exportButton.BackgroundColor3 = Color3.fromRGB(45, 115, 85)
+exportButton.BorderSizePixel = 0
+exportButton.Font = Enum.Font.GothamBold
+exportButton.TextSize = 11
+exportButton.TextColor3 = Color3.new(1, 1, 1)
+exportButton.Text = "EXPORT JSON"
+exportButton.ZIndex = 205
+exportButton.Parent = panel
+
 local collapsed = true
 local expandedSize = UDim2.fromOffset(290, 225)
-local collapsedSize = UDim2.fromOffset(150, 34)
+local collapsedSize = UDim2.fromOffset(126, 34)
 local function setCollapsed(value)
     collapsed = value
     panel.Size = collapsed and collapsedSize or expandedSize
     output.Visible = not collapsed
+    testButton.Visible = not collapsed
     copyButton.Visible = not collapsed
+    exportButton.Visible = not collapsed
     toggle.Text = collapsed and "+" or "−"
     title.Text = collapsed and "SUPREME" or (state.status == "ok" and "SUPREME — READY" or "SUPREME — " .. string.upper(state.status))
 end
@@ -1751,6 +2790,245 @@ local function copyText(text)
     return false
 end
 
+-- Offline trade simulator: resolves exact MM2 database names through the
+-- already-built Supreme mapping. Only numeric Supreme prices are accepted.
+local testFrame = Instance.new("Frame")
+testFrame.Name = "OfflineTradeSimulator"
+testFrame.Size = UDim2.fromOffset(310, 390)
+testFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+testFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+testFrame.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
+testFrame.BackgroundTransparency = 0.03
+testFrame.BorderSizePixel = 0
+testFrame.Visible = false
+testFrame.ZIndex = 400
+testFrame.Parent = textGui
+
+local testTitle = Instance.new("TextLabel")
+testTitle.Size = UDim2.new(1, -48, 0, 34)
+testTitle.Position = UDim2.fromOffset(12, 4)
+testTitle.BackgroundTransparency = 1
+testTitle.Font = Enum.Font.GothamBold
+testTitle.TextSize = 14
+testTitle.TextColor3 = Color3.fromRGB(120, 220, 255)
+testTitle.TextXAlignment = Enum.TextXAlignment.Left
+testTitle.Text = "ОФЛАЙН СИМУЛЯТОР"
+testTitle.ZIndex = 401
+testTitle.Parent = testFrame
+
+local closeTest = Instance.new("TextButton")
+closeTest.Size = UDim2.fromOffset(32, 30)
+closeTest.Position = UDim2.new(1, -38, 0, 4)
+closeTest.BackgroundColor3 = Color3.fromRGB(80, 45, 55)
+closeTest.BorderSizePixel = 0
+closeTest.Font = Enum.Font.GothamBold
+closeTest.TextSize = 16
+closeTest.TextColor3 = Color3.new(1, 1, 1)
+closeTest.Text = "×"
+closeTest.ZIndex = 402
+closeTest.Parent = testFrame
+
+local function makeOfferInput(name, labelText, y)
+    local heading = Instance.new("TextLabel")
+    heading.Size = UDim2.new(1, -24, 0, 20)
+    heading.Position = UDim2.fromOffset(12, y)
+    heading.BackgroundTransparency = 1
+    heading.Font = Enum.Font.GothamBold
+    heading.TextSize = 11
+    heading.TextColor3 = Color3.fromRGB(210, 220, 238)
+    heading.TextXAlignment = Enum.TextXAlignment.Left
+    heading.Text = labelText
+    heading.ZIndex = 401
+    heading.Parent = testFrame
+
+    local box = Instance.new("TextBox")
+    box.Name = name
+    box.Size = UDim2.new(1, -24, 0, 82)
+    box.Position = UDim2.fromOffset(12, y + 22)
+    box.BackgroundColor3 = Color3.fromRGB(8, 11, 19)
+    box.BorderSizePixel = 0
+    box.ClearTextOnFocus = false
+    box.MultiLine = true
+    box.TextEditable = true
+    box.TextWrapped = true
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.TextYAlignment = Enum.TextYAlignment.Top
+    box.Font = Enum.Font.Code
+    box.TextSize = 12
+    box.TextColor3 = Color3.fromRGB(235, 240, 250)
+    box.PlaceholderColor3 = Color3.fromRGB(130, 140, 160)
+    box.PlaceholderText = "Например: Laser x2\nSeer\nx2 T1 Commons"
+    box.Text = ""
+    box.ZIndex = 401
+    box.Parent = testFrame
+    return box
+end
+
+local yourTestInput = makeOfferInput("YourTestOffer", "ТЫ ОТДАЁШЬ (каждый предмет с новой строки)", 42)
+local theirTestInput = makeOfferInput("TheirTestOffer", "ТЫ ПОЛУЧАЕШЬ (каждый предмет с новой строки)", 150)
+
+local testResult = Instance.new("TextLabel")
+testResult.Size = UDim2.new(1, -24, 0, 58)
+testResult.Position = UDim2.fromOffset(12, 260)
+testResult.BackgroundColor3 = Color3.fromRGB(8, 11, 19)
+testResult.BorderSizePixel = 0
+testResult.Font = Enum.Font.GothamBold
+testResult.TextSize = 12
+testResult.TextWrapped = true
+testResult.TextColor3 = Color3.fromRGB(230, 235, 245)
+testResult.Text = "Впиши точные названия предметов на английском. Количество: Laser x2. Затем нажми «СРАВНИТЬ»."
+testResult.ZIndex = 401
+testResult.Parent = testFrame
+
+local compareTest = Instance.new("TextButton")
+compareTest.Size = UDim2.new(1, -24, 0, 38)
+compareTest.Position = UDim2.fromOffset(12, 326)
+compareTest.BackgroundColor3 = Color3.fromRGB(65, 105, 155)
+compareTest.BorderSizePixel = 0
+compareTest.Font = Enum.Font.GothamBold
+compareTest.TextSize = 13
+compareTest.TextColor3 = Color3.new(1, 1, 1)
+compareTest.Text = "СРАВНИТЬ"
+compareTest.ZIndex = 402
+compareTest.Parent = testFrame
+
+local function resolveTestItem(rawName)
+    local name = clean(rawName)
+    local tierMultiplier, tierLevel, tierClass =
+        name:match("^[x×](%d+)%s+(T%d+)%s+([%a]+)$")
+    if tierMultiplier and tierLevel and tierClass then
+        local tierText = "x" .. tostring(tonumber(tierMultiplier)) .. " "
+            .. tierLevel .. " " .. tierClass
+        return {name = tierText, tier = tierText, quantity = 1}
+    end
+
+    local quantity = 1
+    local base, amount = name:match("^(.-)%s+[x×](%d+)$")
+    if base then name, quantity = clean(base), math.max(1, math.floor(tonumber(amount) or 1)) end
+
+    local isChromaInput = name:lower():match("^chroma%s+") ~= nil
+    local rawLookupName = clean(name:gsub("^[Cc][Hh][Rr][Oo][Mm][Aa]%s+", ""))
+    -- Use the same variant parser as the live tile resolver and mapping
+    -- builder, so year/type suffix order never changes the selected item.
+    local lookupName, requestedType, requestedYear = splitVariant(rawLookupName)
+
+    local normalizedInput = normalize(lookupName)
+    local candidates = state.mapped and state.mapped.byName[normalizedInput] or nil
+    local matches = {}
+    local rejectedNames = {}
+    for _, candidate in ipairs(candidates or {}) do
+        local entry = state.mapped.byKey[candidate.key]
+        if entry and tonumber(entry.v) ~= nil then
+            local mappedName = normalize(entry.name)
+            local typeMatches = not requestedType
+                or normalize(candidate.itemType) == normalize(requestedType)
+            local yearMatches = not requestedYear
+                or tostring(candidate.year or "") == tostring(requestedYear)
+            if mappedName == normalizedInput
+                and candidate.chroma == isChromaInput
+                and typeMatches and yearMatches then
+                table.insert(matches, {entry = entry, key = candidate.key})
+            elseif mappedName ~= normalizedInput then
+                rejectedNames[mappedName] = true
+            end
+        end
+    end
+    if #matches == 0 then
+        local rejected = {}
+        for rejectedName in pairs(rejectedNames) do
+            table.insert(rejected, rejectedName)
+        end
+        table.sort(rejected)
+        if #rejected > 0 then
+            return nil, name .. ": совпадение MM2/Supreme не подтверждено (найдено другое название: "
+                .. table.concat(rejected, ", ") .. "). Предмет не будет оценён."
+        end
+        if requestedType or requestedYear then
+            return nil, name .. ": вариант с указанным типом/годом не найден в числовых оценках Supreme."
+        end
+        return nil, name .. ": нет числовой оценки Supreme (предмет не найден или у него только тир)"
+    end
+    if #matches > 1 then
+        local hint = "Уточни тип предмета: добавь Gun или Knife"
+        if requestedType then hint = "Уточни год, например 2023 или 2024" end
+        return nil, name .. ": найдено несколько вариантов. " .. hint .. "."
+    end
+    return {name = matches[1].entry.name, value = tonumber(matches[1].entry.v), quantity = quantity}
+end
+
+local function parseTestOffer(textValue)
+    local items, total = {}, 0
+    for line in tostring(textValue or ""):gmatch("[^\r\n]+") do
+        local raw = clean(line)
+        if raw ~= "" then
+            local item, err = resolveTestItem(raw)
+            if not item then return nil, nil, err end
+            table.insert(items, item)
+            if tonumber(item.value) ~= nil then
+                total = total + item.value * item.quantity
+            end
+        end
+    end
+    if #items == 0 then return nil, nil, "Добавь хотя бы один предмет в каждую сторону." end
+    return items, total
+end
+
+closeTest.Activated:Connect(function()
+    testFrame.Visible = false
+end)
+
+testButton.Activated:Connect(function()
+    testFrame.Visible = not testFrame.Visible
+end)
+
+compareTest.Activated:Connect(function()
+    if state.status ~= "ok" or type(state.mapped) ~= "table" then
+        testResult.Text = "Данные Supreme ещё загружаются. Подожди, пока появится READY."
+        return
+    end
+    local yourItems, yourTotal, yourError = parseTestOffer(yourTestInput.Text)
+    if not yourItems then
+        testResult.Text = "ТЫ ОТДАЁШЬ: " .. tostring(yourError)
+        return
+    end
+    local theirItems, theirTotal, theirError = parseTestOffer(theirTestInput.Text)
+    if not theirItems then
+        testResult.Text = "ТЫ ПОЛУЧАЕШЬ: " .. tostring(theirError)
+        return
+    end
+    local hasTier = false
+    for _, item in ipairs(yourItems) do
+        if item.tier then hasTier = true break end
+    end
+    if not hasTier then
+        for _, item in ipairs(theirItems) do
+            if item.tier then hasTier = true break end
+        end
+    end
+
+    if hasTier then
+        local tierVerdict, tierReason, yourTierText, theirTierText =
+            compareTierOffers(yourItems, theirItems)
+        testResult.Text = "TIER " .. tierVerdict .. "\nТЫ: " .. yourTierText
+            .. "\nПОЛУЧАЕШЬ: " .. theirTierText .. "\n" .. tierReason
+        testResult.TextColor3 = tierVerdict == "WIN" and Color3.fromRGB(65, 240, 145)
+            or tierVerdict == "LOSE" and Color3.fromRGB(255, 90, 105)
+            or tierVerdict == "FAIR" and Color3.fromRGB(105, 195, 255)
+            or Color3.fromRGB(255, 190, 65)
+    else
+        local verdict, difference = getVerdict(yourTotal, theirTotal)
+        local sign = difference > 0 and "+" or ""
+        testResult.Text = (verdict == "WIN" and "ВЫИГРЫШ" or verdict == "LOSE" and "ПРОИГРЫШ" or "РАВНО")
+            .. "  " .. sign .. formatValue(difference)
+            .. "\nТВОЁ: " .. formatValue(yourTotal)
+            .. "  |  ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
+        testResult.TextColor3 = verdict == "WIN" and Color3.fromRGB(65, 240, 145)
+            or verdict == "LOSE" and Color3.fromRGB(255, 90, 105)
+            or Color3.fromRGB(105, 195, 255)
+    end
+end)
+
+
 local function formatUnmatchedItems(items)
     local rows = {}
     for _, entry in pairs(items or {}) do
@@ -1776,7 +3054,130 @@ local function formatUnmatchedItems(items)
     return #output > 0 and table.concat(output, " | ") or "none"
 end
 
-local function buildDiagnostic()
+local function buildPhase1Dump()
+    local lines = {"PHASE 1 — MM2 DATABASE RECORD DUMP"}
+    local database, dbError = loadGameDatabase()
+    local ids = {
+        "SlouseClownGun", "Clown", "Clown_G_2024", "SlouseClown",
+        "Clown_G", "Carrot_K_2023", "Carrot_K_2024", "Carrot",
+        "Carrot_G_2024", "DefaultGun", "DefaultKnife"
+    }
+    if type(database) ~= "table" or type(database.Item) ~= "table" then
+        table.insert(lines, "Database unavailable: " .. tostring(dbError))
+    else
+        for _, id in ipairs(ids) do
+            local record = database.Item[id]
+            if type(record) ~= "table" then
+                table.insert(lines, id .. ": NOT FOUND")
+            else
+                local fields = {}
+                for key, value in pairs(record) do
+                    local valueType = typeof(value)
+                    local rendered
+                    if type(value) == "table" then
+                        local keys = {}
+                        for childKey in pairs(value) do
+                            table.insert(keys, tostring(childKey))
+                            if #keys >= 8 then break end
+                        end
+                        table.sort(keys)
+                        rendered = "table{" .. table.concat(keys, ",") .. "}"
+                    elseif valueType == "Instance" then
+                        rendered = "Instance(" .. value.ClassName .. ":" .. value.Name .. ")"
+                    else
+                        rendered = tostring(value)
+                    end
+                    table.insert(fields, tostring(key) .. "=" .. rendered)
+                end
+                table.sort(fields)
+                table.insert(lines, id .. ": " .. table.concat(fields, " | "))
+            end
+        end
+    end
+
+    table.insert(lines, "")
+    table.insert(lines, "PHASE 1 — TRADE CARD INTERNAL DATA")
+    local screen, container, trade = findTrade()
+    if not screen then
+        table.insert(lines, "No active trade. Open a trade and put at least one item into either offer before copying the report.")
+        return table.concat(lines, "\n")
+    end
+
+    local offers = {
+        {name = "YourOffer", root = trade:FindFirstChild("YourOffer", true)},
+        {name = "TheirOffer", root = trade:FindFirstChild("TheirOffer", true)}
+    }
+    local foundCard = false
+    for _, offerInfo in ipairs(offers) do
+        local offer = offerInfo.root
+        local offerContainer = offer and offer:FindFirstChild("Container")
+        if offerContainer then
+            for _, tile in ipairs(offerContainer:GetDescendants()) do
+                if tile:IsA("GuiObject") and visible(tile) then
+                    local icon = findTileIcon(tile)
+                    local directSlot = tile.Name:match("^NewItem%d+$") ~= nil and icon ~= nil
+                    local normalCard = tile:FindFirstChild("Container") and icon ~= nil
+                    if directSlot or normalCard then
+                        foundCard = true
+                        table.insert(lines, offerInfo.name .. " card=" .. tile:GetFullName()
+                            .. " class=" .. tile.ClassName
+                            .. " displayName=" .. tostring((itemData(tile)))
+                            .. " icon=" .. tostring(icon and assetId(icon.Image) or "none"))
+                        local okAttributes, attributes = pcall(function() return tile:GetAttributes() end)
+                        if okAttributes then
+                            local attributeRows = {}
+                            for key, value in pairs(attributes) do
+                                table.insert(attributeRows, tostring(key) .. "=" .. tostring(value))
+                            end
+                            table.sort(attributeRows)
+                            table.insert(lines, "  ATTRIBUTES: " .. (#attributeRows > 0 and table.concat(attributeRows, " | ") or "none"))
+                        else
+                            table.insert(lines, "  ATTRIBUTES: read failed")
+                        end
+                        local valueRows, viewportRows = {}, {}
+                        for _, node in ipairs(tile:GetDescendants()) do
+                            if node:IsA("StringValue") or node:IsA("ObjectValue")
+                                or node:IsA("IntValue") or node:IsA("NumberValue") then
+                                local valueText = node:IsA("ObjectValue")
+                                    and (node.Value and node.Value:GetFullName() or "nil")
+                                    or tostring(node.Value)
+                                table.insert(valueRows, node.ClassName .. " " .. node.Name .. "=" .. valueText)
+                            elseif node:IsA("ViewportFrame") then
+                                local models = {}
+                                for _, nested in ipairs(node:GetDescendants()) do
+                                    if nested:IsA("Model") then
+                                        table.insert(models, nested.Name)
+                                    end
+                                end
+                                table.insert(viewportRows, node:GetFullName() .. " models={" .. table.concat(models, ",") .. "}")
+                            end
+                        end
+                        table.sort(valueRows)
+                        table.sort(viewportRows)
+                        table.insert(lines, "  VALUE OBJECTS: " .. (#valueRows > 0 and table.concat(valueRows, " | ") or "none"))
+                        table.insert(lines, "  VIEWPORTS: " .. (#viewportRows > 0 and table.concat(viewportRows, " | ") or "none"))
+                        table.insert(lines, "  CHILD TREE: " .. tile.Name .. "{" .. table.concat((function()
+                            local rows = {}
+                            for _, child in ipairs(tile:GetChildren()) do
+                                table.insert(rows, child.Name .. ":" .. child.ClassName)
+                            end
+                            table.sort(rows)
+                            return rows
+                        end)(), ",") .. "}")
+                        break
+                    end
+                end
+            end
+        end
+        if foundCard then break end
+    end
+    if not foundCard then
+        table.insert(lines, "Trade is open but no visible offer card found. Add one item to either side and copy again.")
+    end
+    return table.concat(lines, "\n")
+end
+
+local function buildDiagnostic(includeDeepDump)
     local lines = {
         "SUPREME TRADE CHECKER — MM2 MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
@@ -1786,37 +3187,126 @@ local function buildDiagnostic()
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
         "Pages parsed: " .. tostring(state.parsedPages),
         "Supreme entries: " .. tostring(state.entryCount),
+        "Export-ready entries: " .. tostring(type(state.supremeEntries) == "table" and #state.supremeEntries or 0),
         "Supreme tier entries: " .. tostring(state.tierEntryCount or 0),
         "Value entries by category: " .. HttpService:JSONEncode(state.categoryCounts or {}),
         "Reference-page value cards (not mapped as single items): "
             .. HttpService:JSONEncode(state.referenceValueCounts or {}),
         "All page card counts: " .. HttpService:JSONEncode(state.categoryCardCounts or {}),
+        "Data pipeline: " .. tostring(state.dataPipeline or "not loaded"),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
+        "MM2 database coverage: " .. tostring(state.mapped and state.mapped.dbTotal or 0)
+            .. " catalog records total; numeric=" .. tostring(state.mapped and state.mapped.dbNumericMapped or 0)
+            .. ", tier=" .. tostring(state.mapped and state.mapped.dbTierMapped or 0)
+            .. ", intentionally no-value defaults=" .. tostring(state.mapped and state.mapped.dbExcludedNoValue or 0)
+            .. ", untradable trophy skins excluded=" .. tostring(state.mapped and state.mapped.dbExcludedTrophy or 0)
+            .. ", unmapped=" .. tostring(state.mapped and state.mapped.dbUnmapped or 0),
+        "Unmapped MM2 database records (trophy skins excluded; remaining Unique-rarity entries are candidates only): "
+            .. table.concat(state.mapped and state.mapped.dbUnmappedAll or {}, " | "),
+        "Unmapped Unique-rarity candidate count: "
+            .. tostring(state.mapped and #(state.mapped.dbUniqueUnmapped or {}) or 0),
+        "Unmapped Unique-rarity candidates: "
+            .. table.concat(state.mapped and state.mapped.dbUniqueUnmapped or {}, " | "),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
         "Last error: " .. tostring(state.lastError or "none"),
+        "Tier comparator self-test: " .. TIER_SELF_TEST,
+        "Numeric parser self-test: " .. tostring(state.numericParserStatus or "not run"),
+        "Trophy detector self-test: " .. tostring(state.trophyDetectorStatus or "not run"),
+        "Chroma detector self-test: " .. tostring(state.chromaDetectorStatus or "not run"),
+        "Variant parser self-test: " .. tostring(state.variantParserStatus or "not run"),
+        "Item type detector self-test: " .. tostring(state.itemTypeDetectorStatus or "not run"),
+        "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
         tostring(state.latestTrade),
+        "TRADE RESOLUTION: NO_VALUE=" .. tostring(state.tradeNoValue or 0)
+            .. " UNKNOWN=" .. tostring(state.tradeUnknown or 0)
+            .. " UNTRADABLE=" .. tostring(state.tradeUntradable or 0),
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
+        "INVENTORY INTERNAL KEY AUDIT: " .. tostring(state.inventoryKeyStats),
+        "INVENTORY RESOLUTION BREAKDOWN: " .. tostring(state.inventoryResolutionStats or "not available"),
+        includeDeepDump and buildPhase1Dump()
+            or "PHASE 1 DUMP: skipped during live refresh (tap COPY REPORT to include)",
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
         "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
     return table.concat(lines, "\n")
 end
 
+exportButton.Activated:Connect(function()
+    local entries = state.supremeEntries
+    if type(entries) ~= "table" or #entries < 300 then
+        exportButton.Text = "DATA NOT READY"
+        task.delay(3, function()
+            if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
+        end)
+        return
+    end
+
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode({
+            schema_version = 1,
+            source = "Supreme Values MM2 via Delta / Arceus X",
+            exported_at = os.date("%Y-%m-%d %H:%M:%S"),
+            category_counts = state.categoryCounts or {},
+            page_card_counts = state.categoryCardCounts or {},
+            entries = entries
+        })
+    end)
+    if not ok or type(encoded) ~= "string" then
+        exportButton.Text = "JSON ENCODE FAILED"
+        warn("[Supreme Trade Checker] JSON encode failed: " .. tostring(encoded))
+        return
+    end
+
+    -- Save a real file when the executor supports writefile, and also copy
+    -- the JSON so Android users still have a fallback if filesystem APIs fail.
+    local saved = false
+    if type(writefile) == "function" then
+        local writeOk, writeResult = pcall(writefile, "SupremeTradeChecker_export.json", encoded)
+        saved = writeOk and writeResult ~= false
+        if not saved then
+            warn("[Supreme Trade Checker] writefile failed: " .. tostring(writeResult))
+        end
+    end
+
+    local copied = copyText(encoded)
+    if saved and copied then
+        exportButton.Text = "SAVED + COPIED"
+    elseif saved then
+        exportButton.Text = "JSON SAVED " .. tostring(#entries)
+    elseif copied then
+        exportButton.Text = "JSON COPIED " .. tostring(#entries)
+    else
+        exportButton.Text = "EXPORT FAILED"
+    end
+
+    if saved or copied then
+        warn("[Supreme Trade Checker] Export ready: " .. tostring(#entries)
+            .. " entries, " .. tostring(#encoded) .. " bytes; file saved="
+            .. tostring(saved) .. ", clipboard copied=" .. tostring(copied))
+    else
+        warn("[Supreme Trade Checker] Export failed: no usable writefile or clipboard API.")
+    end
+
+    task.delay(7, function()
+        if exportButton and exportButton.Parent then exportButton.Text = "EXPORT JSON" end
+    end)
+end)
+
 copyButton.Activated:Connect(function()
-    local report = buildDiagnostic()
-    copyButton.Text = copyText(report) and "COPIED — SEND THE TEXT" or "CLIPBOARD API UNAVAILABLE"
+    local report = buildDiagnostic(true)
+    copyButton.Text = copyText(report) and "REPORT COPIED" or "COPY UNAVAILABLE"
     task.delay(3, function()
         if copyButton and copyButton.Parent then
-            copyButton.Text = "COPY FULL DIAGNOSTIC"
+            copyButton.Text = "COPY REPORT"
         end
     end)
 end)
@@ -1856,7 +3346,7 @@ local function updateUi()
     else
         title.Text = collapsed and "SUPREME" or "SUPREME — " .. string.upper(state.status)
     end
-    output.Text = buildDiagnostic()
+    output.Text = buildDiagnostic(false)
 end
 
 textGui.Destroying:Connect(function()

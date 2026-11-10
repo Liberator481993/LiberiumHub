@@ -1,0 +1,116 @@
+name: Supreme Trade Core
+
+on:
+  push:
+    branches:
+      - supreme-trade-checker-rust-core
+    paths:
+      - "tools/supreme-core/**"
+      - ".github/workflows/supreme-core.yml"
+      - "data/supreme-export.json"
+  pull_request:
+    paths:
+      - "tools/supreme-core/**"
+      - ".github/workflows/supreme-core.yml"
+      - "data/supreme-export.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      export_present: ${{ steps.export_presence.outputs.present }}
+    defaults:
+      run:
+        working-directory: tools/supreme-core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect user-side export
+        id: export_presence
+        working-directory: .
+        run: |
+          if [ -s data/supreme-export.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Rust unit tests
+        run: cargo test
+      - name: Test export builder with fixture data
+        run: cargo run --release -- build examples/supreme-export.json /tmp/SupremeTradeChecker.mapping.json
+      - name: Build uploaded Arceus X export
+        if: steps.export_presence.outputs.present == 'true'
+        run: cargo run --release -- build ../../data/supreme-export.json /tmp/User.SupremeTradeChecker.mapping.json
+      - name: Validate uploaded export category coverage
+        if: steps.export_presence.outputs.present == 'true'
+        working-directory: .
+        run: |
+          jq -e '
+            .schema_version == 1
+            and (.entry_count == (.entries | length))
+            and (.entry_count >= 300)
+            and (.by_name | length > 0)
+            and (.by_image_alt | type == "object")
+            and ((.category_counts.godlies // 0) >= 80)
+            and ((.category_counts.chromas // 0) >= 30)
+            and ((.category_counts.commons // 0) >= 150)
+            and ((.category_counts.uncommons // 0) >= 100)
+            and ((.category_counts.rares // 0) >= 80)
+            and ((.category_counts.legendaries // 0) >= 40)
+            and ((.category_counts.ancients // 0) >= 8)
+            and ((.category_counts.pets // 0) >= 40)
+            and ((.category_counts.uniques // 0) >= 1)
+          ' /tmp/User.SupremeTradeChecker.mapping.json >/dev/null
+      - name: Test duplicate-aware total calculator
+        run: cargo run --release -- total /tmp/SupremeTradeChecker.mapping.json examples/items.json
+
+  publish-supreme-snapshot:
+    # Only publish after tests pass and a complete user-side export exists.
+    # GitHub-hosted runners must not scrape Supreme Values directly.
+    needs: test
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.test.outputs.export_present == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build mapping from the uploaded Arceus X export
+        working-directory: tools/supreme-core
+        run: cargo run --release -- build ../../data/supreme-export.json ../../SupremeTradeChecker.mapping.json
+      - name: Validate complete snapshot before publishing
+        working-directory: .
+        run: |
+          test -s SupremeTradeChecker.mapping.json
+          jq -e '
+            .schema_version == 1
+            and (.entry_count == (.entries | length))
+            and (.entry_count >= 300)
+            and (.by_name | length > 0)
+            and (.by_image_alt | type == "object")
+            and ((.category_counts.godlies // 0) >= 80)
+            and ((.category_counts.chromas // 0) >= 30)
+            and ((.category_counts.commons // 0) >= 150)
+            and ((.category_counts.uncommons // 0) >= 100)
+            and ((.category_counts.rares // 0) >= 80)
+            and ((.category_counts.legendaries // 0) >= 40)
+            and ((.category_counts.ancients // 0) >= 8)
+            and ((.category_counts.pets // 0) >= 40)
+            and ((.category_counts.uniques // 0) >= 1)
+          ' SupremeTradeChecker.mapping.json >/dev/null
+      - name: Publish validated mapping on the stable data branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan supreme-values-data
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data
+          mv SupremeTradeChecker.mapping.json data/SupremeTradeChecker.mapping.json
+          git add data/SupremeTradeChecker.mapping.json
+          git commit -m "Publish validated Supreme Values snapshot"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:supreme-values-data
