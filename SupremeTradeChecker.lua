@@ -557,8 +557,16 @@ local function buildMapping(entries, database, rustIndexData)
         addDiagnosticCandidate(item, id, "Item")
         if not isTrophyRecord(item, id) then
             addIndex(normalize(name), entry)
+            local withoutChroma = name:gsub("^[Cc]hroma%s+", "")
+            if withoutChroma ~= name then addIndex(normalize(withoutChroma), entry) end
             local withoutYear = name:gsub("%s*%d%d%d%d%s*$", "")
-            if withoutYear ~= name then addIndex(normalize(withoutYear), entry) end
+            if withoutYear ~= name then
+                addIndex(normalize(withoutYear), entry)
+                local withoutYearChroma = withoutYear:gsub("^[Cc]hroma%s+", "")
+                if withoutYearChroma ~= withoutYear then
+                    addIndex(normalize(withoutYearChroma), entry)
+                end
+            end
         end
     end
 
@@ -568,6 +576,10 @@ local function buildMapping(entries, database, rustIndexData)
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
         addIndex("pet:" .. normalize(item.Name), entry)
+        local petWithoutChroma = tostring(item.Name or ""):gsub("^[Cc]hroma%s+", "")
+        if petWithoutChroma ~= tostring(item.Name or "") then
+            addIndex("pet:" .. normalize(petWithoutChroma), entry)
+        end
         table.insert(petEntries, entry)
     end
 
@@ -627,6 +639,7 @@ local function buildMapping(entries, database, rustIndexData)
         end
 
         local aliases = {name}
+        if chroma then table.insert(aliases, "Chroma " .. name) end
         -- MM2's Database.Sync sometimes stores the item name with its type
         -- suffix (for example "Swirly Gun"), while Supreme titles may be
         -- parsed into base name + kind ("Swirly", "Gun"). Keep both forms:
