@@ -34,6 +34,11 @@ local RARITIES = {
     rares = "Rare", uncommons = "Uncommon", commons = "Common",
     vintages = "Classic", uniques = "Unique"
 }
+-- These starter items are not tradable and must not inflate inventory totals.
+local EXCLUDED_ITEM_KEYS = {
+    DefaultGun = true,
+    DefaultKnife = true
+}
 local BASE = "https://www.supremevalues.com/mm2/"
 
 local state = {
@@ -318,10 +323,21 @@ local function buildMapping(entries, database)
     local weapons = database.Item
     local pets = type(database.Pets) == "table" and database.Pets or {}
     local index, petEntries = {}, {}
-    local dbByName, dbByImage = {}, {}
+    local dbByName, dbByImage, dbByKey = {}, {}, {}
 
     local function addDiagnosticCandidate(item, id, kind)
         local name = normalize(item.ItemName or item.Name or "")
+        local key = (kind == "Pet" and "p:" or "i:") .. tostring(id)
+        dbByKey[key] = {
+            id = tostring(id),
+            kind = kind,
+            name = tostring(item.ItemName or item.Name or ""),
+            itemType = tostring(item.ItemType or ""),
+            rarity = tostring(item.Rarity or ""),
+            chroma = item.Chroma == true,
+            year = tostring(item.Year or ""),
+            event = tostring(item.Event or "")
+        }
         if name ~= "" then
             dbByName[name] = dbByName[name] or {}
             table.insert(dbByName[name], {
@@ -615,6 +631,7 @@ local function buildMapping(entries, database)
         chromaOf = chromaOf,
         dbByName = dbByName,
         dbByImage = dbByImage,
+        dbByKey = dbByKey,
         byName = byName,
         n = mappedCount,
         iconCount = iconCount,
@@ -623,9 +640,24 @@ local function buildMapping(entries, database)
     }
 end
 
-local function valueOf(tile, name)
+local function valueOf(tile, name, itemKey, itemKind)
     local mapped = state.mapped
-    if not mapped then return nil end
+    if not mapped then return nil, nil, nil, nil, "unknown" end
+
+    -- InventoryModule exposes the authoritative MM2 database key directly.
+    -- Prefer it over icon/name heuristics whenever the caller has that key.
+    if itemKey ~= nil then
+        local prefix = itemKind == "Pet" and "p:" or "i:"
+        local key = prefix .. tostring(itemKey)
+        local exact = mapped.byKey[key]
+        if exact then
+            return exact.v, exact.name, exact.t, exact.category, "valued"
+        end
+        local databaseEntry = mapped.dbByKey and mapped.dbByKey[key]
+        if databaseEntry then
+            return nil, databaseEntry.name, nil, nil, "no_value"
+        end
+    end
 
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
@@ -642,8 +674,12 @@ local function valueOf(tile, name)
         local entry = mapped.byKey[iconKey]
         -- The icon identifies the exact MM2 record. Do not fall through to a
         -- different same-name item when Supreme has no value for this record.
-        if entry then return entry.v, entry.name, entry.t, entry.category end
-        return nil
+        if entry then return entry.v, entry.name, entry.t, entry.category, "valued" end
+        local databaseEntry = mapped.dbByKey and mapped.dbByKey[iconKey]
+        if databaseEntry then
+            return nil, databaseEntry.name, nil, nil, "no_value"
+        end
+        return nil, nil, nil, nil, "unknown"
     end
 
     -- Use a name only when it identifies exactly one database record after
@@ -661,10 +697,13 @@ local function valueOf(tile, name)
             local candidate = databaseMatches[1]
             local key = (candidate.kind == "Pet" and "p:" or "i:") .. candidate.id
             local entry = mapped.byKey[key]
-            if entry then return entry.v, entry.name, entry.t, entry.category end
+            if entry then
+                return entry.v, entry.name, entry.t, entry.category, "valued"
+            end
+            return nil, candidate.name, nil, nil, "no_value"
         end
     end
-    return nil
+    return nil, nil, nil, nil, "unknown"
 end
 
 local function loadValues(force)
@@ -939,14 +978,14 @@ local VALUE_TEXT_COLORS = {
     misc = Color3.fromRGB(190, 190, 205)
 }
 
-local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
+local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName, resolutionStatus)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
 
     local existing = container:FindFirstChild("__SupremeItemValue")
     local hasTier = type(tierText) == "string" and tierText ~= ""
-    if value == nil and not hasTier then
-        -- Don't clutter the inventory with "N/A" or fake zero values.
+    if value == nil and not hasTier
+        and resolutionStatus ~= "no_value" and resolutionStatus ~= "unknown" then
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
     end
@@ -992,9 +1031,15 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
         gradient.Parent = label
         label.Text = formatValue(value)
         label.TextColor3 = Color3.new(1, 1, 1)
-    else
+    elseif hasTier then
         label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
         label.TextColor3 = Color3.fromRGB(255, 190, 75)
+    elseif resolutionStatus == "no_value" then
+        label.Text = "NO VALUE"
+        label.TextColor3 = Color3.fromRGB(175, 183, 198)
+    else
+        label.Text = "UNKNOWN"
+        label.TextColor3 = Color3.fromRGB(255, 185, 90)
     end
     label.Visible = true
 end
@@ -1006,7 +1051,7 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value, _, tierText, category = valueOf(tile, name)
+        local value, _, tierText, category, resolutionStatus = valueOf(tile, name)
         if value ~= nil then
             total = total + value * quantity
             known = known + quantity
@@ -1015,10 +1060,10 @@ local function scanRoot(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
+        if value == nil and not tierText and resolutionStatus == "unknown" and group == "inventory" then
             recordUnmatched(tile, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(tile, value, quantity, group, tierText, category, name)
+        updateTileBadge(tile, value, quantity, group, tierText, category, name, resolutionStatus)
     end
     return total, known, count, tierCount
 end
@@ -1065,7 +1110,7 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
-        local value, _, tierText, category = valueOf(card, name)
+        local value, _, tierText, category, resolutionStatus = valueOf(card, name)
         if value == nil and not tierText then
             local amountNode = card:FindFirstChild("Container")
                 and card.Container:FindFirstChild("Amount")
@@ -1080,10 +1125,10 @@ local function scanImageCards(root, group)
             tierCount = tierCount + quantity
         end
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
+        if value == nil and not tierText and resolutionStatus == "unknown" and group == "inventory" then
             recordUnmatched(card, name, quantity, state.unmatchedInventory)
         end
-        updateTileBadge(card, value, quantity, group, tierText, category, name)
+        updateTileBadge(card, value, quantity, group, tierText, category, name, resolutionStatus)
     end
     return total, known, count, tierCount
 end
@@ -1124,7 +1169,7 @@ local function scanOffer(offer, group)
         if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
-            local value, resolvedName, tierText, category = valueOf(tile, name)
+            local value, resolvedName, tierText, category, resolutionStatus = valueOf(tile, name)
             if name or value ~= nil or tierText then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
@@ -1140,10 +1185,10 @@ local function scanOffer(offer, group)
                     known = known + quantity
                     tierCount = tierCount + quantity
                 end
-                if value == nil and not tierText then
+                if value == nil and not tierText and resolutionStatus == "unknown" then
                     recordUnmatched(tile, name, quantity, state.unmatchedTrade)
                 end
-                updateTileBadge(tile, value, quantity, group, tierText, category, name)
+                updateTileBadge(tile, value, quantity, group, tierText, category, name, resolutionStatus)
             end
         end
     end
@@ -1222,7 +1267,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     elseif yourTierCount > 0 or theirTierCount > 0 then
         caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+        caption, color = "CHECK VALUES", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
@@ -1271,7 +1316,7 @@ local function scanTrade()
         if yourTierCount > 0 or theirTierCount > 0 then
             table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
         elseif yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+            table.insert(lines, "RESULT: PARTIAL VALUES — check UNKNOWN / NO VALUE items")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
@@ -1366,6 +1411,7 @@ local function scanModuleInventory()
             for itemKey, entry in pairs(subgroup) do
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
+                if EXCLUDED_ITEM_KEYS[tostring(itemKey)] then continue end
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
                 seen[tile] = true
@@ -1392,7 +1438,8 @@ local function scanModuleInventory()
                 if type(entry.Amount) == "number" and quantity <= 1 then
                     quantity = math.max(1, math.floor(entry.Amount))
                 end
-                local resolvedValue, _, tierText, category = valueOf(tile, name)
+                local resolvedValue, _, tierText, category, resolutionStatus =
+                    valueOf(tile, name, itemKey, collectionName == "Pets" and "Pet" or "Item")
                 if resolvedValue ~= nil then
                     total = total + resolvedValue * quantity
                     known = known + quantity
@@ -1401,10 +1448,10 @@ local function scanModuleInventory()
                     tierCount = tierCount + quantity
                 end
                 count = count + quantity
-                if resolvedValue == nil and not tierText then
+                if resolvedValue == nil and not tierText and resolutionStatus == "unknown" then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category, name, resolutionStatus)
             end
         end
     end
