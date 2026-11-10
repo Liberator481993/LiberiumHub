@@ -367,6 +367,48 @@ local function loadGameDatabase()
     return data, "ReplicatedStorage.Database.Sync"
 end
 
+local function splitVariant(raw)
+    local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
+    local kind, year
+    local function stripKind()
+        local base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
+        if not base or (suffix ~= "Knife" and suffix ~= "Gun") then
+            base, suffix = text:match("^(.-)%s+(%a+)$")
+        end
+        if base and (suffix == "Knife" or suffix == "Gun") then
+            text, kind = clean(base), suffix
+        end
+    end
+
+    stripKind()
+    local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
+    if not base then
+        base, suffix = text:match("^(.-)%s+(20%d%d)$")
+    end
+    if base then text, year = clean(base), suffix end
+    stripKind()
+    return text, kind, year
+end
+
+local function variantParserSelfTest()
+    local cases = {
+        {"Carrot (2023)", "Carrot", "2023", nil},
+        {"Carrot 2023", "Carrot", "2023", nil},
+        {"Carrot 2023 Knife", "Carrot", "2023", "Knife"},
+        {"Carrot Knife 2023", "Carrot", "2023", "Knife"},
+        {"Swirly Gun", "Swirly", nil, "Gun"},
+        {"Frozen (Gun)", "Frozen", nil, "Gun"}
+    }
+    for _, case in ipairs(cases) do
+        local name, kind, year = splitVariant(case[1])
+        if name ~= case[2] or year ~= case[3] or kind ~= case[4] then
+            return "failed: " .. case[1]
+        end
+    end
+    return "passed"
+end
+state.variantParserStatus = variantParserSelfTest()
+
 local function buildMapping(entries, database, rustIndexData)
     if type(database) ~= "table" or type(database.Item) ~= "table" then
         return nil, "invalid MM2 item database"
@@ -591,51 +633,7 @@ local function buildMapping(entries, database, rustIndexData)
         table.insert(petEntries, entry)
     end
 
-    -- Parse both the value title and image label; the image label often
-    -- carries the exact weapon type/year while the value title is generic.
-    local function splitVariant(raw)
-        local text = clean(raw):gsub("%s*%[[^%]]*%]%s*$", "")
-        local kind, year
-        local function stripKind()
-            local base, suffix = text:match("^(.-)%s*%((%a+)%)%s*$")
-            if not base or (suffix ~= "Knife" and suffix ~= "Gun") then
-                base, suffix = text:match("^(.-)%s+(%a+)$")
-            end
-            if base and (suffix == "Knife" or suffix == "Gun") then
-                text, kind = clean(base), suffix
-            end
-        end
 
-        -- Type and year suffixes can appear in either order in Supreme
-        -- card titles, e.g. "Carrot 2023 Knife" and "Carrot Knife 2023".
-        stripKind()
-        local base, suffix = text:match("^(.-)%s*%((20%d%d)%)%s*$")
-        if not base then
-            base, suffix = text:match("^(.-)%s+(20%d%d)$")
-        end
-        if base then text, year = clean(base), suffix end
-        stripKind()
-        return text, kind, year
-    end
-
-    local function variantParserSelfTest()
-        local cases = {
-            {"Carrot (2023)", "Carrot", "2023", nil},
-            {"Carrot 2023", "Carrot", "2023", nil},
-            {"Carrot 2023 Knife", "Carrot", "2023", "Knife"},
-            {"Carrot Knife 2023", "Carrot", "2023", "Knife"},
-            {"Swirly Gun", "Swirly", nil, "Gun"},
-            {"Frozen (Gun)", "Frozen", nil, "Gun"}
-        }
-        for _, case in ipairs(cases) do
-            local name, kind, year = splitVariant(case[1])
-            if name ~= case[2] or year ~= case[3] or kind ~= case[4] then
-                return "failed: " .. case[1]
-            end
-        end
-        return "passed"
-    end
-    state.variantParserStatus = variantParserSelfTest()
 
     local byKey, mappedCount = {}, 0
     for entryIndex, value in ipairs(entries) do
@@ -986,23 +984,7 @@ local function valueOf(tile, name)
     -- Some MM2 skins share an image asset. In that case, intersect the icon
     -- candidates with the visible card name instead of choosing the first
     -- database entry (the unsafe behavior in the old PulseHub resolver).
-    local displayName = clean(name)
-    local explicitKind, explicitYear
-    local base, suffix = displayName:match("^(.-)%s*%((%a+)%)%s*$")
-    if base and (suffix == "Knife" or suffix == "Gun") then
-        displayName, explicitKind = clean(base), suffix
-    else
-        base, suffix = displayName:match("^(.-)%s+(%a+)$")
-        if base and (suffix == "Knife" or suffix == "Gun") then
-            displayName, explicitKind = clean(base), suffix
-        end
-    end
-    base, suffix = displayName:match("^(.-)%s*%((20%d%d)%)%s*$")
-    if not base then
-        base, suffix = displayName:match("^(.-)%s+(20%d%d)$")
-    end
-    if base then displayName, explicitYear = clean(base), suffix end
-
+    local displayName, explicitKind, explicitYear = splitVariant(name)
     local normalizedName = normalize(displayName)
     local function eligible(candidate)
         if candidate.chroma ~= chroma then return false end
