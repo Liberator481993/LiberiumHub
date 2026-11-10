@@ -2026,6 +2026,16 @@ local function getInventoryModule()
 end
 
 local function scanModuleInventory()
+    -- Reset observable counters before any early return so a temporarily
+    -- unavailable InventoryModule cannot leave stale "data is present" state.
+    state.inventoryDataEntries = 0
+    state.inventoryFrames = 0
+    state.inventoryVisibleFrames = 0
+    state.inventoryGroups = 0
+    state.inventoryGuiFrames = 0
+    state.inventoryGuiValued = 0
+    state.inventoryGuiItems = 0
+
     local module = getInventoryModule()
     if not module then return 0, 0, 0, 0, nil end
 
