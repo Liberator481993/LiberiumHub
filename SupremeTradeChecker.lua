@@ -504,6 +504,28 @@ local function buildMapping(entries, database, rustIndexData)
         return keySuffix ~= nil and TROPHY_KEY_SUFFIXES[keySuffix:lower()] == true
     end
 
+    local function trophyDetectorSelfTest()
+        local cases = {
+            {name = "Gold Icepiercer", rarity = "Unique", key = "GoldIcepiercer", expected = true},
+            {name = "Silver Candy", rarity = "Unique", key = "SilverCandy", expected = true},
+            {name = "Red Icepiercer", rarity = "Unique", key = "RedIcepiercer", expected = true},
+            {name = "Goldfish", rarity = "Unique", key = "Goldfish", expected = false},
+            {name = "Gold Luger", rarity = "Godly", key = "GoldLuger", expected = false},
+            {name = "Vampire's Edge", rarity = "Unique", key = "VampiresEdge", expected = false}
+        }
+        for _, testCase in ipairs(cases) do
+            local actual = isTrophyRecord({
+                ItemName = testCase.name,
+                Rarity = testCase.rarity
+            }, testCase.key)
+            if actual ~= testCase.expected then
+                return "failed: " .. testCase.name
+            end
+        end
+        return "passed"
+    end
+    state.trophyDetectorStatus = trophyDetectorSelfTest()
+
     local function addIndex(name, entry)
         if name == "" then return end
         index[name] = index[name] or {}
@@ -3063,6 +3085,7 @@ local function buildDiagnostic(includeDeepDump)
         "Last error: " .. tostring(state.lastError or "none"),
         "Tier comparator self-test: " .. TIER_SELF_TEST,
         "Numeric parser self-test: " .. tostring(state.numericParserStatus or "not run"),
+        "Trophy detector self-test: " .. tostring(state.trophyDetectorStatus or "not run"),
         "Tier comparator mode: same-unit comparison only; no tier-to-numeric conversion",
         "",
         "CURRENT TRADE:",
