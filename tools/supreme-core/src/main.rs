@@ -268,9 +268,9 @@ fn fetch_all() -> Result<MappingFile, String> {
         for (&category, handle) in batch.iter().zip(handles) {
             match handle.join().map_err(|_| format!("{category}: fetch worker panicked"))? {
                 Ok((name, mut parsed, cards)) => {
-                    category_counts.insert(name.clone(), parsed.len());
-                    page_card_counts.insert(name, cards);
+                    page_card_counts.insert(name.clone(), cards);
                     if !matches!(category, "sets" | "evos" | "untradables") {
+                        category_counts.insert(name, parsed.len());
                         entries.append(&mut parsed);
                     }
                 }
