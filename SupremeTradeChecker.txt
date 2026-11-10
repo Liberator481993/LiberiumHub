@@ -707,7 +707,15 @@ local function valueOf(tile, name, itemKey, itemKind)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
-        if chroma then iconKey = mapped.chromaOf[iconKey] or iconKey end
+        local iconRecord = mapped.dbByKey and mapped.dbByKey[iconKey]
+        -- If the exact icon already belongs to a Chroma record, trust that
+        -- record even when the GUI tag is missing. Otherwise, a visible Chroma
+        -- tag must resolve to its paired Chroma key; never fall back to the
+        -- regular item's value when the Chroma pair is absent.
+        if not (iconRecord and iconRecord.chroma) and chroma then
+            iconKey = mapped.chromaOf[iconKey]
+            if not iconKey then return nil, nil, nil, nil, "unknown" end
+        end
         local entry = mapped.byKey[iconKey]
         -- The icon identifies the exact MM2 record. Do not fall through to a
         -- different same-name item when Supreme has no value for this record.
