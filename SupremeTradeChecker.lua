@@ -78,7 +78,8 @@ local state = {
     unmatchedInventory = {},
     unmatchedTrade = {},
     tradeNoValue = 0,
-    tradeUnknown = 0
+    tradeUnknown = 0,
+    tradeUntradable = 0
 }
 local stopped = false
 local tileCache = setmetatable({}, {__mode = "k"})
@@ -1627,8 +1628,10 @@ local function scanOffer(offer, group)
             if group == "trade" then
                 if resolveStatus == "NO VALUE" then
                     state.tradeNoValue = (state.tradeNoValue or 0) + quantity
-                elseif resolveStatus == "UNKNOWN" or (not value and not tierText and not resolveStatus) then
+                elseif resolveStatus == "UNKNOWN" then
                     state.tradeUnknown = (state.tradeUnknown or 0) + quantity
+                elseif resolveStatus == "UNTRADABLE" then
+                    state.tradeUntradable = (state.tradeUntradable or 0) + quantity
                 end
             end
             if value == nil and not tierText and resolveStatus == "UNKNOWN" and hasIdentifier then
@@ -1931,6 +1934,7 @@ local function scanTrade()
     state.unmatchedTrade = {}
     state.tradeNoValue = 0
     state.tradeUnknown = 0
+    state.tradeUntradable = 0
     local screen, container, trade = findTrade()
     if not screen then
         clearTradeLabels(lastTradeRoot)
@@ -2043,6 +2047,9 @@ local function scanModuleInventory()
     state.inventoryGuiFrames = 0
     state.inventoryGuiValued = 0
     state.inventoryGuiItems = 0
+    state.inventoryFrameProbe = "not scanned"
+    state.inventoryKeyStats = "not scanned"
+    state.inventoryResolutionStats = "not scanned"
 
     local module = getInventoryModule()
     if not module then return 0, 0, 0, 0, nil end
@@ -2105,7 +2112,7 @@ local function scanModuleInventory()
                         .. " ItemKey=" .. tostring(entry.ItemKey or entry.Key or "nil")
                         .. " Name=" .. tostring(entry.Name or entry.ItemName or "nil"))
                 end
-                if (dbKind == "Item" and (keyText == "DefaultKnife" or keyText == "DefaultGun")) then
+                if collectionName == "Weapons" and (keyText == "DefaultKnife" or keyText == "DefaultGun") then
                     intentionalDefaultQty = intentionalDefaultQty
                         + math.max(1, math.floor(tonumber(entry.Amount) or 1))
                     if #intentionalDefaultSamples < 10 then
@@ -3030,7 +3037,8 @@ local function buildDiagnostic(includeDeepDump)
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "TRADE RESOLUTION: NO_VALUE=" .. tostring(state.tradeNoValue or 0)
-            .. " UNKNOWN=" .. tostring(state.tradeUnknown or 0),
+            .. " UNKNOWN=" .. tostring(state.tradeUnknown or 0)
+            .. " UNTRADABLE=" .. tostring(state.tradeUntradable or 0),
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
