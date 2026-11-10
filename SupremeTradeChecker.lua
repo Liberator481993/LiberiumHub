@@ -1630,7 +1630,7 @@ local function scanOffer(offer, group)
                     state.tradeNoValue = (state.tradeNoValue or 0) + quantity
                 elseif resolveStatus == "UNKNOWN" then
                     state.tradeUnknown = (state.tradeUnknown or 0) + quantity
-                elseif resolveStatus == "UNTRADABLE" then
+                elseif resolveStatus == "UNTRADABLE" or resolveStatus == "DEFAULT" then
                     state.tradeUntradable = (state.tradeUntradable or 0) + quantity
                 end
             end
