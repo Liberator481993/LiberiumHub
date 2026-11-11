@@ -828,7 +828,11 @@ function Section:AddLabel(name, description)
         desc.Size = UDim2.new(1, -22, 0, 16)
         self.Tab.Window:_bindColor(desc, "TextColor3", "Muted")
     end
-    return makeControlHandle(self, name, row, function() return name end, function() end)
+    local value = tostring(name)
+    return makeControlHandle(self, name, row, function() return value end, function(nextValue)
+        value = tostring(nextValue or "")
+        title.Text = value
+    end)
 end
 
 function Section:AddToggle(name, defaultValue, callback)
