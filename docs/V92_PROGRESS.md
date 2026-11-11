@@ -61,6 +61,19 @@ Still pending in this stage: bomb jump, invisibility, glitch speed, wall hop and
 
 **Validation:** awaiting CI compile and bundle verification; no live executor test has been performed.
 
+## Stage 4 — Box Farm
+
+**Implementation status:** first Mystery Box Farm implementation integrated into `Farm → Boxes`.
+
+- Catalog is read from the game's replicated Database/Sync and MysteryBox tables.
+- Currency selection supports Auto, Candies, Halloween Key, Key, Coins and Gems.
+- Balance checks are performed before calling the game's OpenCrate remote.
+- Includes Open Once, opt-in Auto Open, delay control, optional box animation and opening statistics.
+- Auto Open defaults to off; opening boxes spends the selected in-game currency.
+- Module and controls are embedded into the single-file Keyless output.
+
+**Validation:** awaiting CI for the combined current branch; no live game test has been performed. The current implementation depends on the live structure and returned values of the game's Database/Sync, ProfileData and OpenCrate objects.
+
 ## Next stages
 
 2. Finish remaining Movement options and shared feature lifecycle.
