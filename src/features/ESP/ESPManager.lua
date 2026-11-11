@@ -1,7 +1,7 @@
 -- Liberium Hub | Advanced 2D/3D ESP manager
 -- Original module for Box, Chams, Tracers and Radar overlays.
 
-local Maid = require(script.Parent.Parent.core.Maid)
+local Maid = require(script.Parent.Parent.Parent.core.Maid)
 
 local ESPManager = {}
 ESPManager.__index = ESPManager
