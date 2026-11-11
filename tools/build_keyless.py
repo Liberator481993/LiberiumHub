@@ -37,6 +37,7 @@ def build() -> str:
     movement = read_text("src/features/Movement/MovementPlus.lua")
     esp = read_text("src/features/ESP/ESPManager.lua")
     anti_coin = read_text("src/features/Movement/AntiCoin.lua")
+    box_farm = read_text("src/features/Farm/BoxFarm.lua")
 
     start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\n"
     end_marker = "local Config = ConfigManager.new()"
@@ -77,6 +78,11 @@ def build() -> str:
         "local Maid = EmbeddedMaid",
         1,
     )
+    box_farm = box_farm.replace(
+        "local Maid = require(script.Parent.Parent.Parent.core.Maid)",
+        "local Maid = EmbeddedMaid",
+        1,
+    )
 
     embedded = [
         "-- v92 Nova UI modules are embedded for executor compatibility.",
@@ -90,6 +96,8 @@ def build() -> str:
         "local ESPManager = EmbeddedESPManager",
         wrap_module("EmbeddedAntiCoin", anti_coin),
         "local AntiCoin = EmbeddedAntiCoin",
+        wrap_module("EmbeddedBoxFarm", box_farm),
+        "local BoxFarm = EmbeddedBoxFarm",
         "local Lib = EmbeddedAdapter.create(EmbeddedWindow)\n",
         "",
     ]
