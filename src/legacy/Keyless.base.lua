@@ -56,7 +56,7 @@ local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleH
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
 local currentSession, canFarmNow
 local VisualOptimizer, Crosshair, crosshairObj, SessionManager, AestheticsManager, StatsTracker, statsObj, eventLogger, logGui, TargetHUD, targetHUD, Stabilizer
-local MovementUtility, movementObj, MovementPlus, movementPlus, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
+local MovementUtility, movementObj, MovementPlus, movementPlus, ESPManager, advancedESP, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
 local getTouchPart
 local Dropdown
 local stopTracerHooks
@@ -80,6 +80,7 @@ getgenv().LiberiumCleanup = function()
     if NotificationManager then pcall(function() NotificationManager.Destroy() end) end
     if overheadTracker then pcall(function() overheadTracker:Destroy() end) end
     if aimMarker then pcall(function() aimMarker:Destroy() end) end
+    if advancedESP then pcall(function() advancedESP:Destroy() end) end
     if roleHUD then pcall(function() roleHUD:Destroy() end) end
     if eventLogger then pcall(function() eventLogger:Destroy() end) end
     if logGui then pcall(function() logGui:Destroy() end) end
@@ -109,6 +110,7 @@ local CFG = {
     WalkSpeed = 16, JumpPower = 50, Noclip = false,
     InfiniteJump = false, Fly = false, FlySpeed = 60, Spin = false, SpinSpeed = 12, CustomGravity = false, GravityValue = 196.2,
     CameraNoclip = false, Bhop = false, BhopPower = 5,
+    BoxESP = false, ChamsESP = false, TracersESP = false, RadarESP = false, ESPMaxDistance = 250,
     FOVCircle = false, FOVRadius = 150, FOVColor = "Purple",
     SkeletonESP = false, SkeletonColor = "Purple", ShaderPreset = "Default", LocalAura = "None",
     Tracers = false, TracerColor = "Yellow",
@@ -1602,7 +1604,7 @@ for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 CFG.ConfigSchemaVersion = 2
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, CameraNoclip=false, Bhop=false, BhopPower=5, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
+local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, CameraNoclip=false, Bhop=false, BhopPower=5, BoxESP=false, ChamsESP=false, TracersESP=false, RadarESP=false, ESPMaxDistance=250, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
     FOVColor = {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"},
@@ -1635,6 +1637,7 @@ local function normalizeConfig()
     CFG.SpinSpeed = math.clamp(CFG.SpinSpeed, 0, 60)
     CFG.GravityValue = math.clamp(CFG.GravityValue, 5, 400)
     CFG.BhopPower = math.clamp(CFG.BhopPower, 1, 10)
+    CFG.ESPMaxDistance = math.clamp(CFG.ESPMaxDistance, 25, 1500)
 end
 normalizeConfig()
 -- Prevent stale saved settings from forcing a reticle on during startup; it can be enabled manually in the UI.
@@ -2403,6 +2406,28 @@ end)
 
 roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("LIBERIUM HUB")
 
+advancedESP = ESPManager.new({
+    Players = Players,
+    LocalPlayer = LocalPlayer,
+    RunService = RunService,
+    Workspace = Workspace,
+    ParentGui = PlayerGui,
+    MaxDistance = CFG.ESPMaxDistance,
+    GetRoleColor = function(player)
+        local role = resolvePlayerRole(roles, player)
+        local colors = {
+            murderer = Color3.fromRGB(255, 70, 70),
+            killer = Color3.fromRGB(255, 70, 70),
+            zombie = Color3.fromRGB(255, 70, 70),
+            sheriff = Color3.fromRGB(70, 140, 255),
+            hero = Color3.fromRGB(255, 225, 45),
+            innocent = Color3.fromRGB(70, 220, 120),
+            survivor = Color3.fromRGB(70, 220, 120),
+        }
+        return colors[role] or THEME.Accent
+    end,
+})
+
 -- LIBERIUM API v92: additive developer facade.
 -- Keeps the v91.18 UI and gameplay systems intact while providing a consistent
 -- registry, event bus, middleware hooks, pre-checks, and cleanup lifecycle.
@@ -2822,6 +2847,8 @@ colorFromName = function(name)
     return colors[name] or colors.White
 end
 local sSkel = tVis:AddSubTab("Skeleton"); local secSkel = sSkel:AddSection("Bones"); local skelToggle = secSkel:AddToggle("Skeleton ESP", CFG.SkeletonESP, function(v) CFG.SkeletonESP = v if v then skeletonObj:SetVisible(true) else skeletonObj:SetVisible(false) end end); local skelColorDropdown = secSkel:AddDropdown("Skeleton Color", {"White", "Purple", "Red", "Green", "Yellow", "Cyan"}, CFG.SkeletonColor, function(v) CFG.SkeletonColor = v if skeletonObj then skeletonObj:SetColor(colorFromName(v)) end end)
+
+local sAdvESP = tVis:AddSubTab("Advanced"); local secAdvESP = sAdvESP:AddSection("Player Overlay"); local boxEspToggle = secAdvESP:AddToggle("Box ESP", CFG.BoxESP, function(v) CFG.BoxESP = v; advancedESP:SetBox(v) end); local chamsEspToggle = secAdvESP:AddToggle("Chams ESP", CFG.ChamsESP, function(v) CFG.ChamsESP = v; advancedESP:SetChams(v) end); local tracersEspToggle = secAdvESP:AddToggle("Tracers", CFG.TracersESP, function(v) CFG.TracersESP = v; advancedESP:SetTracers(v) end); local radarEspToggle = secAdvESP:AddToggle("Radar", CFG.RadarESP, function(v) CFG.RadarESP = v; advancedESP:SetRadar(v) end); local espDistanceSlider = secAdvESP:AddSlider("Max ESP Distance", 25, 1500, CFG.ESPMaxDistance, function(v) CFG.ESPMaxDistance = v; advancedESP:SetMaxDistance(v) end)
 local sLoot = tVis:AddSubTab("Loot"); local secLoot = sLoot:AddSection("Collectibles"); local lootToggle = secLoot:AddToggle("Enable Loot ESP", CFG.LootESP, function(v) CFG.LootESP = v if v then lootObj:Start() else lootObj:Stop() end end)
 local sPerf = tVis:AddSubTab("Performance"); local secP = sPerf:AddSection("Optimization"); local optToggle = secP:AddToggle("Optimize FPS", CFG.OptimizeFPS, function(v) CFG.OptimizeFPS = v VisualOptimizer.OptimizeVisuals(v) end); local statsToggle = secP:AddToggle("Show Stats", CFG.ShowStats, function(v) CFG.ShowStats = v if statsObj then statsObj:SetVisible(v) end end)
 local sAes = tVis:AddSubTab("Aesthetics"); local secAes = sAes:AddSection("Shaders"); local shaderPresetDropdown = secAes:AddDropdown("Shader Preset", {"Default", "Neon", "Cinematic"}, "Default", function(v) CFG.ShaderPreset = v; AestheticsManager.ApplyShaderPreset(v) end); local secAura = sAes:AddSection("Auras"); local auraDropdown = secAura:AddDropdown("Local Aura", {"None", "Fire", "Ice"}, "None", function(v) CFG.LocalAura = v; if v == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, v) end end)
@@ -2857,6 +2884,11 @@ secCfg:AddButton("Load Settings", function()
     espOutlineToggle:Set(CFG.ESP_Outline, true); espFillToggle:Set(CFG.ESP_Fill, true)
     espNameToggle:Set(CFG.ESP_Name, true); espDistToggle:Set(CFG.ESP_Distance, true)
     skelToggle:Set(CFG.SkeletonESP, true); skelColorDropdown:Set(CFG.SkeletonColor, true)
+    boxEspToggle:Set(CFG.BoxESP, true); advancedESP:SetBox(CFG.BoxESP)
+    chamsEspToggle:Set(CFG.ChamsESP, true); advancedESP:SetChams(CFG.ChamsESP)
+    tracersEspToggle:Set(CFG.TracersESP, true); advancedESP:SetTracers(CFG.TracersESP)
+    radarEspToggle:Set(CFG.RadarESP, true); advancedESP:SetRadar(CFG.RadarESP)
+    espDistanceSlider:Set(CFG.ESPMaxDistance, true); advancedESP:SetMaxDistance(CFG.ESPMaxDistance)
     lootToggle:Set(CFG.LootESP, true); autoFlingToggle:Set(CFG.AutoFling, true)
     antiFlingToggle:Set(CFG.AntiFling, true); predictionToggle:Set(CFG.Prediction, true)
     projSpeedSlider:Set(CFG.ProjSpeed, true); predictionStyleDropdown:Set(CFG.PredictionStyle, true)
@@ -2873,6 +2905,11 @@ secCfg:AddButton("Load Settings", function()
     if roleHUD then if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end; roleHUD:Refresh() end
     if overheadTracker then if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end
     if skeletonObj then skeletonObj:SetVisible(CFG.SkeletonESP); skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) end
+    boxEspToggle:Set(CFG.BoxESP, true); advancedESP:SetBox(CFG.BoxESP)
+    chamsEspToggle:Set(CFG.ChamsESP, true); advancedESP:SetChams(CFG.ChamsESP)
+    tracersEspToggle:Set(CFG.TracersESP, true); advancedESP:SetTracers(CFG.TracersESP)
+    radarEspToggle:Set(CFG.RadarESP, true); advancedESP:SetRadar(CFG.RadarESP)
+    espDistanceSlider:Set(CFG.ESPMaxDistance, true); advancedESP:SetMaxDistance(CFG.ESPMaxDistance)
     if lootObj then if CFG.LootESP then lootObj:Start() else lootObj:Stop() end end
     if statsObj then statsObj:SetVisible(CFG.ShowStats) end
     if movementObj then movementObj:SetWalkSpeed(CFG.WalkSpeed); movementObj:SetJumpPower(CFG.JumpPower); movementObj:SetCollision(not CFG.Noclip) end

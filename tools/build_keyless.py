@@ -35,6 +35,7 @@ def build() -> str:
     window = read_text("src/ui/Window.lua")
     adapter = read_text("src/ui/LegacyAdapter.lua")
     movement = read_text("src/features/Movement/MovementPlus.lua")
+    esp = read_text("src/features/ESP/ESPManager.lua")
 
     start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\n"
     end_marker = "local Config = ConfigManager.new()"
@@ -65,6 +66,11 @@ def build() -> str:
         "local Maid = EmbeddedMaid",
         1,
     )
+    esp = esp.replace(
+        "local Maid = require(script.Parent.Parent.core.Maid)",
+        "local Maid = EmbeddedMaid",
+        1,
+    )
 
     embedded = [
         "-- v92 Nova UI modules are embedded for executor compatibility.",
@@ -74,6 +80,8 @@ def build() -> str:
         wrap_module("EmbeddedAdapter", adapter),
         wrap_module("EmbeddedMovementPlus", movement),
         "local MovementPlus = EmbeddedMovementPlus",
+        wrap_module("EmbeddedESPManager", esp),
+        "local ESPManager = EmbeddedESPManager",
         "local Lib = EmbeddedAdapter.create(EmbeddedWindow)\n",
         "",
     ]
