@@ -56,7 +56,7 @@ local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleH
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
 local currentSession, canFarmNow
 local VisualOptimizer, Crosshair, crosshairObj, SessionManager, AestheticsManager, StatsTracker, statsObj, eventLogger, logGui, TargetHUD, targetHUD, Stabilizer
-local MovementUtility, movementObj, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
+local MovementUtility, movementObj, MovementPlus, movementPlus, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
 local getTouchPart
 local Dropdown
 local stopTracerHooks
@@ -90,6 +90,7 @@ getgenv().LiberiumCleanup = function()
     if AestheticsManager then pcall(function() AestheticsManager.Destroy() end) end
     if statsObj then pcall(function() statsObj:Destroy() end) end
     if targetHUD then pcall(function() targetHUD:Destroy() end) end
+    if movementPlus then pcall(function() movementPlus:Destroy() end) end
     if movementObj then pcall(function() movementObj:Destroy() end) end
     if lootObj then pcall(function() lootObj:Destroy() end) end
     if fovObj then pcall(function() fovObj:Destroy() end) end
@@ -106,6 +107,7 @@ local CFG = {
     AntiFling = true, PredictionStyle = "Classic", Prediction = false, ProjSpeed = 100,
     OptimizeFPS = false, Crosshair = false, AntiAFK = false, ShowStats = true,
     WalkSpeed = 16, JumpPower = 50, Noclip = false,
+    InfiniteJump = false, Fly = false, FlySpeed = 60, Spin = false, SpinSpeed = 12, CustomGravity = false, GravityValue = 196.2,
     FOVCircle = false, FOVRadius = 150, FOVColor = "Purple",
     SkeletonESP = false, SkeletonColor = "Purple", ShaderPreset = "Default", LocalAura = "None",
     Tracers = false, TracerColor = "Yellow",
@@ -1599,7 +1601,7 @@ for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 CFG.ConfigSchemaVersion = 2
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
+local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
     FOVColor = {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"},
@@ -1628,6 +1630,9 @@ local function normalizeConfig()
     CFG.JumpPower = math.clamp(CFG.JumpPower, 50, 500)
     CFG.FOVRadius = math.clamp(CFG.FOVRadius, 20, 500)
     CFG.PickupRange = math.clamp(CFG.PickupRange, 20, 300)
+    CFG.FlySpeed = math.clamp(CFG.FlySpeed, 10, 250)
+    CFG.SpinSpeed = math.clamp(CFG.SpinSpeed, 0, 60)
+    CFG.GravityValue = math.clamp(CFG.GravityValue, 5, 400)
 end
 normalizeConfig()
 -- Prevent stale saved settings from forcing a reticle on during startup; it can be enabled manually in the UI.
@@ -2820,6 +2825,8 @@ local sPerf = tVis:AddSubTab("Performance"); local secP = sPerf:AddSection("Opti
 local sAes = tVis:AddSubTab("Aesthetics"); local secAes = sAes:AddSection("Shaders"); local shaderPresetDropdown = secAes:AddDropdown("Shader Preset", {"Default", "Neon", "Cinematic"}, "Default", function(v) CFG.ShaderPreset = v; AestheticsManager.ApplyShaderPreset(v) end); local secAura = sAes:AddSection("Auras"); local auraDropdown = secAura:AddDropdown("Local Aura", {"None", "Fire", "Ice"}, "None", function(v) CFG.LocalAura = v; if v == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, v) end end)
 
 local tPlayer = win:AddTab("Player", "🏃"); local sMove = tPlayer:AddSubTab("Movement"); local secMove = sMove:AddSection("Speed & Jump"); local wsSlider = secMove:AddSlider("Walk Speed", 16, 200, CFG.WalkSpeed, function(v) CFG.WalkSpeed = v movementObj:SetWalkSpeed(v) end); local jpSlider = secMove:AddSlider("Jump Power", 50, 500, CFG.JumpPower, function(v) CFG.JumpPower = v movementObj:SetJumpPower(v) end); local noclipToggle = secMove:AddToggle("Noclip (Phase Walk)", CFG.Noclip, function(v) CFG.Noclip = v movementObj:SetCollision(not v) end)
+    
+local sAdvancedMove = tPlayer:AddSubTab("Advanced"); local secAdvancedMove = sAdvancedMove:AddSection("Movement Extensions"); local infiniteJumpToggle = secAdvancedMove:AddToggle("Infinite Jump", CFG.InfiniteJump, function(v) CFG.InfiniteJump = v if movementPlus then movementPlus:SetInfiniteJump(v) end end); local flyToggle = secAdvancedMove:AddToggle("Fly", CFG.Fly, function(v) CFG.Fly = v if movementPlus then movementPlus:SetFly(v) end end); local flySpeedSlider = secAdvancedMove:AddSlider("Fly Speed", 10, 250, CFG.FlySpeed, function(v) CFG.FlySpeed = v if movementPlus then movementPlus:SetFlySpeed(v) end end); local spinToggle = secAdvancedMove:AddToggle("Spin", CFG.Spin, function(v) CFG.Spin = v if movementPlus then movementPlus:SetSpin(v) end end); local spinSpeedSlider = secAdvancedMove:AddSlider("Spin Speed", 0, 60, CFG.SpinSpeed, function(v) CFG.SpinSpeed = v if movementPlus then movementPlus:SetSpinSpeed(v) end end); local gravityToggle = secAdvancedMove:AddToggle("Custom Gravity", CFG.CustomGravity, function(v) CFG.CustomGravity = v if movementPlus then movementPlus:SetGravity(v) end end); local gravitySlider = secAdvancedMove:AddSlider("Gravity", 5, 400, CFG.GravityValue, function(v) CFG.GravityValue = v if movementPlus then movementPlus:SetGravityValue(v) end end)
 
 local tCom = win:AddTab("Combat", "⚔"); local sCom = tCom:AddSubTab("Fling"); local secC = sCom:AddSection("Actions"); local autoFlingToggle = secC:AddToggle("Auto Fling", CFG.AutoFling, function(v) CFG.AutoFling = v end); secC:AddButton("Manual Fling", function() if not currentSession or currentSession.destroyed or not currentSession.root then return end local m = getClosestMurderer(currentSession.root.Position) if m then ApplyPhysicsImpulse(m.Parent) end end); local antiFlingToggle = secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
 local sAim = tCom:AddSubTab("Aim"); local secA = sAim:AddSection("Prediction"); local predictionToggle = secA:AddToggle("Show Aim Prediction", CFG.Prediction, function(v) CFG.Prediction = v end); local projSpeedSlider = secA:AddSlider("Projectile Speed", 50, 500, CFG.ProjSpeed, function(v) CFG.ProjSpeed = v end); local predictionStyleDropdown = secA:AddDropdown("Prediction Style", {"Classic", "Compact", "HUD Only"}, CFG.PredictionStyle, function(v) CFG.PredictionStyle = v end)
@@ -2857,6 +2864,10 @@ secCfg:AddButton("Load Settings", function()
     optToggle:Set(CFG.OptimizeFPS, true); statsToggle:Set(CFG.ShowStats, true)
     wsSlider:Set(CFG.WalkSpeed, true); jpSlider:Set(CFG.JumpPower, true)
     noclipToggle:Set(CFG.Noclip, true); afkToggle:Set(CFG.AntiAFK, true)
+    infiniteJumpToggle:Set(CFG.InfiniteJump, true); movementPlus:SetInfiniteJump(CFG.InfiniteJump)
+    flyToggle:Set(CFG.Fly, true); movementPlus:SetFlySpeed(CFG.FlySpeed); movementPlus:SetFly(CFG.Fly)
+    flySpeedSlider:Set(CFG.FlySpeed, true); spinToggle:Set(CFG.Spin, true); movementPlus:SetSpinSpeed(CFG.SpinSpeed); movementPlus:SetSpin(CFG.Spin)
+    spinSpeedSlider:Set(CFG.SpinSpeed, true); gravityToggle:Set(CFG.CustomGravity, true); movementPlus:SetGravityValue(CFG.GravityValue); movementPlus:SetGravity(CFG.CustomGravity); gravitySlider:Set(CFG.GravityValue, true)
     if roleHUD then if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end; roleHUD:Refresh() end
     if overheadTracker then if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end
     if skeletonObj then skeletonObj:SetVisible(CFG.SkeletonESP); skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) end
@@ -2878,7 +2889,11 @@ secCfg:AddButton("Load Settings", function()
 end)
 local sSess = tSet:AddSubTab("Session"); local secSess = sSess:AddSection("Anti-AFK"); local afkToggle = secSess:AddToggle("Enable Anti-AFK", CFG.AntiAFK, function(v) CFG.AntiAFK = v if v then SessionManager.StartAntiAFK() else SessionManager.StopAntiAFK() end end); local secTeleport = sSess:AddSection("Teleport"); secTeleport:AddButton("Rejoin Server", function() SessionManager.RejoinServer() end); secTeleport:AddButton("Server Hop", function() SessionManager.ServerHop() end)
 
-task.defer(function() if CFG.AutoFarm then coinTracker:Start(); farmToggle:Set(true, true) end if CFG.AutoPickup and not CFG.AutoFarm then weaponTracker:Start(); pickupToggle:Set(true, true) else weaponTracker:Stop() end if CFG.ESP_Outline or CFG.ESP_Fill then espOutlineToggle:Set(CFG.ESP_Outline, true) espFillToggle:Set(CFG.ESP_Fill, true) roleHUD:Start() end if CFG.ESP_Name or CFG.ESP_Distance then espNameToggle:Set(CFG.ESP_Name, true) espDistToggle:Set(CFG.ESP_Distance, true) overheadTracker:Start() end if CFG.SkeletonESP then skelToggle:Set(true, true) skeletonObj:SetVisible(true) end skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) if CFG.LootESP then lootToggle:Set(true, true) lootObj:Start() end if CFG.AntiFling then antiFlingToggle:Set(true, true) Stabilizer.Start() end if CFG.OptimizeFPS then optToggle:Set(true, true) VisualOptimizer.OptimizeVisuals(true) end if CFG.AntiAFK then afkToggle:Set(true, true) SessionManager.StartAntiAFK() end if CFG.WalkSpeed ~= 16 then wsSlider:Set(CFG.WalkSpeed, true) movementObj:SetWalkSpeed(CFG.WalkSpeed) end if CFG.JumpPower ~= 50 then jpSlider:Set(CFG.JumpPower, true) movementObj:SetJumpPower(CFG.JumpPower) end if CFG.Noclip then noclipToggle:Set(true, true) movementObj:SetCollision(false) end if CFG.FOVCircle then fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then tracerToggle:Set(true, true); startTracerHooks() end shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
+task.defer(function() if CFG.AutoFarm then coinTracker:Start(); farmToggle:Set(true, true) end if CFG.AutoPickup and not CFG.AutoFarm then weaponTracker:Start(); pickupToggle:Set(true, true) else weaponTracker:Stop() end if CFG.ESP_Outline or CFG.ESP_Fill then espOutlineToggle:Set(CFG.ESP_Outline, true) espFillToggle:Set(CFG.ESP_Fill, true) roleHUD:Start() end if CFG.ESP_Name or CFG.ESP_Distance then espNameToggle:Set(CFG.ESP_Name, true) espDistToggle:Set(CFG.ESP_Distance, true) overheadTracker:Start() end if CFG.SkeletonESP then skelToggle:Set(true, true) skeletonObj:SetVisible(true) end skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) if CFG.LootESP then lootToggle:Set(true, true) lootObj:Start() end if CFG.AntiFling then antiFlingToggle:Set(true, true) Stabilizer.Start() end if CFG.OptimizeFPS then optToggle:Set(true, true) VisualOptimizer.OptimizeVisuals(true) end if CFG.AntiAFK then afkToggle:Set(true, true) SessionManager.StartAntiAFK() end if CFG.WalkSpeed ~= 16 then wsSlider:Set(CFG.WalkSpeed, true) movementObj:SetWalkSpeed(CFG.WalkSpeed) end if CFG.JumpPower ~= 50 then jpSlider:Set(CFG.JumpPower, true) movementObj:SetJumpPower(CFG.JumpPower) end if CFG.Noclip then noclipToggle:Set(true, true) movementObj:SetCollision(false) end
+    infiniteJumpToggle:Set(CFG.InfiniteJump, true); movementPlus:SetInfiniteJump(CFG.InfiniteJump)
+    flySpeedSlider:Set(CFG.FlySpeed, true); movementPlus:SetFlySpeed(CFG.FlySpeed); flyToggle:Set(CFG.Fly, true); movementPlus:SetFly(CFG.Fly)
+    spinSpeedSlider:Set(CFG.SpinSpeed, true); movementPlus:SetSpinSpeed(CFG.SpinSpeed); spinToggle:Set(CFG.Spin, true); movementPlus:SetSpin(CFG.Spin)
+    gravitySlider:Set(CFG.GravityValue, true); movementPlus:SetGravityValue(CFG.GravityValue); gravityToggle:Set(CFG.CustomGravity, true); movementPlus:SetGravity(CFG.CustomGravity) if CFG.FOVCircle then fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then tracerToggle:Set(true, true); startTracerHooks() end shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
 
 statsObj = StatsTracker.new(PlayerGui, { Position = UDim2.new(0, 10, 0, 180) }) statsObj:SetVisible(CFG.ShowStats)
 crosshairObj = Crosshair.new(PlayerGui, { Color = Color3.fromRGB(255, 255, 255), Size = 20 })
@@ -2886,6 +2901,7 @@ crosshairObj = Crosshair.new(PlayerGui, { Color = Color3.fromRGB(255, 255, 255),
 crosshairObj:SetVisible(false)
 targetHUD = TargetHUD.new(PlayerGui)
 movementObj = MovementUtility.new()
+movementPlus = MovementPlus.new({ Player = LocalPlayer, Workspace = Workspace, RunService = RunService, UserInputService = UserInputService })
 lootObj = LootTracker.new(PlayerGui)
 skeletonObj = SkeletonVisualizer.new(PlayerGui)
 
