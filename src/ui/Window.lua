@@ -168,6 +168,10 @@ function Window:_mount(parent)
     self.Gui = gui
     self._connections:Give(gui, "gui")
 
+    self.LayoutSize = self.Size
+    self.SidebarWidth = SIDEBAR_WIDTH
+    self.TouchMode = false
+
     local root = create("Frame", {
         Name = "Root",
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -205,7 +209,7 @@ function Window:_mount(parent)
 
     local sidebar = create("Frame", {
         Name = "Sidebar",
-        Size = UDim2.new(0, SIDEBAR_WIDTH, 1, 0),
+        Size = UDim2.new(0, self.SidebarWidth, 1, 0),
         BackgroundColor3 = theme:Get("Sidebar"),
         BorderSizePixel = 0,
         ZIndex = 2,
@@ -320,8 +324,8 @@ function Window:_mount(parent)
 
     local main = create("Frame", {
         Name = "Main",
-        Position = UDim2.fromOffset(SIDEBAR_WIDTH, 0),
-        Size = UDim2.new(1, -SIDEBAR_WIDTH, 1, 0),
+        Position = UDim2.fromOffset(self.SidebarWidth, 0),
+        Size = UDim2.new(1, -self.SidebarWidth, 1, 0),
         BackgroundTransparency = 1,
         ZIndex = 2,
     }, shell)
@@ -439,6 +443,8 @@ end
 
 function Window:_bindViewport()
     local workspace = game:GetService("Workspace")
+    local inputService = game:GetService("UserInputService")
+
     local function update()
         local camera = workspace.CurrentCamera
         if not camera or not self.Root or not self.Root.Parent then
@@ -446,43 +452,66 @@ function Window:_bindViewport()
         end
 
         local viewport = camera.ViewportSize
-        local width = math.max(1, viewport.X - 24)
-        local height = math.max(1, viewport.Y - 24)
-        local fit = math.min(width / self.Size.X, height / self.Size.Y)
-        local scale = math.min(self.ScaleValue, fit)
-        self.Scale.Scale = math.clamp(scale, 0.35, self.ScaleValue)
+        local mobile = inputService.TouchEnabled and viewport.X < 700
+        local portrait = viewport.Y >= viewport.X
+        local layoutSize = self.Size
+        local sidebarWidth = SIDEBAR_WIDTH
 
-        local isCompact = self.Scale.Scale < 0.64
-        self.BrandSubtitle.Visible = not isCompact
-        self.SearchWrap.Visible = not isCompact
-        self.Sidebar.Size = UDim2.new(0, isCompact and 178 or SIDEBAR_WIDTH, 1, 0)
-        self.Main.Position = UDim2.fromOffset(isCompact and 178 or SIDEBAR_WIDTH, 0)
-        self.Main.Size = UDim2.new(1, -(isCompact and 178 or SIDEBAR_WIDTH), 1, 0)
-        self.Navigation.Position = UDim2.fromOffset(8, isCompact and 72 or 122)
-        self.Navigation.Size = UDim2.new(1, -16, 1, isCompact and -112 or -164)
-        if isCompact then
-            self.BrandTitle.TextSize = 11
-            self.ActiveTitle.TextSize = 17
-        else
-            self.BrandTitle.TextSize = 13
-            self.ActiveTitle.TextSize = 20
+        if mobile then
+            -- Use a mobile-first canvas instead of shrinking the desktop canvas
+            -- to an unusable scale on Android portrait screens.
+            layoutSize = portrait and Vector2.new(420, 620) or Vector2.new(620, 460)
+            sidebarWidth = portrait and 124 or 158
         end
+
+        local horizontalMargin = mobile and 12 or 24
+        local verticalMargin = mobile and 36 or 24
+        local availableWidth = math.max(1, viewport.X - horizontalMargin)
+        local availableHeight = math.max(1, viewport.Y - verticalMargin)
+        local fit = math.min(availableWidth / layoutSize.X, availableHeight / layoutSize.Y)
+        local scale = math.min(self.ScaleValue, fit)
+
+        self.LayoutSize = layoutSize
+        self.SidebarWidth = sidebarWidth
+        self.TouchMode = mobile
+        self.Root.Size = UDim2.fromOffset(layoutSize.X, layoutSize.Y)
+        self.Scale.Scale = math.clamp(scale, mobile and 0.58 or 0.45, self.ScaleValue)
+
+        local compactDesktop = not mobile and self.Scale.Scale < 0.64
+        self.BrandSubtitle.Visible = not mobile and not compactDesktop
+        self.SearchWrap.Visible = not compactDesktop
+        self.Sidebar.Size = UDim2.new(0, sidebarWidth, 1, 0)
+        self.Main.Position = UDim2.fromOffset(sidebarWidth, 0)
+        self.Main.Size = UDim2.new(1, -sidebarWidth, 1, 0)
+        self.Navigation.Position = UDim2.fromOffset(8, compactDesktop and 72 or 122)
+        self.Navigation.Size = UDim2.new(1, -16, 1, compactDesktop and -112 or -164)
+
+        if mobile then
+            self.BrandTitle.Text = "LIBERIUM"
+            self.BrandTitle.TextSize = 10
+            self.Search.PlaceholderText = "Search"
+            self.FooterStatus.TextSize = 8
+        else
+            self.BrandTitle.Text = self.Title
+            self.BrandTitle.TextSize = compactDesktop and 11 or 13
+            self.Search.PlaceholderText = "Search tabs and sections"
+            self.FooterStatus.TextSize = 9
+        end
+
+        self.ActiveTitle.TextSize = compactDesktop and 17 or 20
     end
 
-    local camera = workspace.CurrentCamera
-    if camera then
-        self._connections:Connect(camera:GetPropertyChangedSignal("ViewportSize"), update, "viewport")
-    end
-    self._connections:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), function()
-        local nextCamera = workspace.CurrentCamera
-        if nextCamera then
-            self._connections:Connect(nextCamera:GetPropertyChangedSignal("ViewportSize"), update, "viewport")
+    local function bindCamera()
+        local camera = workspace.CurrentCamera
+        if camera then
+            self._connections:Connect(camera:GetPropertyChangedSignal("ViewportSize"), update, "viewport")
         end
         update()
-    end, "camera-change")
-    update()
-end
+    end
 
+    bindCamera()
+    self._connections:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), bindCamera, "camera-change")
+end
 function Window:_ensureGroup(name)
     local key = tostring(name or "General")
     if self.Groups[key] then
@@ -768,9 +797,13 @@ end
 
 function Section:_row(name, height)
     local theme = self.Tab.Window._theme
+    height = tonumber(height) or 36
+    if self.Tab.Window.TouchMode and height < 50 then
+        height = 50
+    end
     local row = create("Frame", {
         Name = "Control_" .. tostring(name):gsub("%W", ""),
-        Size = UDim2.new(1, 0, 0, height or 36),
+        Size = UDim2.new(1, 0, 0, height),
         BackgroundColor3 = theme:Get("Surface2"),
         BackgroundTransparency = 0.48,
         BorderSizePixel = 0,
