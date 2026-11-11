@@ -179,6 +179,13 @@ function MovementPlus.new(context)
     self._bhopWasGrounded = true
     self._bhopLandedAt = 0
 
+    self._glitchEnabled = false
+    self._glitchMaxSpeed = 120
+    self._glitchAcceleration = 60
+    self._glitchSpeed = 0
+    self._glitchWasAirborne = false
+    self._glitchLandedAt = 0
+
     self._maid:Connect(self.UserInputService.JumpRequest, function()
         if not self._infiniteJump or self._destroyed then
             return
@@ -192,14 +199,15 @@ function MovementPlus.new(context)
         end
     end, "infinite-jump")
 
-    self._maid:Connect(self.RunService.Heartbeat, function()
+    self._maid:Connect(self.RunService.Heartbeat, function(deltaTime)
         if self._destroyed then
             return
         end
         self:_stepFly()
         self:_stepSpin()
         self:_stepGravity()
-        self:_stepBhop(dt)
+        self:_stepBhop(deltaTime)
+        self:_stepGlitch(deltaTime)
     end, "heartbeat")
 
     self._maid:Connect(self.Player.CharacterAdded, function()
@@ -558,6 +566,99 @@ function MovementPlus:_stepBhop(delta)
     end
 end
 
+function MovementPlus:SetGlitchMaxSpeed(value)
+    if self._destroyed then return end
+    self._glitchMaxSpeed = math.clamp(tonumber(value) or 120, 30, 300)
+end
+
+function MovementPlus:SetGlitchAcceleration(value)
+    if self._destroyed then return end
+    self._glitchAcceleration = math.clamp(tonumber(value) or 60, 10, 300)
+end
+
+function MovementPlus:SetGlitch(enabled)
+    if self._destroyed then return end
+    self._glitchEnabled = enabled == true
+    if not self._glitchEnabled then
+        self._glitchSpeed = 0
+        self._glitchWasAirborne = false
+        self._glitchLandedAt = 0
+    end
+end
+
+function MovementPlus:_stepGlitch(deltaTime)
+    if not self._glitchEnabled then
+        return
+    end
+
+    if self._flyEnabled then
+        self._glitchSpeed = 0
+        self._glitchWasAirborne = false
+        return
+    end
+
+    local _, humanoid, root = getCharacterParts(self.Player)
+    if not humanoid or not root or humanoid.Sit then
+        self._glitchSpeed = 0
+        self._glitchWasAirborne = false
+        return
+    end
+
+    local state = humanoid:GetState()
+    if state == Enum.HumanoidStateType.Climbing
+        or state == Enum.HumanoidStateType.Swimming
+        or state == Enum.HumanoidStateType.Seated
+        or state == Enum.HumanoidStateType.Dead then
+        self._glitchSpeed = 0
+        self._glitchWasAirborne = false
+        return
+    end
+
+    local dt = math.clamp(tonumber(deltaTime) or (1 / 60), 0, 0.1)
+    local now = os.clock()
+    local airborne = state == Enum.HumanoidStateType.Freefall
+        or state == Enum.HumanoidStateType.Jumping
+        or humanoid.FloorMaterial == Enum.Material.Air
+    local direction = flat(humanoid.MoveDirection)
+    local moving = direction.Magnitude > 0.1
+    local velocity = root.AssemblyLinearVelocity
+    local horizontal = Vector3.new(velocity.X, 0, velocity.Z)
+    local currentSpeed = horizontal.Magnitude
+
+    if airborne then
+        self._glitchWasAirborne = true
+        if moving then
+            self._glitchSpeed = math.max(self._glitchSpeed, humanoid.WalkSpeed)
+            if currentSpeed > self._glitchSpeed and currentSpeed <= self._glitchMaxSpeed then
+                self._glitchSpeed = currentSpeed
+            end
+            self._glitchSpeed = math.min(
+                self._glitchMaxSpeed,
+                self._glitchSpeed + self._glitchAcceleration * dt
+            )
+        end
+    else
+        if self._glitchWasAirborne then
+            self._glitchWasAirborne = false
+            self._glitchLandedAt = now
+        end
+        if now - self._glitchLandedAt > 0.3 then
+            self._glitchSpeed = 0
+        end
+    end
+
+    self._glitchSpeed = math.min(self._glitchSpeed, self._glitchMaxSpeed)
+    local landingGrace = now - self._glitchLandedAt <= 0.25
+    if self._glitchSpeed > 0 and moving and (airborne or landingGrace)
+        and currentSpeed < self._glitchSpeed - 0.5 then
+        root.AssemblyLinearVelocity = Vector3.new(
+            direction.X * self._glitchSpeed,
+            velocity.Y,
+            direction.Z * self._glitchSpeed
+        )
+    end
+end
+
 function MovementPlus:Destroy()
     if self._destroyed then
         return
@@ -568,6 +669,7 @@ function MovementPlus:Destroy()
     self:SetGravity(false)
     self:SetCameraNoclip(false)
     self:SetBhop(false)
+    self:SetGlitch(false)
     self._infiniteJump = false
     self._destroyed = true
     self._maid:Destroy()
