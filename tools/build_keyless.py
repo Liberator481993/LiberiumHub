@@ -35,7 +35,7 @@ def build() -> str:
     window = read_text("src/ui/Window.lua")
     adapter = read_text("src/ui/LegacyAdapter.lua")
 
-    start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\\n"
+    start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\n"
     end_marker = "local Config = ConfigManager.new()"
     start = base.find(start_marker)
     if start < 0:
@@ -70,9 +70,9 @@ def build() -> str:
         "",
     ]
 
-    result = base[:start] + "\\n".join(embedded) + base[end:]
+    result = base[:start] + "\n".join(embedded) + base[end:]
     result = re.sub(
-        r"^-- LIBERIUM HUB \\| .*?$",
+        r"^-- LIBERIUM HUB \| .*?$",
         "-- LIBERIUM HUB | v92 | NOVA UI + PULSEHUB FEATURE PORT",
         result,
         count=1,
@@ -104,7 +104,7 @@ def main() -> int:
         output = ROOT / "Keyless" if args.in_place else ROOT / args.output
         output.parent.mkdir(parents=True, exist_ok=True)
         result = build()
-        output.write_text(result, encoding="utf-8", newline="\\n")
+        output.write_text(result, encoding="utf-8", newline="\n")
         print(f"Built {output.relative_to(ROOT)} ({len(result):,} characters)")
         return 0
     except Exception as error:  # noqa: BLE001 - build tool must report actionable errors
