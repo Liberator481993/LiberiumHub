@@ -170,6 +170,14 @@ function MovementPlus.new(context)
     self._gravityEnabled = false
     self._gravityValue = 196.2
     self._gravityBase = nil
+    self._cameraNoclipEnabled = false
+    self._cameraOcclusionBase = nil
+
+    self._bhopEnabled = false
+    self._bhopPower = 5
+    self._bhopSpeed = 0
+    self._bhopWasGrounded = true
+    self._bhopLandedAt = 0
 
     self._maid:Connect(self.UserInputService.JumpRequest, function()
         if not self._infiniteJump or self._destroyed then
@@ -191,6 +199,7 @@ function MovementPlus.new(context)
         self:_stepFly()
         self:_stepSpin()
         self:_stepGravity()
+        self:_stepBhop(dt)
     end, "heartbeat")
 
     self._maid:Connect(self.Player.CharacterAdded, function()
@@ -437,6 +446,118 @@ function MovementPlus:_stepGravity()
     end
 end
 
+function MovementPlus:SetCameraNoclip(enabled)
+    if self._destroyed then
+        return
+    end
+
+    local nextValue = enabled == true
+    if nextValue and not self._cameraNoclipEnabled then
+        local ok, current = pcall(function()
+            return self.Player.DevCameraOcclusionMode
+        end)
+        if ok then
+            self._cameraOcclusionBase = current
+        end
+        pcall(function()
+            self.Player.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+        end)
+    elseif not nextValue and self._cameraNoclipEnabled and self._cameraOcclusionBase ~= nil then
+        local previous = self._cameraOcclusionBase
+        pcall(function()
+            self.Player.DevCameraOcclusionMode = previous
+        end)
+        self._cameraOcclusionBase = nil
+    end
+
+    self._cameraNoclipEnabled = nextValue
+end
+
+function MovementPlus:SetBhopPower(value)
+    if self._destroyed then
+        return
+    end
+    self._bhopPower = math.clamp(tonumber(value) or 5, 1, 10)
+end
+
+function MovementPlus:SetBhop(enabled)
+    if self._destroyed then
+        return
+    end
+
+    self._bhopEnabled = enabled == true
+    if not self._bhopEnabled then
+        self._bhopSpeed = 0
+        self._bhopWasGrounded = true
+        self._bhopLandedAt = 0
+    end
+end
+
+function MovementPlus:_stepBhop(delta)
+    if not self._bhopEnabled then
+        return
+    end
+
+    local _, humanoid, root = getCharacterParts(self.Player)
+    if not humanoid or not root or humanoid.Sit then
+        self._bhopSpeed = 0
+        self._bhopWasGrounded = true
+        return
+    end
+
+    local state = humanoid:GetState()
+    if state == Enum.HumanoidStateType.Climbing
+        or state == Enum.HumanoidStateType.Swimming
+        or state == Enum.HumanoidStateType.Seated then
+        self._bhopSpeed = 0
+        self._bhopWasGrounded = true
+        return
+    end
+
+    delta = math.clamp(tonumber(delta) or (1 / 60), 0, 0.1)
+    local now = os.clock()
+    local grounded = humanoid.FloorMaterial ~= Enum.Material.Air
+    local movement = flat(humanoid.MoveDirection)
+    local moving = movement.Magnitude > 0.1
+    local velocity = root.AssemblyLinearVelocity
+    local horizontal = Vector3.new(velocity.X, 0, velocity.Z)
+    local currentSpeed = horizontal.Magnitude
+    local walkSpeed = humanoid.WalkSpeed
+    local power = self._bhopPower
+
+    if not grounded then
+        if self._bhopWasGrounded then
+            self._bhopSpeed = math.max(self._bhopSpeed, walkSpeed + 2 + power)
+        end
+        if moving then
+            self._bhopSpeed = math.max(self._bhopSpeed, walkSpeed + 2 + power)
+            if currentSpeed > self._bhopSpeed and currentSpeed <= 100 then
+                self._bhopSpeed = currentSpeed
+            end
+            self._bhopSpeed = math.min(100, self._bhopSpeed + (2 + power * 0.8) * delta)
+        end
+    else
+        if not self._bhopWasGrounded then
+            self._bhopLandedAt = now
+        end
+        if now - self._bhopLandedAt > 0.25 then
+            self._bhopSpeed = 0
+        end
+    end
+
+    self._bhopWasGrounded = grounded
+    if self._bhopSpeed > 0 and moving and (not grounded or now - self._bhopLandedAt <= 0.25) then
+        local desired = math.min(100, math.max(self._bhopSpeed, walkSpeed))
+        if currentSpeed < desired - 0.5 then
+            root.AssemblyLinearVelocity = Vector3.new(
+                movement.X * desired,
+                velocity.Y,
+                movement.Z * desired
+            )
+        end
+    end
+end
+
 function MovementPlus:Destroy()
     if self._destroyed then
         return
@@ -445,6 +566,8 @@ function MovementPlus:Destroy()
     self:SetFly(false)
     self:SetSpin(false)
     self:SetGravity(false)
+    self:SetCameraNoclip(false)
+    self:SetBhop(false)
     self._infiniteJump = false
     self._destroyed = true
     self._maid:Destroy()
