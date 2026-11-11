@@ -3176,6 +3176,117 @@ local function flat(vector)
     return Vector3.zero
 end
 
+function MovementPlus:_showTouchControls()
+    if not self.UserInputService.TouchEnabled or self._touchGui then
+        return
+    end
+
+    local playerGui = self.Player:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then
+        return
+    end
+
+    self._touchMaid = Maid.new()
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "LiberiumFlyControls"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = false
+    gui.DisplayOrder = 2002
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = playerGui
+    self._touchGui = gui
+    self._touchMaid:Give(gui)
+
+    local stack = Instance.new("Frame")
+    stack.Name = "VerticalFlight"
+    stack.AnchorPoint = Vector2.new(1, 1)
+    stack.Position = UDim2.new(1, -18, 1, -150)
+    stack.Size = UDim2.fromOffset(54, 112)
+    stack.BackgroundTransparency = 1
+    stack.Parent = gui
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = stack
+
+    local function makeButton(name, caption, order)
+        local button = Instance.new("TextButton")
+        button.Name = name
+        button.LayoutOrder = order
+        button.Size = UDim2.fromOffset(50, 50)
+        button.BackgroundColor3 = Color3.fromRGB(20, 23, 32)
+        button.BackgroundTransparency = 0.12
+        button.BorderSizePixel = 0
+        button.Text = caption
+        button.TextColor3 = Color3.fromRGB(240, 242, 248)
+        button.TextSize = 22
+        button.Font = Enum.Font.GothamBold
+        button.AutoButtonColor = false
+        button.Parent = stack
+
+        local radius = Instance.new("UICorner")
+        radius.CornerRadius = UDim.new(0, 14)
+        radius.Parent = button
+
+        local outline = Instance.new("UIStroke")
+        outline.Color = Color3.fromRGB(214, 68, 88)
+        outline.Transparency = 0.24
+        outline.Thickness = 1.25
+        outline.Parent = button
+
+        return button
+    end
+
+    local upButton = makeButton("Ascend", "↑", 1)
+    local downButton = makeButton("Descend", "↓", 2)
+
+    self._touchMaid:Connect(upButton.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            self._upInput = input
+            self._touchAscend = true
+        end
+    end, "up-began")
+    self._touchMaid:Connect(downButton.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            self._downInput = input
+            self._touchDescend = true
+        end
+    end, "down-began")
+
+    local function release(input)
+        if self._upInput == input then
+            self._upInput = nil
+            self._touchAscend = false
+        end
+        if self._downInput == input then
+            self._downInput = nil
+            self._touchDescend = false
+        end
+    end
+
+    self._touchMaid:Connect(upButton.InputEnded, release, "up-ended")
+    self._touchMaid:Connect(downButton.InputEnded, release, "down-ended")
+    self._touchMaid:Connect(self.UserInputService.InputEnded, release, "global-ended")
+end
+
+function MovementPlus:_hideTouchControls()
+    self._touchAscend = false
+    self._touchDescend = false
+    self._upInput = nil
+    self._downInput = nil
+
+    if self._touchMaid then
+        self._touchMaid:Destroy()
+        self._touchMaid = nil
+    end
+    self._touchGui = nil
+end
+
 function MovementPlus.new(context)
     assert(type(context) == "table", "MovementPlus.new expects a context")
     assert(context.Player and context.Workspace and context.RunService and context.UserInputService,
@@ -3322,8 +3433,10 @@ function MovementPlus:SetFly(enabled)
     self._flyEnabled = enabled == true
     if self._flyEnabled then
         self:_attachFlight()
+        self:_showTouchControls()
     else
         self:_clearFlightRig()
+        self:_hideTouchControls()
     end
 end
 
@@ -3375,10 +3488,10 @@ function MovementPlus:_stepFly()
     local okUp, keyUp = pcall(function() return input:IsKeyDown(Enum.KeyCode.Space) end)
     local okDown, keyDown = pcall(function() return input:IsKeyDown(Enum.KeyCode.LeftControl) end)
     local okDownAlt, keyDownAlt = pcall(function() return input:IsKeyDown(Enum.KeyCode.Q) end)
-    if (okUp and keyUp) or humanoid.Jump then
+    if (okUp and keyUp) or humanoid.Jump or self._touchAscend then
         vertical += 1
     end
-    if (okDown and keyDown) or (okDownAlt and keyDownAlt) then
+    if (okDown and keyDown) or (okDownAlt and keyDownAlt) or self._touchDescend then
         vertical -= 1
     end
 
