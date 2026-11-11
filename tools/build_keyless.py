@@ -105,7 +105,11 @@ def main() -> int:
         output.parent.mkdir(parents=True, exist_ok=True)
         result = build()
         output.write_text(result, encoding="utf-8", newline="\n")
-        print(f"Built {output.relative_to(ROOT)} ({len(result):,} characters)")
+        try:
+            display_path = output.relative_to(ROOT)
+        except ValueError:
+            display_path = output
+        print(f"Built {display_path} ({len(result):,} characters)")
         return 0
     except Exception as error:  # noqa: BLE001 - build tool must report actionable errors
         print(f"build failed: {error}", file=sys.stderr)
