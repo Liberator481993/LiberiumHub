@@ -140,7 +140,6 @@ function Window.new(options)
     self._connections = Maid.new()
     self._theme = options.ThemeObject or ThemeFactory.create(options.Theme)
     self._ownsTheme = options.ThemeObject == nil
-    self._connections:Give(self._theme:Bind(self._dummy or Instance.new("Folder"), "Name", "Text"), "theme-placeholder")
 
     self:_mount(playerGui)
     self:_bindViewport()
@@ -448,7 +447,7 @@ function Window:_bindViewport()
         local height = math.max(1, viewport.Y - 24)
         local fit = math.min(width / self.Size.X, height / self.Size.Y)
         local scale = math.min(self.ScaleValue, fit)
-        self.Scale.Scale = math.clamp(scale, 0.45, self.ScaleValue)
+        self.Scale.Scale = math.clamp(scale, 0.35, self.ScaleValue)
 
         local isCompact = self.Scale.Scale < 0.64
         self.BrandSubtitle.Visible = not isCompact
@@ -637,6 +636,7 @@ function Tab:_createDefaultPage()
         Page = page,
         Button = nil,
         IsDefault = true,
+        Empty = true,
     }, SubTab)
     self._defaultSub = sub
     self.SubTabs[1] = sub
@@ -645,7 +645,7 @@ end
 
 function Tab:AddSubTab(name, description)
     name = tostring(name or ("Page " .. tostring(#self.SubTabs + 1)))
-    if self._defaultSub and self._defaultSub.IsDefault and #self._defaultSub.Page:GetChildren() == 1 then
+    if self._defaultSub and self._defaultSub.IsDefault and self._defaultSub.Empty then
         self._defaultSub.Page:Destroy()
         self.SubTabs = {}
         self._defaultSub = nil
@@ -751,6 +751,9 @@ function SubTab:AddSection(name, options)
         content.Size = UDim2.new(1, -20, 0, layout.AbsoluteContentSize.Y + 10)
         card.Size = UDim2.new(1, -4, 0, 38 + layout.AbsoluteContentSize.Y + 10)
     end)
+    if self.Tab._defaultSub == self then
+        self.Empty = false
+    end
     table.insert(self.Tab.Pages, card)
     return section
 end
