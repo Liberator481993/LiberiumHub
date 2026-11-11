@@ -29,6 +29,21 @@ Not yet accepted as complete:
 - Appearance controls and saved UI preferences are not yet wired into the Settings tab.
 - No live Roblox, Delta Android or Arceus X runtime test has been performed.
 
+## Stage 2 — Movement extensions
+
+**Implementation status:** first advanced movement subset added and wired into the v92 Keyless UI.
+
+Completed in source and bundled entry point:
+
+- Infinite Jump with JumpRequest support, including mobile jump-button input.
+- Fly with camera-relative keyboard movement, thumbstick direction support, character-respawn reattachment and restoration of AutoRotate.
+- On-screen Android ascend/descend controls while Fly is enabled; controls and flight rig are removed when disabled or unloaded.
+- Spin with the prior angular velocity restored when disabled.
+- Custom Gravity with saved/restored Workspace.Gravity.
+- Config values are clamped, persisted through the existing ConfigManager, applied at startup/load, and cleaned up on re-execution.
+
+Still pending in this stage: camera noclip, anti-coin, bomb jump, invisibility, B-hop, glitch speed, wall hop and the remaining reference movement options. The source has not yet passed the current CI compile/reproducible-build gate, and there is no live Delta/Arceus X runtime confirmation.
+
 ## Next stages
 
 2. Movement extensions and shared feature lifecycle.
