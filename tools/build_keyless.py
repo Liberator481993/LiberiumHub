@@ -74,7 +74,7 @@ def build() -> str:
         wrap_module("EmbeddedAdapter", adapter),
         wrap_module("EmbeddedMovementPlus", movement),
         "local MovementPlus = EmbeddedMovementPlus",
-        "local Lib = EmbeddedAdapter.create(EmbeddedWindow)",
+        "local Lib = EmbeddedAdapter.create(EmbeddedWindow)\n",
         "",
     ]
 
