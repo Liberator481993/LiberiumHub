@@ -68,6 +68,7 @@ jobs:
           "$compiler" src/ui/LegacyAdapter.lua >/dev/null
           "$compiler" src/features/Movement/MovementPlus.lua >/dev/null
           "$compiler" src/features/ESP/ESPManager.lua >/dev/null
+          "$compiler" src/features/Movement/AntiCoin.lua >/dev/null
           "$compiler" src/legacy/Keyless.base.lua >/dev/null
           "$compiler" Keyless >/dev/null
 
