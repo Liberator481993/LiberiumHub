@@ -2,7 +2,7 @@
 -- Disables touch collection on coin pickups while enabled, restoring original
 -- CanTouch values when disabled or when the module is unloaded.
 
-local Maid = require(script.Parent.Parent.core.Maid)
+local Maid = require(script.Parent.Parent.Parent.core.Maid)
 
 local AntiCoin = {}
 AntiCoin.__index = AntiCoin
