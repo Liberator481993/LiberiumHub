@@ -108,6 +108,7 @@ local CFG = {
     OptimizeFPS = false, Crosshair = false, AntiAFK = false, ShowStats = true,
     WalkSpeed = 16, JumpPower = 50, Noclip = false,
     InfiniteJump = false, Fly = false, FlySpeed = 60, Spin = false, SpinSpeed = 12, CustomGravity = false, GravityValue = 196.2,
+    CameraNoclip = false, Bhop = false, BhopPower = 5,
     FOVCircle = false, FOVRadius = 150, FOVColor = "Purple",
     SkeletonESP = false, SkeletonColor = "Purple", ShaderPreset = "Default", LocalAura = "None",
     Tracers = false, TracerColor = "Yellow",
@@ -3329,6 +3330,14 @@ function MovementPlus.new(context)
     self._gravityEnabled = false
     self._gravityValue = 196.2
     self._gravityBase = nil
+    self._cameraNoclipEnabled = false
+    self._cameraOcclusionBase = nil
+
+    self._bhopEnabled = false
+    self._bhopPower = 5
+    self._bhopSpeed = 0
+    self._bhopWasGrounded = true
+    self._bhopLandedAt = 0
 
     self._maid:Connect(self.UserInputService.JumpRequest, function()
         if not self._infiniteJump or self._destroyed then
@@ -3350,6 +3359,7 @@ function MovementPlus.new(context)
         self:_stepFly()
         self:_stepSpin()
         self:_stepGravity()
+        self:_stepBhop(dt)
     end, "heartbeat")
 
     self._maid:Connect(self.Player.CharacterAdded, function()
@@ -3596,6 +3606,118 @@ function MovementPlus:_stepGravity()
     end
 end
 
+function MovementPlus:SetCameraNoclip(enabled)
+    if self._destroyed then
+        return
+    end
+
+    local nextValue = enabled == true
+    if nextValue and not self._cameraNoclipEnabled then
+        local ok, current = pcall(function()
+            return self.Player.DevCameraOcclusionMode
+        end)
+        if ok then
+            self._cameraOcclusionBase = current
+        end
+        pcall(function()
+            self.Player.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+        end)
+    elseif not nextValue and self._cameraNoclipEnabled and self._cameraOcclusionBase ~= nil then
+        local previous = self._cameraOcclusionBase
+        pcall(function()
+            self.Player.DevCameraOcclusionMode = previous
+        end)
+        self._cameraOcclusionBase = nil
+    end
+
+    self._cameraNoclipEnabled = nextValue
+end
+
+function MovementPlus:SetBhopPower(value)
+    if self._destroyed then
+        return
+    end
+    self._bhopPower = math.clamp(tonumber(value) or 5, 1, 10)
+end
+
+function MovementPlus:SetBhop(enabled)
+    if self._destroyed then
+        return
+    end
+
+    self._bhopEnabled = enabled == true
+    if not self._bhopEnabled then
+        self._bhopSpeed = 0
+        self._bhopWasGrounded = true
+        self._bhopLandedAt = 0
+    end
+end
+
+function MovementPlus:_stepBhop(delta)
+    if not self._bhopEnabled then
+        return
+    end
+
+    local _, humanoid, root = getCharacterParts(self.Player)
+    if not humanoid or not root or humanoid.Sit then
+        self._bhopSpeed = 0
+        self._bhopWasGrounded = true
+        return
+    end
+
+    local state = humanoid:GetState()
+    if state == Enum.HumanoidStateType.Climbing
+        or state == Enum.HumanoidStateType.Swimming
+        or state == Enum.HumanoidStateType.Seated then
+        self._bhopSpeed = 0
+        self._bhopWasGrounded = true
+        return
+    end
+
+    delta = math.clamp(tonumber(delta) or (1 / 60), 0, 0.1)
+    local now = os.clock()
+    local grounded = humanoid.FloorMaterial ~= Enum.Material.Air
+    local movement = flat(humanoid.MoveDirection)
+    local moving = movement.Magnitude > 0.1
+    local velocity = root.AssemblyLinearVelocity
+    local horizontal = Vector3.new(velocity.X, 0, velocity.Z)
+    local currentSpeed = horizontal.Magnitude
+    local walkSpeed = humanoid.WalkSpeed
+    local power = self._bhopPower
+
+    if not grounded then
+        if self._bhopWasGrounded then
+            self._bhopSpeed = math.max(self._bhopSpeed, walkSpeed + 2 + power)
+        end
+        if moving then
+            self._bhopSpeed = math.max(self._bhopSpeed, walkSpeed + 2 + power)
+            if currentSpeed > self._bhopSpeed and currentSpeed <= 100 then
+                self._bhopSpeed = currentSpeed
+            end
+            self._bhopSpeed = math.min(100, self._bhopSpeed + (2 + power * 0.8) * delta)
+        end
+    else
+        if not self._bhopWasGrounded then
+            self._bhopLandedAt = now
+        end
+        if now - self._bhopLandedAt > 0.25 then
+            self._bhopSpeed = 0
+        end
+    end
+
+    self._bhopWasGrounded = grounded
+    if self._bhopSpeed > 0 and moving and (not grounded or now - self._bhopLandedAt <= 0.25) then
+        local desired = math.min(100, math.max(self._bhopSpeed, walkSpeed))
+        if currentSpeed < desired - 0.5 then
+            root.AssemblyLinearVelocity = Vector3.new(
+                movement.X * desired,
+                velocity.Y,
+                movement.Z * desired
+            )
+        end
+    end
+end
+
 function MovementPlus:Destroy()
     if self._destroyed then
         return
@@ -3604,6 +3726,8 @@ function MovementPlus:Destroy()
     self:SetFly(false)
     self:SetSpin(false)
     self:SetGravity(false)
+    self:SetCameraNoclip(false)
+    self:SetBhop(false)
     self._infiniteJump = false
     self._destroyed = true
     self._maid:Destroy()
@@ -3622,7 +3746,7 @@ for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 CFG.ConfigSchemaVersion = 2
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
+local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, CameraNoclip=false, Bhop=false, BhopPower=5, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
     FOVColor = {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"},
@@ -3654,6 +3778,7 @@ local function normalizeConfig()
     CFG.FlySpeed = math.clamp(CFG.FlySpeed, 10, 250)
     CFG.SpinSpeed = math.clamp(CFG.SpinSpeed, 0, 60)
     CFG.GravityValue = math.clamp(CFG.GravityValue, 5, 400)
+    CFG.BhopPower = math.clamp(CFG.BhopPower, 1, 10)
 end
 normalizeConfig()
 -- Prevent stale saved settings from forcing a reticle on during startup; it can be enabled manually in the UI.
@@ -4847,7 +4972,7 @@ local sAes = tVis:AddSubTab("Aesthetics"); local secAes = sAes:AddSection("Shade
 
 local tPlayer = win:AddTab("Player", "🏃"); local sMove = tPlayer:AddSubTab("Movement"); local secMove = sMove:AddSection("Speed & Jump"); local wsSlider = secMove:AddSlider("Walk Speed", 16, 200, CFG.WalkSpeed, function(v) CFG.WalkSpeed = v movementObj:SetWalkSpeed(v) end); local jpSlider = secMove:AddSlider("Jump Power", 50, 500, CFG.JumpPower, function(v) CFG.JumpPower = v movementObj:SetJumpPower(v) end); local noclipToggle = secMove:AddToggle("Noclip (Phase Walk)", CFG.Noclip, function(v) CFG.Noclip = v movementObj:SetCollision(not v) end)
     
-local sAdvancedMove = tPlayer:AddSubTab("Advanced"); local secAdvancedMove = sAdvancedMove:AddSection("Movement Extensions"); local infiniteJumpToggle = secAdvancedMove:AddToggle("Infinite Jump", CFG.InfiniteJump, function(v) CFG.InfiniteJump = v if movementPlus then movementPlus:SetInfiniteJump(v) end end); local flyToggle = secAdvancedMove:AddToggle("Fly", CFG.Fly, function(v) CFG.Fly = v if movementPlus then movementPlus:SetFly(v) end end); local flySpeedSlider = secAdvancedMove:AddSlider("Fly Speed", 10, 250, CFG.FlySpeed, function(v) CFG.FlySpeed = v if movementPlus then movementPlus:SetFlySpeed(v) end end); local spinToggle = secAdvancedMove:AddToggle("Spin", CFG.Spin, function(v) CFG.Spin = v if movementPlus then movementPlus:SetSpin(v) end end); local spinSpeedSlider = secAdvancedMove:AddSlider("Spin Speed", 0, 60, CFG.SpinSpeed, function(v) CFG.SpinSpeed = v if movementPlus then movementPlus:SetSpinSpeed(v) end end); local gravityToggle = secAdvancedMove:AddToggle("Custom Gravity", CFG.CustomGravity, function(v) CFG.CustomGravity = v if movementPlus then movementPlus:SetGravity(v) end end); local gravitySlider = secAdvancedMove:AddSlider("Gravity", 5, 400, CFG.GravityValue, function(v) CFG.GravityValue = v if movementPlus then movementPlus:SetGravityValue(v) end end)
+local sAdvancedMove = tPlayer:AddSubTab("Advanced"); local secAdvancedMove = sAdvancedMove:AddSection("Movement Extensions"); local infiniteJumpToggle = secAdvancedMove:AddToggle("Infinite Jump", CFG.InfiniteJump, function(v) CFG.InfiniteJump = v if movementPlus then movementPlus:SetInfiniteJump(v) end end); local flyToggle = secAdvancedMove:AddToggle("Fly", CFG.Fly, function(v) CFG.Fly = v if movementPlus then movementPlus:SetFly(v) end end); local flySpeedSlider = secAdvancedMove:AddSlider("Fly Speed", 10, 250, CFG.FlySpeed, function(v) CFG.FlySpeed = v if movementPlus then movementPlus:SetFlySpeed(v) end end); local spinToggle = secAdvancedMove:AddToggle("Spin", CFG.Spin, function(v) CFG.Spin = v if movementPlus then movementPlus:SetSpin(v) end end); local spinSpeedSlider = secAdvancedMove:AddSlider("Spin Speed", 0, 60, CFG.SpinSpeed, function(v) CFG.SpinSpeed = v if movementPlus then movementPlus:SetSpinSpeed(v) end end); local gravityToggle = secAdvancedMove:AddToggle("Custom Gravity", CFG.CustomGravity, function(v) CFG.CustomGravity = v if movementPlus then movementPlus:SetGravity(v) end end); local gravitySlider = secAdvancedMove:AddSlider("Gravity", 5, 400, CFG.GravityValue, function(v) CFG.GravityValue = v if movementPlus then movementPlus:SetGravityValue(v) end end); local cameraNoclipToggle = secAdvancedMove:AddToggle("Camera Noclip", CFG.CameraNoclip, function(v) CFG.CameraNoclip = v if movementPlus then movementPlus:SetCameraNoclip(v) end end); local bhopToggle = secAdvancedMove:AddToggle("Bhop", CFG.Bhop, function(v) CFG.Bhop = v if movementPlus then movementPlus:SetBhop(v) end end); local bhopPowerSlider = secAdvancedMove:AddSlider("Bhop Power", 1, 10, CFG.BhopPower, function(v) CFG.BhopPower = v if movementPlus then movementPlus:SetBhopPower(v) end end)
 
 local tCom = win:AddTab("Combat", "⚔"); local sCom = tCom:AddSubTab("Fling"); local secC = sCom:AddSection("Actions"); local autoFlingToggle = secC:AddToggle("Auto Fling", CFG.AutoFling, function(v) CFG.AutoFling = v end); secC:AddButton("Manual Fling", function() if not currentSession or currentSession.destroyed or not currentSession.root then return end local m = getClosestMurderer(currentSession.root.Position) if m then ApplyPhysicsImpulse(m.Parent) end end); local antiFlingToggle = secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
 local sAim = tCom:AddSubTab("Aim"); local secA = sAim:AddSection("Prediction"); local predictionToggle = secA:AddToggle("Show Aim Prediction", CFG.Prediction, function(v) CFG.Prediction = v end); local projSpeedSlider = secA:AddSlider("Projectile Speed", 50, 500, CFG.ProjSpeed, function(v) CFG.ProjSpeed = v end); local predictionStyleDropdown = secA:AddDropdown("Prediction Style", {"Classic", "Compact", "HUD Only"}, CFG.PredictionStyle, function(v) CFG.PredictionStyle = v end)
@@ -4888,7 +5013,7 @@ secCfg:AddButton("Load Settings", function()
     infiniteJumpToggle:Set(CFG.InfiniteJump, true); movementPlus:SetInfiniteJump(CFG.InfiniteJump)
     flyToggle:Set(CFG.Fly, true); movementPlus:SetFlySpeed(CFG.FlySpeed); movementPlus:SetFly(CFG.Fly)
     flySpeedSlider:Set(CFG.FlySpeed, true); spinToggle:Set(CFG.Spin, true); movementPlus:SetSpinSpeed(CFG.SpinSpeed); movementPlus:SetSpin(CFG.Spin)
-    spinSpeedSlider:Set(CFG.SpinSpeed, true); gravityToggle:Set(CFG.CustomGravity, true); movementPlus:SetGravityValue(CFG.GravityValue); movementPlus:SetGravity(CFG.CustomGravity); gravitySlider:Set(CFG.GravityValue, true)
+    spinSpeedSlider:Set(CFG.SpinSpeed, true); gravityToggle:Set(CFG.CustomGravity, true); movementPlus:SetGravityValue(CFG.GravityValue); movementPlus:SetGravity(CFG.CustomGravity); gravitySlider:Set(CFG.GravityValue, true); cameraNoclipToggle:Set(CFG.CameraNoclip, true); movementPlus:SetCameraNoclip(CFG.CameraNoclip); bhopToggle:Set(CFG.Bhop, true); movementPlus:SetBhopPower(CFG.BhopPower); bhopPowerSlider:Set(CFG.BhopPower, true); movementPlus:SetBhop(CFG.Bhop)
     if roleHUD then if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end; roleHUD:Refresh() end
     if overheadTracker then if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end
     if skeletonObj then skeletonObj:SetVisible(CFG.SkeletonESP); skeletonObj:SetColor(colorFromName(CFG.SkeletonColor)) end
@@ -4914,7 +5039,7 @@ task.defer(function() if CFG.AutoFarm then coinTracker:Start(); farmToggle:Set(t
     infiniteJumpToggle:Set(CFG.InfiniteJump, true); movementPlus:SetInfiniteJump(CFG.InfiniteJump)
     flySpeedSlider:Set(CFG.FlySpeed, true); movementPlus:SetFlySpeed(CFG.FlySpeed); flyToggle:Set(CFG.Fly, true); movementPlus:SetFly(CFG.Fly)
     spinSpeedSlider:Set(CFG.SpinSpeed, true); movementPlus:SetSpinSpeed(CFG.SpinSpeed); spinToggle:Set(CFG.Spin, true); movementPlus:SetSpin(CFG.Spin)
-    gravitySlider:Set(CFG.GravityValue, true); movementPlus:SetGravityValue(CFG.GravityValue); gravityToggle:Set(CFG.CustomGravity, true); movementPlus:SetGravity(CFG.CustomGravity) if CFG.FOVCircle then fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then tracerToggle:Set(true, true); startTracerHooks() end shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
+    gravitySlider:Set(CFG.GravityValue, true); movementPlus:SetGravityValue(CFG.GravityValue); gravityToggle:Set(CFG.CustomGravity, true); movementPlus:SetGravity(CFG.CustomGravity); cameraNoclipToggle:Set(CFG.CameraNoclip, true); movementPlus:SetCameraNoclip(CFG.CameraNoclip); bhopPowerSlider:Set(CFG.BhopPower, true); movementPlus:SetBhopPower(CFG.BhopPower); bhopToggle:Set(CFG.Bhop, true); movementPlus:SetBhop(CFG.Bhop) if CFG.FOVCircle then fovToggle:Set(true, true) if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end end if CFG.Tracers then tracerToggle:Set(true, true); startTracerHooks() end shaderPresetDropdown:Set(CFG.ShaderPreset, true); AestheticsManager.ApplyShaderPreset(CFG.ShaderPreset); auraDropdown:Set(CFG.LocalAura, true); if CFG.LocalAura == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, CFG.LocalAura) end end)
 
 statsObj = StatsTracker.new(PlayerGui, { Position = UDim2.new(0, 10, 0, 180) }) statsObj:SetVisible(CFG.ShowStats)
 crosshairObj = Crosshair.new(PlayerGui, { Color = Color3.fromRGB(255, 255, 255), Size = 20 })
