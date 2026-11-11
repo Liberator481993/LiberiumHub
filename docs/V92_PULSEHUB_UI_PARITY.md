@@ -1,6 +1,6 @@
 # LiberiumHub v92 — PulseHub UI Parity Specification
 
-Status: Stage 1 / reference analysis  
+Status: Stage 1 / initial UI shell implemented in working branch; static verification only  
 Target branch: `v92/pulsehub-ui-parity`  
 Reference artifact: user-provided `PulseHub.luau.txt`  
 Current integration baseline: `Keyless` on `main` (v91.70)
@@ -136,3 +136,10 @@ A screenshot of the actual PulseHub menu in its normal state and one screenshot 
 4. Add responsive/mobile behavior.
 5. Compare screenshots and tune dimensions/colors/spacing.
 6. Only after UI sign-off, migrate feature modules into the shared component system.
+
+
+## Current implementation checkpoint (v92.0)
+
+The first UI-shell pass is now present in `Keyless` on this branch. It adds grouped sidebar navigation, search across tab/subtab names, 812 × 584 desktop sizing with a 208 px sidebar, and the dark neutral/crimson palette. Existing gameplay feature logic remains in place. This checkpoint has been fetched back from GitHub and statically inspected; it has not been compiled or executed in Roblox, Delta, or Arceus X. The acceptance checklist below remains open until the relevant visual and device checks are performed.
+
+See `docs/V92_PULSEHUB_MIGRATION_AUDIT.md` for the full feature map and migration order.
