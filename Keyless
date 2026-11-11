@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.70 | NEON GLASS BRAND REFRESH
+-- LIBERIUM HUB | v92.0 | PULSEHUB-INSPIRED NOVA SHELL
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -34,7 +34,7 @@ if not PlayerGui then
     return
 end
 
-local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
+local THEME = { Background = Color3.fromRGB(12, 13, 16), Element = Color3.fromRGB(20, 22, 27), Accent = Color3.fromRGB(214, 68, 88), Accent2 = Color3.fromRGB(255, 122, 26), Text = Color3.fromRGB(236, 238, 243), SubText = Color3.fromRGB(138, 143, 158), Stroke = Color3.fromRGB(31, 34, 41), Surface = Color3.fromRGB(15, 16, 20), Good = Color3.fromRGB(61, 220, 151) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local function create(c, p, ch) local i = Instance.new(c) for k, v in pairs(p or {}) do i[k]=v end for _, x in ipairs(ch or {}) do x.Parent=i end return i end
@@ -1367,10 +1367,11 @@ function SV:_addPlayer(player) if self._destroyed or player == Players.LocalPlay
 end function SV:SetColor(color) if self._destroyed or typeof(color) ~= "Color3" then return end self._color = color local sequence = ColorSequence.new(color) for _, state in pairs(self._players) do for _, beam in ipairs(state.beams) do beam.Color = sequence end end end function SV:Destroy() if self._destroyed then return end self._destroyed = true for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end table.clear(self._connections) local players = {} for player in pairs(self._players) do table.insert(players, player) end for _, player in ipairs(players) do self:_removePlayer(player) end end return SV end)()
 
 local Win, Tab, Sub, Sec = {}, {}, {}, {}
+local NAV_GROUP_ORDER = { Overview = 0, Combat = 1, Player = 2, Economy = 3, Fun = 4, System = 5 }
 Win.__index, Tab.__index, Sub.__index, Sec.__index = Win, Tab, Sub, Sec
 local Lib = {}
 function Lib.new(title)
-    local s = setmetatable({Tabs={}, Conns={}}, Win)
+    local s = setmetatable({Tabs={}, Conns={}, Groups={}, GroupOrder=0}, Win)
     local old = PlayerGui:FindFirstChild("GlassUI") if old then old:Destroy() end
     s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=2000,Parent=PlayerGui})
     s.Scale = create("UIScale", {Parent=s.Gui})
@@ -1380,12 +1381,12 @@ function Lib.new(title)
         if cam then
             -- Portrait-first layout on touch devices: preserve readable controls instead of
             -- shrinking the desktop panel until every tap target becomes tiny.
-            local mobile = UserInputService.TouchEnabled and cam.ViewportSize.X < 700
+            local mobile = UserInputService.TouchEnabled and (cam.ViewportSize.X < 700 or cam.ViewportSize.Y < 500)
             local portrait = cam.ViewportSize.Y >= cam.ViewportSize.X
             local compactPortrait = mobile and portrait
-            local baseWidth = compactPortrait and 480 or 620
-            local baseHeight = compactPortrait and 620 or 460
-            local sideWidth = compactPortrait and 128 or 158
+            local baseWidth = compactPortrait and 480 or 812
+            local baseHeight = compactPortrait and 620 or 584
+            local sideWidth = compactPortrait and 128 or 208
             s.MobileLayout = mobile
             s.PortraitLayout = compactPortrait
             s.SideWidth = sideWidth
@@ -1412,24 +1413,28 @@ function Lib.new(title)
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
     s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
-    create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(31,22,56)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(10,14,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(8,25,38))}),Rotation=32,Parent=s.Main})
+    create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(27,20,24)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(12,13,16)),ColorSequenceKeypoint.new(1,Color3.fromRGB(12,13,16))}),Rotation=32,Parent=s.Main})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.105,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
-    s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(16,18,32),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(56,35,91)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,30,52)),ColorSequenceKeypoint.new(1,Color3.fromRGB(14,48,61))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
+    s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(15,16,20),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(49,29,34)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,23,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(29,21,22))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
     local logo = create("Frame", {Name="BrandMark",Position=UDim2.fromOffset(13,8),Size=UDim2.fromOffset(31,31),BackgroundColor3=THEME.Accent,Parent=s.Title}, {corner(9),stroke(1,0.34),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=35})})
     label({Text="L",Font=Enum.Font.GothamBlack,TextSize=20,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromScale(0,0),Size=UDim2.fromScale(1,1),Parent=logo})
     label({Text="LIBERIUM HUB",Font=Enum.Font.GothamBlack,TextSize=17,TextColor3=THEME.Text,Position=UDim2.fromOffset(53,5),Size=UDim2.new(0,160,0,24),Parent=s.Title})
     label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
     local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  NEON GLASS  /  v91.70",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
-    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
+    label({Text="MM2  /  UI PARITY  /  v92.0",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
+    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(20,21,25),Color3.fromRGB(15,16,20)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
     label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
     create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
+    s.SearchFrame = create("Frame", {Name="NavigationSearch",Size=UDim2.new(1,0,0,36),BackgroundTransparency=1,LayoutOrder=-9,Parent=s.Side})
+    local searchSurface = create("Frame", {Name="SearchSurface",Position=UDim2.fromOffset(0,1),Size=UDim2.new(1,0,0,32),BackgroundColor3=THEME.Element,BackgroundTransparency=0.08,Parent=s.SearchFrame}, {corner(9),stroke(1,0.62)})
+    s.SearchInput = create("TextBox", {Name="SearchInput",Position=UDim2.fromOffset(9,0),Size=UDim2.new(1,-18,1,0),BackgroundTransparency=1,ClearTextOnFocus=false,Text="",PlaceholderText="Search tabs...",PlaceholderColor3=THEME.SubText,TextColor3=THEME.Text,Font=Enum.Font.Gotham,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,Parent=searchSurface})
+    table.insert(s.Conns, s.SearchInput:GetPropertyChangedSignal("Text"):Connect(function() s:ApplySearch() end))
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
-    label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="LIBERIUM HUB  /  v91.70",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
-    s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
+    label({Text="DELTA / ARCEUS  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
+    label({Text="LIBERIUM HUB  /  v92.0",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
+    s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(20,21,25),Color3.fromRGB(12,13,16)),Rotation=35})})
     upd()
     local dragInput, dragStart, dragPosition
     table.insert(s.Conns, s.Title.InputBegan:Connect(function(input)
@@ -1469,21 +1474,71 @@ function Win:_Select(t)
     t.Cont.Position=UDim2.fromOffset(0,7) t.Cont.Visible=true
     tween(t.Cont,SLOW,{BackgroundTransparency=1,Position=UDim2.fromOffset(0,0)})
 end
-function Win:AddTab(name, icon)
-    local t = setmetatable({Win=self,Name=name,Subs={}}, Tab)
-    t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,43),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Text="",AutoButtonColor=false,Parent=self.Side}, {corner(10),stroke(1,0.94),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(76,52,126),Color3.fromRGB(28,66,82)),Rotation=0,Transparency=NumberSequence.new(0.56)})})
+function Win:AddTab(name, icon, group)
+    group = type(group) == "string" and group or "System"
+    local groupRecord = self.Groups[group]
+    if not groupRecord then
+        local order = NAV_GROUP_ORDER[group]
+        if order == nil then
+            self.GroupOrder += 1
+            order = 6 + self.GroupOrder
+        end
+        local headerOrder = 50 + order * 100
+        local header = create("TextLabel", {
+            Name = "Group_" .. group:gsub("[^%w_]", ""),
+            Size = UDim2.new(1,0,0,20),
+            BackgroundTransparency = 1,
+            Text = string.upper(group),
+            Font = Enum.Font.GothamBold,
+            TextSize = 9,
+            TextColor3 = THEME.SubText,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            LayoutOrder = headerOrder,
+            Parent = self.Side
+        })
+        groupRecord = {Header=header, LayoutOrder=headerOrder, Count=0, Tabs={}}
+        self.Groups[group] = groupRecord
+    end
+    groupRecord.Count += 1
+    local t = setmetatable({Win=self,Name=name,Subs={},Group=group}, Tab)
+    t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,43),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Text="",AutoButtonColor=false,Parent=self.Side}, {corner(10),stroke(1,0.94),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(70,34,45),Color3.fromRGB(33,25,29)),Rotation=0,Transparency=NumberSequence.new(0.56)})})
     t.BtnStroke = t.Btn:FindFirstChildOfClass("UIStroke")
     t.ActiveMark = create("Frame", {Name="ActiveMark",Position=UDim2.fromOffset(0,8),Size=UDim2.fromOffset(4,27),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(3),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
     t.Icon = label({Text=icon or "•",TextSize=15,TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromOffset(8,0),Size=UDim2.new(0,22,1,0),Parent=t.Btn})
     t.Lbl = label({Text=name,TextColor3=THEME.SubText,Position=UDim2.fromOffset(38,0),Size=UDim2.new(1,-44,1,0),Parent=t.Btn})
-    t.Btn.LayoutOrder = #self.Tabs + 1
+    t.Btn.LayoutOrder = groupRecord.LayoutOrder + groupRecord.Count
     t.Btn.MouseEnter:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=0.88}) end end)
     t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
     t.Btn.Activated:Connect(function() self:_Select(t) end)
     t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
     t.SubBar = create("ScrollingFrame", {Size=UDim2.new(1,0,0,40),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,ScrollingDirection=Enum.ScrollingDirection.X,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
     t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,44),Size=UDim2.new(1,0,1,-44),BackgroundTransparency=1,Parent=t.Cont})
-    table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
+    table.insert(self.Tabs, t)
+    table.insert(groupRecord.Tabs, t)
+    self:ApplySearch()
+    if #self.Tabs==1 then self:_Select(t) end
+    return t
+end
+function Win:ApplySearch()
+    if not self.SearchInput then return end
+    local query = string.lower(tostring(self.SearchInput.Text or "")):gsub("^%s+", ""):gsub("%s+$", "")
+    local groupVisibility = {}
+    for _, tab in ipairs(self.Tabs) do
+        local matched = query == "" or string.find(string.lower(tab.Name), query, 1, true) ~= nil
+        if not matched then
+            for _, sub in ipairs(tab.Subs) do
+                if string.find(string.lower(sub.Name), query, 1, true) then
+                    matched = true
+                    break
+                end
+            end
+        end
+        tab.Btn.Visible = matched
+        groupVisibility[tab.Group] = groupVisibility[tab.Group] or matched
+    end
+    for groupName, group in pairs(self.Groups) do
+        group.Header.Visible = groupVisibility[groupName] == true
+    end
 end
 function Win:Destroy()
     if self.CameraConnection then pcall(function() self.CameraConnection:Disconnect() end) self.CameraConnection = nil end
@@ -1509,7 +1564,7 @@ function Tab:AddSubTab(name)
 end
 function Sub:AddSection(name)
     local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
-    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
+    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,30,36),Color3.fromRGB(20,22,27)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
     local heading = create("Frame", {Size=UDim2.new(1,0,0,23),BackgroundTransparency=1,Parent=s.Frame})
     create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
     label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
@@ -1518,7 +1573,7 @@ function Sub:AddSection(name)
 end
 function Sec:AddToggle(name, def, cb)
     local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(24,29,48),Color3.fromRGB(17,21,36)),Rotation=0})})
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
     local rail = create("Frame", {Position=UDim2.fromOffset(0,10),Size=UDim2.fromOffset(3,32),BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72,BorderSizePixel=0,Parent=r}, {corner(2)})
     label({Text=name,Position=UDim2.fromOffset(12,0),Size=UDim2.new(1,-82,1,0),Font=Enum.Font.GothamSemibold,TextSize=12,Parent=r})
     local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(42,23),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61),Parent=r}, {corner(12),stroke(1,st and 0.48 or 0.84),create("UIGradient", {Color=ColorSequence.new(st and Color3.fromRGB(119,83,204) or Color3.fromRGB(54,61,80),st and Color3.fromRGB(49,166,191) or Color3.fromRGB(31,37,54)),Rotation=0})})
@@ -1538,7 +1593,7 @@ end
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
     inc = inc or 1
     local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,30,51),Color3.fromRGB(15,20,35)),Rotation=0})})
+    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
     label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=12})
     local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
     local t = create("TextButton", {Position=UDim2.new(0,11,1,-29),Size=UDim2.new(1,-22,0,18),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
@@ -1586,7 +1641,7 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     return obj
 end
 function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Frame}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(87,59,143),Color3.fromRGB(36,72,91)),Rotation=0})})
+    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Frame}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})})
     hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
     b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
 end
@@ -2604,7 +2659,7 @@ local sh = LiberiumAPI
 win.API = sh
 table.insert(win.Conns, { Disconnect = function() sh:destroy() end })
 
-local tHome = win:AddTab("Home", "⌂")
+local tHome = win:AddTab("Home", "⌂", "Overview")
 local sHome = tHome:AddSubTab("Overview")
 local secHome = sHome:AddSection("LIVE OVERVIEW")
 
@@ -2806,10 +2861,10 @@ task.spawn(function()
     end
 end)
 
-local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start(); if CFG.AutoPickup then weaponTracker:Stop() end else coinTracker:Stop(); if CFG.AutoPickup then weaponTracker:Start() end end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
+local tFarm = win:AddTab("Farm", "💰", "Economy"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start(); if CFG.AutoPickup then weaponTracker:Stop() end else coinTracker:Stop(); if CFG.AutoPickup then weaponTracker:Start() end end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
 local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Gun Pickup"); local pickupToggle = secPick:AddToggle("Auto Pickup Guns", CFG.AutoPickup, function(v) CFG.AutoPickup = v if v and not CFG.AutoFarm then weaponTracker:Start() else weaponTracker:Stop() end end); local pickupRangeSlider = secPick:AddSlider("Pickup Distance", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
 
-local tVis = win:AddTab("Visuals", "👁"); local sVis = tVis:AddSubTab("ESP"); local secV = sVis:AddSection("Players"); local espOutlineToggle = secV:AddToggle("ESP Outline", CFG.ESP_Outline, function(v) CFG.ESP_Outline = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espFillToggle = secV:AddToggle("ESP Fill", CFG.ESP_Fill, function(v) CFG.ESP_Fill = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espNameToggle = secV:AddToggle("ESP Name", CFG.ESP_Name, function(v) CFG.ESP_Name = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end); local espDistToggle = secV:AddToggle("ESP Distance", CFG.ESP_Distance, function(v) CFG.ESP_Distance = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end)
+local tVis = win:AddTab("Visuals", "👁", "Player"); local sVis = tVis:AddSubTab("ESP"); local secV = sVis:AddSection("Players"); local espOutlineToggle = secV:AddToggle("ESP Outline", CFG.ESP_Outline, function(v) CFG.ESP_Outline = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espFillToggle = secV:AddToggle("ESP Fill", CFG.ESP_Fill, function(v) CFG.ESP_Fill = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espNameToggle = secV:AddToggle("ESP Name", CFG.ESP_Name, function(v) CFG.ESP_Name = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end); local espDistToggle = secV:AddToggle("ESP Distance", CFG.ESP_Distance, function(v) CFG.ESP_Distance = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end)
 colorFromName = function(name)
     local colors = { White=Color3.fromRGB(255,255,255), Purple=Color3.fromRGB(157,105,255), Red=Color3.fromRGB(255,70,70), Green=Color3.fromRGB(70,230,120), Yellow=Color3.fromRGB(255,220,48), Cyan=Color3.fromRGB(70,230,255), Blue=Color3.fromRGB(80,150,255) }
     return colors[name] or colors.White
@@ -2819,13 +2874,13 @@ local sLoot = tVis:AddSubTab("Loot"); local secLoot = sLoot:AddSection("Collecti
 local sPerf = tVis:AddSubTab("Performance"); local secP = sPerf:AddSection("Optimization"); local optToggle = secP:AddToggle("Optimize FPS", CFG.OptimizeFPS, function(v) CFG.OptimizeFPS = v VisualOptimizer.OptimizeVisuals(v) end); local statsToggle = secP:AddToggle("Show Stats", CFG.ShowStats, function(v) CFG.ShowStats = v if statsObj then statsObj:SetVisible(v) end end)
 local sAes = tVis:AddSubTab("Aesthetics"); local secAes = sAes:AddSection("Shaders"); local shaderPresetDropdown = secAes:AddDropdown("Shader Preset", {"Default", "Neon", "Cinematic"}, "Default", function(v) CFG.ShaderPreset = v; AestheticsManager.ApplyShaderPreset(v) end); local secAura = sAes:AddSection("Auras"); local auraDropdown = secAura:AddDropdown("Local Aura", {"None", "Fire", "Ice"}, "None", function(v) CFG.LocalAura = v; if v == "None" then AestheticsManager.RemoveAura(LocalPlayer) else AestheticsManager.SetAura(LocalPlayer, v) end end)
 
-local tPlayer = win:AddTab("Player", "🏃"); local sMove = tPlayer:AddSubTab("Movement"); local secMove = sMove:AddSection("Speed & Jump"); local wsSlider = secMove:AddSlider("Walk Speed", 16, 200, CFG.WalkSpeed, function(v) CFG.WalkSpeed = v movementObj:SetWalkSpeed(v) end); local jpSlider = secMove:AddSlider("Jump Power", 50, 500, CFG.JumpPower, function(v) CFG.JumpPower = v movementObj:SetJumpPower(v) end); local noclipToggle = secMove:AddToggle("Noclip (Phase Walk)", CFG.Noclip, function(v) CFG.Noclip = v movementObj:SetCollision(not v) end)
+local tPlayer = win:AddTab("Player", "🏃", "Player"); local sMove = tPlayer:AddSubTab("Movement"); local secMove = sMove:AddSection("Speed & Jump"); local wsSlider = secMove:AddSlider("Walk Speed", 16, 200, CFG.WalkSpeed, function(v) CFG.WalkSpeed = v movementObj:SetWalkSpeed(v) end); local jpSlider = secMove:AddSlider("Jump Power", 50, 500, CFG.JumpPower, function(v) CFG.JumpPower = v movementObj:SetJumpPower(v) end); local noclipToggle = secMove:AddToggle("Noclip (Phase Walk)", CFG.Noclip, function(v) CFG.Noclip = v movementObj:SetCollision(not v) end)
 
-local tCom = win:AddTab("Combat", "⚔"); local sCom = tCom:AddSubTab("Fling"); local secC = sCom:AddSection("Actions"); local autoFlingToggle = secC:AddToggle("Auto Fling", CFG.AutoFling, function(v) CFG.AutoFling = v end); secC:AddButton("Manual Fling", function() if not currentSession or currentSession.destroyed or not currentSession.root then return end local m = getClosestMurderer(currentSession.root.Position) if m then ApplyPhysicsImpulse(m.Parent) end end); local antiFlingToggle = secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
+local tCom = win:AddTab("Combat", "⚔", "Combat"); local sCom = tCom:AddSubTab("Fling"); local secC = sCom:AddSection("Actions"); local autoFlingToggle = secC:AddToggle("Auto Fling", CFG.AutoFling, function(v) CFG.AutoFling = v end); secC:AddButton("Manual Fling", function() if not currentSession or currentSession.destroyed or not currentSession.root then return end local m = getClosestMurderer(currentSession.root.Position) if m then ApplyPhysicsImpulse(m.Parent) end end); local antiFlingToggle = secC:AddToggle("Anti-Fling", CFG.AntiFling, function(v) CFG.AntiFling = v if v then Stabilizer.Start() else Stabilizer.Stop() end end)
 local sAim = tCom:AddSubTab("Aim"); local secA = sAim:AddSection("Prediction"); local predictionToggle = secA:AddToggle("Show Aim Prediction", CFG.Prediction, function(v) CFG.Prediction = v end); local projSpeedSlider = secA:AddSlider("Projectile Speed", 50, 500, CFG.ProjSpeed, function(v) CFG.ProjSpeed = v end); local predictionStyleDropdown = secA:AddDropdown("Prediction Style", {"Classic", "Compact", "HUD Only"}, CFG.PredictionStyle, function(v) CFG.PredictionStyle = v end)
 local secAimVis = sAim:AddSection("Visuals"); local crosshairToggle = secAimVis:AddToggle("Crosshair", CFG.Crosshair, function(v) CFG.Crosshair = v if crosshairObj then crosshairObj:SetVisible(v) end end); local fovToggle = secAimVis:AddToggle("Show FOV Circle", CFG.FOVCircle, function(v) CFG.FOVCircle = v if v then if not fovObj then fovObj = FOVCircle.new(PlayerGui, CFG.FOVRadius) end if fovObj then fovObj:SetRadius(CFG.FOVRadius); fovObj:SetColor(colorFromName(CFG.FOVColor)) end else if fovObj then fovObj:Destroy() fovObj = nil end end end); local fovRadiusSlider = secAimVis:AddSlider("FOV Radius", 20, 500, CFG.FOVRadius, function(v) CFG.FOVRadius = v if fovObj then fovObj:SetRadius(v) end end); local fovColorDropdown = secAimVis:AddDropdown("FOV Circle Color", {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"}, CFG.FOVColor, function(v) CFG.FOVColor = v if fovObj then fovObj:SetColor(colorFromName(v)) end end); local tracerColorDropdown = secAimVis:AddDropdown("Tracer Color", {"Yellow", "Purple", "Red", "Green", "Cyan", "Blue", "White"}, CFG.TracerColor, function(v) CFG.TracerColor = v end); local tracerToggle = secAimVis:AddToggle("Bullet Tracers", CFG.Tracers, function(v) CFG.Tracers = v if v then startTracerHooks() else stopTracerHooks() end end)
 
-local tSet = win:AddTab("Settings", "⚙"); local sCfg = tSet:AddSubTab("Config"); local secCfg = sCfg:AddSection("Configuration"); secCfg:AddButton("Save Settings", function() local ok = Config:Save(CFG, "settings") if ok then NotificationManager.Notify("Config saved!", "Success", 3) else NotificationManager.Notify("Saved to memory only", "Info", 3) end end)
+local tSet = win:AddTab("Settings", "⚙", "System"); local sCfg = tSet:AddSubTab("Config"); local secCfg = sCfg:AddSection("Configuration"); secCfg:AddButton("Save Settings", function() local ok = Config:Save(CFG, "settings") if ok then NotificationManager.Notify("Config saved!", "Success", 3) else NotificationManager.Notify("Saved to memory only", "Info", 3) end end)
 secCfg:AddButton("Load Settings", function()
     local loaded = Config:Load("settings")
     if type(loaded) ~= "table" or next(loaded) == nil then
@@ -2894,7 +2949,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v92.0 UI preview ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -3008,4 +3063,4 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
 
 -- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
--- v91.70: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- Static source validation only; in-game execution still requires an on-device Delta test.
+-- v91.70: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- v92.0: adds PulseHub-inspired grouped navigation, tab/subtab search, reference window proportions,\n-- a compact dark/crimson palette, and a Delta/Arceus Android footer without replacing feature logic.\n-- Static source validation only; in-game execution still requires an on-device Delta/Arceus test.
