@@ -1,0 +1,55 @@
+name: v92 source validation
+
+on:
+  push:
+    branches:
+      - v92/pulsehub-port
+    paths:
+      - "Keyless"
+      - "src/**"
+      - "tools/**"
+      - ".github/workflows/v92-source-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Liberium Hub
+        uses: actions/checkout@v4
+
+      - name: Build the official Luau compiler
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/luau-lang/luau.git "$RUNNER_TEMP/luau"
+          cmake -S "$RUNNER_TEMP/luau" -B "$RUNNER_TEMP/luau-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLUAU_BUILD_TESTS=OFF \
+            -DLUAU_BUILD_CLI=ON
+          cmake --build "$RUNNER_TEMP/luau-build" \
+            --target Luau.Compile.CLI \
+            --parallel 2
+
+      - name: Verify the builder and generated output
+        shell: bash
+        run: |
+          python -m py_compile tools/build_keyless.py
+          python tools/build_keyless.py --output "$RUNNER_TEMP/Keyless.bundle"
+          cmp Keyless "$RUNNER_TEMP/Keyless.bundle"
+
+      - name: Compile all v92 Luau sources
+        shell: bash
+        run: |
+          compiler="$RUNNER_TEMP/luau-build/luau-compile"
+          "$compiler" src/core/Maid.lua >/dev/null
+          "$compiler" src/ui/Theme.lua >/dev/null
+          "$compiler" src/ui/Window.lua >/dev/null
+          "$compiler" src/ui/LegacyAdapter.lua >/dev/null
+          "$compiler" src/legacy/Keyless.base.lua >/dev/null
+          "$compiler" Keyless >/dev/null
+
+      - name: Check whitespace errors
+        run: git diff --check
