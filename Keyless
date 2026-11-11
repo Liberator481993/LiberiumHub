@@ -1,4 +1,4 @@
--- LIBERIUM HUB | v91.70 | NEON GLASS BRAND REFRESH
+-- LIBERIUM HUB | v92 | NOVA UI + PULSEHUB FEATURE PORT
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -1366,231 +1366,1748 @@ function SV:_addPlayer(player) if self._destroyed or player == Players.LocalPlay
     end
 end function SV:SetColor(color) if self._destroyed or typeof(color) ~= "Color3" then return end self._color = color local sequence = ColorSequence.new(color) for _, state in pairs(self._players) do for _, beam in ipairs(state.beams) do beam.Color = sequence end end end function SV:Destroy() if self._destroyed then return end self._destroyed = true for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end table.clear(self._connections) local players = {} for player in pairs(self._players) do table.insert(players, player) end for _, player in ipairs(players) do self:_removePlayer(player) end end return SV end)()
 
-local Win, Tab, Sub, Sec = {}, {}, {}, {}
-Win.__index, Tab.__index, Sub.__index, Sec.__index = Win, Tab, Sub, Sec
-local Lib = {}
-function Lib.new(title)
-    local s = setmetatable({Tabs={}, Conns={}}, Win)
-    local old = PlayerGui:FindFirstChild("GlassUI") if old then old:Destroy() end
-    s.Gui = create("ScreenGui", {Name="GlassUI",ResetOnSpawn=false,IgnoreGuiInset=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,DisplayOrder=2000,Parent=PlayerGui})
-    s.Scale = create("UIScale", {Parent=s.Gui})
-    local cameraConnection
-    local function upd()
-        local cam = workspace.CurrentCamera
-        if cam then
-            -- Portrait-first layout on touch devices: preserve readable controls instead of
-            -- shrinking the desktop panel until every tap target becomes tiny.
-            local mobile = UserInputService.TouchEnabled and cam.ViewportSize.X < 700
-            local portrait = cam.ViewportSize.Y >= cam.ViewportSize.X
-            local compactPortrait = mobile and portrait
-            local baseWidth = compactPortrait and 480 or 620
-            local baseHeight = compactPortrait and 620 or 460
-            local sideWidth = compactPortrait and 128 or 158
-            s.MobileLayout = mobile
-            s.PortraitLayout = compactPortrait
-            s.SideWidth = sideWidth
-            local verticalMargin = UserInputService.TouchEnabled and 52 or 18
-            local availableWidth = math.max(1, cam.ViewportSize.X - 12)
-            local availableHeight = math.max(1, cam.ViewportSize.Y - verticalMargin)
-            local fitScale = math.min(availableWidth / baseWidth, availableHeight / baseHeight)
-            s.Scale.Scale = math.clamp(fitScale, 0.35, 1)
-            if s.Main then s.Main.Size = UDim2.fromOffset(baseWidth, baseHeight) end
-            if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -54) end
-            if s.Content then
-                s.Content.Position = UDim2.fromOffset(sideWidth, 54)
-                s.Content.Size = UDim2.new(1, -sideWidth, 1, -54)
-            end
+-- v92 Nova UI modules are embedded for executor compatibility.
+local EmbeddedMaid = (function()
+-- Liberium Hub | Resource lifetime manager
+-- Shared cleanup primitive for UI pages, controls, input bindings and feature sessions.
+
+local Maid = {}
+Maid.__index = Maid
+
+local function dispose(resource)
+    if resource == nil then
+        return
+    end
+
+    local kind = typeof(resource)
+    if kind == "RBXScriptConnection" then
+        pcall(function()
+            resource:Disconnect()
+        end)
+        return
+    end
+
+    if kind == "Instance" then
+        pcall(function()
+            resource:Destroy()
+        end)
+        return
+    end
+
+    if type(resource) == "function" then
+        pcall(resource)
+        return
+    end
+
+    if type(resource) == "thread" then
+        pcall(task.cancel, resource)
+        return
+    end
+
+    if type(resource) == "table" then
+        local cleanup = resource.Destroy or resource.Disconnect or resource.Cleanup or resource.Clean
+        if type(cleanup) == "function" then
+            pcall(cleanup, resource)
         end
-    end
-    local function bindCamera()
-        if cameraConnection then cameraConnection:Disconnect() cameraConnection = nil end
-        local cam = workspace.CurrentCamera
-        if cam then cameraConnection = cam:GetPropertyChangedSignal("ViewportSize"):Connect(upd) end
-        s.CameraConnection = cameraConnection
-        upd()
-    end
-    bindCamera()
-    table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
-    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
-    create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(31,22,56)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(10,14,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(8,25,38))}),Rotation=32,Parent=s.Main})
-    s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.105,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
-    s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(16,18,32),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(56,35,91)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,30,52)),ColorSequenceKeypoint.new(1,Color3.fromRGB(14,48,61))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
-    local logo = create("Frame", {Name="BrandMark",Position=UDim2.fromOffset(13,8),Size=UDim2.fromOffset(31,31),BackgroundColor3=THEME.Accent,Parent=s.Title}, {corner(9),stroke(1,0.34),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=35})})
-    label({Text="L",Font=Enum.Font.GothamBlack,TextSize=20,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromScale(0,0),Size=UDim2.fromScale(1,1),Parent=logo})
-    label({Text="LIBERIUM HUB",Font=Enum.Font.GothamBlack,TextSize=17,TextColor3=THEME.Text,Position=UDim2.fromOffset(53,5),Size=UDim2.new(0,160,0,24),Parent=s.Title})
-    label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
-    local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
-    create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
-    label({Text="MM2  /  NEON GLASS  /  v91.70",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
-    s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(19,21,39),Color3.fromRGB(10,16,29)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
-    s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
-    label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
-    create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
-    s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
-    label({Text="DELTA  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
-    label({Text="LIBERIUM HUB  /  v91.70",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(8,18),Size=UDim2.new(1,-16,0,12),Parent=s.NavFooter})
-    s.Content = create("Frame", {Position=UDim2.fromOffset(158,54),Size=UDim2.new(1,-158,1,-54),BackgroundColor3=THEME.Background,BackgroundTransparency=0.74,ClipsDescendants=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(18,20,38),Color3.fromRGB(8,19,31)),Rotation=35})})
-    upd()
-    local dragInput, dragStart, dragPosition
-    table.insert(s.Conns, s.Title.InputBegan:Connect(function(input)
-        if dragInput then return end
-        local inputType = input.UserInputType
-        if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
-        dragInput, dragStart, dragPosition = input, input.Position, s.Main.Position
-    end))
-    table.insert(s.Conns, UserInputService.InputChanged:Connect(function(input)
-        if not dragInput then return end
-        local isTouchDrag = input == dragInput
-        local isMouseDrag = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
-        if not (isTouchDrag or isMouseDrag) then return end
-        local delta = (input.Position - dragStart) / s.Scale.Scale
-        s.Main.Position = UDim2.new(dragPosition.X.Scale, dragPosition.X.Offset + delta.X, dragPosition.Y.Scale, dragPosition.Y.Offset + delta.Y)
-    end))
-    table.insert(s.Conns, UserInputService.InputEnded:Connect(function(input)
-        if not dragInput then return end
-        local isTouchEnd = input == dragInput
-        local isMouseEnd = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
-        if isTouchEnd or isMouseEnd then dragInput, dragStart, dragPosition = nil, nil, nil end
-    end))
-    return s
-end
-function Win:_Select(t)
-    if self.Active==t then return end
-    self.Active=t
-    for _, v in ipairs(self.Tabs) do
-        local active = v==t
-        tween(v.Btn, FAST, {BackgroundTransparency=active and 0.69 or 1})
-        tween(v.Lbl, FAST, {TextColor3=active and THEME.Text or THEME.SubText})
-        tween(v.Icon, FAST, {TextColor3=active and THEME.Accent2 or THEME.SubText})
-        if v.BtnStroke then v.BtnStroke.Transparency = active and 0.48 or 0.94 end
-        v.ActiveMark.Visible = active
-        if not active then v.Cont.Visible=false v.Cont.BackgroundTransparency=1 end
-    end
-    t.Cont.Position=UDim2.fromOffset(0,7) t.Cont.Visible=true
-    tween(t.Cont,SLOW,{BackgroundTransparency=1,Position=UDim2.fromOffset(0,0)})
-end
-function Win:AddTab(name, icon)
-    local t = setmetatable({Win=self,Name=name,Subs={}}, Tab)
-    t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,43),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Text="",AutoButtonColor=false,Parent=self.Side}, {corner(10),stroke(1,0.94),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(76,52,126),Color3.fromRGB(28,66,82)),Rotation=0,Transparency=NumberSequence.new(0.56)})})
-    t.BtnStroke = t.Btn:FindFirstChildOfClass("UIStroke")
-    t.ActiveMark = create("Frame", {Name="ActiveMark",Position=UDim2.fromOffset(0,8),Size=UDim2.fromOffset(4,27),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(3),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    t.Icon = label({Text=icon or "•",TextSize=15,TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromOffset(8,0),Size=UDim2.new(0,22,1,0),Parent=t.Btn})
-    t.Lbl = label({Text=name,TextColor3=THEME.SubText,Position=UDim2.fromOffset(38,0),Size=UDim2.new(1,-44,1,0),Parent=t.Btn})
-    t.Btn.LayoutOrder = #self.Tabs + 1
-    t.Btn.MouseEnter:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=0.88}) end end)
-    t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
-    t.Btn.Activated:Connect(function() self:_Select(t) end)
-    t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
-    t.SubBar = create("ScrollingFrame", {Size=UDim2.new(1,0,0,40),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,ScrollingDirection=Enum.ScrollingDirection.X,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
-    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,44),Size=UDim2.new(1,0,1,-44),BackgroundTransparency=1,Parent=t.Cont})
-    table.insert(self.Tabs, t) if #self.Tabs==1 then self:_Select(t) end return t
-end
-function Win:Destroy()
-    if self.CameraConnection then pcall(function() self.CameraConnection:Disconnect() end) self.CameraConnection = nil end
-    for _, connection in ipairs(self.Conns or {}) do
-        pcall(function() connection:Disconnect() end)
-    end
-    table.clear(self.Conns or {})
-    if self.Gui then
-        pcall(function() self.Gui:Destroy() end)
-        self.Gui = nil
     end
 end
 
-function Tab:_SelectSub(s) if self.ActiveSub==s then return end self.ActiveSub=s for _, v in ipairs(self.Subs) do local a = v==s tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.96,TextColor3=a and THEME.Text or THEME.SubText}) if v.Mark then v.Mark.Visible=a end if v.BtnStroke then v.BtnStroke.Transparency=a and 0.48 or 0.96 end if not a then v.Page.Visible=false end end s.Page.Visible=true if s.Scroll then s.Scroll.CanvasPosition=Vector2.zero end end
-function Tab:AddSubTab(name)
-    local s = setmetatable({Tab=self,Name=name}, Sub)
-    s.Btn = create("TextButton", {Text=name,Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.SubText,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.96,AutoButtonColor=false,AutomaticSize=Enum.AutomaticSize.X,Size=UDim2.new(0,0,1,0),Parent=self.SubBar}, {corner(9),stroke(1,0.95),create("UIPadding", {PaddingLeft=UDim.new(0,14),PaddingRight=UDim.new(0,14)})})
-    s.BtnStroke = s.Btn:FindFirstChildOfClass("UIStroke")
-    s.Mark = create("Frame", {Name="ActiveMark",AnchorPoint=Vector2.new(0.5,1),Position=UDim2.new(0.5,0,1,-2),Size=UDim2.new(1,-22,0,2),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=s.Btn}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2)})})
-    s.Page = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.PageHolder})
-    s.Scroll = create("ScrollingFrame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ScrollBarThickness=3,ScrollBarImageColor3=THEME.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Page}, {pad(8), create("UIListLayout", {Padding=UDim.new(0,8)})})
-    s.Btn.Activated:Connect(function() self:_SelectSub(s) end) table.insert(self.Subs, s) if #self.Subs==1 then self:_SelectSub(s) end return s
+function Maid.new()
+    return setmetatable({
+        _tasks = {},
+        _nextId = 0,
+        _destroyed = false,
+    }, Maid)
 end
-function Sub:AddSection(name)
-    local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
-    s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,29,52),Color3.fromRGB(13,20,35)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
-    local heading = create("Frame", {Size=UDim2.new(1,0,0,23),BackgroundTransparency=1,Parent=s.Frame})
-    create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
-    create("Frame", {Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-10,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.68,BorderSizePixel=0,Parent=heading})
-    return s
+
+function Maid:Give(resource, key)
+    if resource == nil then
+        return nil
+    end
+
+    if self._destroyed then
+        dispose(resource)
+        return resource
+    end
+
+    if key ~= nil then
+        self:Remove(key)
+        self._tasks[key] = resource
+    else
+        self._nextId += 1
+        self._tasks[self._nextId] = resource
+    end
+
+    return resource
 end
-function Sec:AddToggle(name, def, cb)
-    local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(24,29,48),Color3.fromRGB(17,21,36)),Rotation=0})})
-    local rail = create("Frame", {Position=UDim2.fromOffset(0,10),Size=UDim2.fromOffset(3,32),BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72,BorderSizePixel=0,Parent=r}, {corner(2)})
-    label({Text=name,Position=UDim2.fromOffset(12,0),Size=UDim2.new(1,-82,1,0),Font=Enum.Font.GothamSemibold,TextSize=12,Parent=r})
-    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(42,23),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61),Parent=r}, {corner(12),stroke(1,st and 0.48 or 0.84),create("UIGradient", {Color=ColorSequence.new(st and Color3.fromRGB(119,83,204) or Color3.fromRGB(54,61,80),st and Color3.fromRGB(49,166,191) or Color3.fromRGB(31,37,54)),Rotation=0})})
-    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(16,16),BackgroundColor3=Color3.fromRGB(245,248,255),Parent=t}, {corner(8),stroke(1,0.58)})
-    hover(r,r,0.28,0.13)
-    local obj = {}
-    function obj:Set(v, silent)
-        st = v and true or false
-        tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61)})
-        tween(k,FAST,{Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0)})
-        tween(rail,FAST,{BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72})
-        if not silent and cb then task.spawn(cb,st) end
-    end
-    r.Activated:Connect(function() obj:Set(not st) end)
-    return obj
+
+function Maid:Connect(signal, callback, key)
+    assert(signal ~= nil and type(callback) == "function", "Maid:Connect expects a signal and callback")
+    return self:Give(signal:Connect(callback), key)
 end
-function Sec:AddSlider(name, mn, mx, def, cb, inc)
-    inc = inc or 1
-    local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,30,51),Color3.fromRGB(15,20,35)),Rotation=0})})
-    label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=12})
-    local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,11,1,-29),Size=UDim2.new(1,-22,0,18),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
-    local alpha0=(val-mn)/(mx-mn)
-    local f = create("Frame", {Size=UDim2.fromScale(alpha0,1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(9),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})
-    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=UDim2.fromOffset(15,15),BackgroundColor3=Color3.fromRGB(246,249,255),Parent=t}, {corner(8),stroke(1,0.42)})
-    hover(r,r,0.3,0.16)
-    local obj = {}
-    function obj:Set(v, silent)
-        v=tonumber(v) or val
-        v=math.clamp(math.floor(v/inc+0.5)*inc,mn,mx)
-        val=v
-        local alpha=(v-mn)/(mx-mn)
-        vl.Text=tostring(math.round(v*1000)/1000)
-        tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale(alpha,1)})
-        tween(knob,TweenInfo.new(0.08),{Position=UDim2.fromScale(alpha,0.5)})
-        if not silent and cb then task.spawn(cb,v) end
+
+function Maid:Remove(key)
+    local resource = self._tasks[key]
+    self._tasks[key] = nil
+    dispose(resource)
+end
+
+function Maid:Clean()
+    for key, resource in pairs(self._tasks) do
+        self._tasks[key] = nil
+        dispose(resource)
     end
-    local activeInput=nil
-    local function fromX(x)
-        local width=t.AbsoluteSize.X
-        if width<=0 then return end
-        local alpha=math.clamp((x-t.AbsolutePosition.X)/width,0,1)
-        obj:Set(mn+(mx-mn)*alpha)
+end
+
+function Maid:Destroy()
+    if self._destroyed then
+        return
     end
-    t.InputBegan:Connect(function(input)
-        if activeInput then return end
-        local inputType=input.UserInputType
-        if inputType~=Enum.UserInputType.MouseButton1 and inputType~=Enum.UserInputType.Touch then return end
-        activeInput=input
-        fromX(input.Position.X)
+
+    self._destroyed = true
+    self:Clean()
+end
+
+function Maid:IsDestroyed()
+    return self._destroyed
+end
+
+return Maid
+end)()
+
+local EmbeddedTheme = (function()
+-- Liberium Hub | Nova UI theme tokens
+-- Original implementation based on the v92 visual specification.
+
+local Theme = {}
+Theme.__index = Theme
+
+local function colorFromHex(value)
+    assert(type(value) == "string", "color must be a hex string")
+    local hex = string.gsub(value, "^#", "")
+    assert(#hex == 6 and string.match(hex, "^%x+$"), "expected #RRGGBB")
+    return Color3.fromRGB(
+        tonumber(string.sub(hex, 1, 2), 16),
+        tonumber(string.sub(hex, 3, 4), 16),
+        tonumber(string.sub(hex, 5, 6), 16)
+    )
+end
+
+local BASES = {
+    Midnight = {
+        Background = "#0C0D10",
+        Sidebar = "#0F1014",
+        Surface = "#14161B",
+        Surface2 = "#1B1E25",
+        Elevated = "#22252D",
+        Line = "#1F2229",
+        Text = "#ECEEF3",
+        Muted = "#8A8F9E",
+        Faint = "#575C69",
+    },
+    Obsidian = {
+        Background = "#090A0D",
+        Sidebar = "#0D0E12",
+        Surface = "#12141A",
+        Surface2 = "#191C23",
+        Elevated = "#242832",
+        Line = "#20232B",
+        Text = "#F1F2F5",
+        Muted = "#9197A5",
+        Faint = "#606675",
+    },
+    Slate = {
+        Background = "#11151B",
+        Sidebar = "#151A22",
+        Surface = "#1B222C",
+        Surface2 = "#222B37",
+        Elevated = "#2B3542",
+        Line = "#303A48",
+        Text = "#EFF3F8",
+        Muted = "#9AA7B8",
+        Faint = "#68788D",
+    },
+}
+
+local ACCENTS = {
+    Crimson = "#D64458",
+    Orange = "#FF7A1A",
+    Violet = "#A879FF",
+    Cyan = "#49CFF3",
+    Emerald = "#3DDC97",
+    Gold = "#F5B94A",
+}
+
+local FIXED = {
+    Success = "#3DDC97",
+    Warning = "#F5B94A",
+    Danger = "#F0506E",
+    LogoGlow = "#FF7A1A",
+    OnAccent = "#FFFFFF",
+}
+
+local function copy(source)
+    local result = {}
+    for key, value in pairs(source) do
+        result[key] = value
+    end
+    return result
+end
+
+function Theme.create(options)
+    options = options or {}
+
+    local baseName = options.Base or "Midnight"
+    if not BASES[baseName] then
+        baseName = "Midnight"
+    end
+
+    local accentName = options.Accent or "Crimson"
+    if not ACCENTS[accentName] then
+        accentName = "Crimson"
+    end
+
+    local tokens = {}
+    for key, value in pairs(BASES[baseName]) do
+        tokens[key] = colorFromHex(value)
+    end
+    for key, value in pairs(FIXED) do
+        tokens[key] = colorFromHex(value)
+    end
+
+    tokens.Accent = colorFromHex(ACCENTS[accentName])
+    tokens.AccentSoft = tokens.Accent:Lerp(tokens.Background, 0.72)
+    tokens.Glass = colorFromHex("#FFFFFF")
+    tokens.Shadow = colorFromHex("#000000")
+
+    if typeof(options.Panel) == "Color3" then
+        tokens.Background = options.Panel
+    end
+
+    return setmetatable({
+        Base = baseName,
+        Accent = accentName,
+        Tokens = tokens,
+        Opacity = math.clamp(tonumber(options.Opacity) or 1, 0.5, 1),
+        Density = options.Density == "Comfortable" and "Comfortable" or "Compact",
+        CardStyle = options.CardStyle or "Glass",
+        _bindings = {},
+        _destroyed = false,
+    }, Theme)
+end
+
+function Theme:Get(token)
+    return self.Tokens[token]
+end
+
+function Theme:Bind(instance, property, token)
+    assert(not self._destroyed, "cannot bind a destroyed theme")
+    assert(typeof(instance) == "Instance", "Theme:Bind expects an Instance")
+    assert(type(property) == "string" and property ~= "", "Theme:Bind expects a property name")
+    assert(type(token) == "string" and self.Tokens[token] ~= nil, "Theme:Bind received an unknown token")
+
+    local binding = {
+        instance = instance,
+        property = property,
+        token = token,
+    }
+    table.insert(self._bindings, binding)
+
+    pcall(function()
+        instance[property] = self.Tokens[token]
     end)
-    table.insert(self.Win.Conns,UserInputService.InputChanged:Connect(function(input)
-        if not activeInput then return end
-        local touchMove=input==activeInput
-        local mouseMove=activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseMovement
-        if touchMove or mouseMove then fromX(input.Position.X) end
-    end))
-    table.insert(self.Win.Conns,UserInputService.InputEnded:Connect(function(input)
-        if not activeInput then return end
-        local touchEnd=input==activeInput
-        local mouseEnd=activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseButton1
-        if touchEnd or mouseEnd then activeInput=nil end
-    end))
-    return obj
+
+    local disconnected = false
+    return function()
+        if disconnected then
+            return
+        end
+        disconnected = true
+        for index = #self._bindings, 1, -1 do
+            if self._bindings[index] == binding then
+                table.remove(self._bindings, index)
+                break
+            end
+        end
+    end
 end
-function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Frame}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(87,59,143),Color3.fromRGB(36,72,91)),Rotation=0})})
-    hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
-    b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
+
+function Theme:Set(token, value)
+    assert(not self._destroyed, "cannot update a destroyed theme")
+    assert(self.Tokens[token] ~= nil, "unknown theme token: " .. tostring(token))
+    assert(typeof(value) == "Color3", "theme token values must be Color3")
+
+    self.Tokens[token] = value
+    if token == "Accent" then
+        self.Tokens.AccentSoft = value:Lerp(self.Tokens.Background, 0.72)
+    end
+    self:Refresh()
 end
-function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
+
+function Theme:SetAccent(name)
+    local hex = ACCENTS[name]
+    if not hex then
+        return false
+    end
+
+    self.Accent = name
+    self:Set("Accent", colorFromHex(hex))
+    return true
+end
+
+function Theme:SetBase(name)
+    local palette = BASES[name]
+    if not palette then
+        return false
+    end
+
+    self.Base = name
+    for token, hex in pairs(palette) do
+        self.Tokens[token] = colorFromHex(hex)
+    end
+    self.Tokens.AccentSoft = self.Tokens.Accent:Lerp(self.Tokens.Background, 0.72)
+    self:Refresh()
+    return true
+end
+
+function Theme:Refresh()
+    if self._destroyed then
+        return
+    end
+
+    for index = #self._bindings, 1, -1 do
+        local binding = self._bindings[index]
+        if binding.instance.Parent == nil then
+            table.remove(self._bindings, index)
+        else
+            pcall(function()
+                binding.instance[binding.property] = self.Tokens[binding.token]
+            end)
+        end
+    end
+end
+
+function Theme:Destroy()
+    if self._destroyed then
+        return
+    end
+    self._destroyed = true
+    table.clear(self._bindings)
+end
+
+Theme.BasePresets = BASES
+Theme.AccentPresets = ACCENTS
+Theme.ColorFromHex = colorFromHex
+
+return Theme
+end)()
+
+local EmbeddedWindow = (function()
+-- Liberium Hub | Nova-style window and shared component system
+-- Original UI implementation. It is designed to replace the renderer behind the
+-- existing Lib.new / AddTab / AddSubTab / AddSection feature-facing API.
+
+local ThemeFactory = EmbeddedTheme
+local Maid = EmbeddedMaid
+
+local Window = {}
+Window.__index = Window
+
+local Tab = {}
+Tab.__index = Tab
+
+local SubTab = {}
+SubTab.__index = SubTab
+
+local Section = {}
+Section.__index = Section
+
+local Control = {}
+Control.__index = Control
+
+local DEFAULT_SIZE = Vector2.new(812, 584)
+local MIN_SIZE = Vector2.new(660, 420)
+local SIDEBAR_WIDTH = 208
+local HEADER_HEIGHT = 68
+
+local function create(className, properties, parent)
+    local object = Instance.new(className)
+    for property, value in pairs(properties or {}) do
+        object[property] = value
+    end
+    object.Parent = parent
+    return object
+end
+
+local function corner(object, radius)
+    return create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 8),
+    }, object)
+end
+
+local function stroke(object, color, transparency, thickness)
+    return create("UIStroke", {
+        Color = color,
+        Transparency = transparency or 0,
+        Thickness = thickness or 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, object)
+end
+
+local function text(parent, value, size, color, font)
+    return create("TextLabel", {
+        BackgroundTransparency = 1,
+        Text = tostring(value or ""),
+        TextColor3 = color,
+        Font = font or Enum.Font.GothamMedium,
+        TextSize = size or 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        Size = UDim2.fromScale(1, 1),
+        ClipsDescendants = true,
+    }, parent)
+end
+
+local function addPadding(object, left, right, top, bottom)
+    return create("UIPadding", {
+        PaddingLeft = UDim.new(0, left or 0),
+        PaddingRight = UDim.new(0, right or 0),
+        PaddingTop = UDim.new(0, top or 0),
+        PaddingBottom = UDim.new(0, bottom or 0),
+    }, object)
+end
+
+local function addList(object, padding, direction)
+    return create("UIListLayout", {
+        FillDirection = direction or Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, padding or 0),
+    }, object)
+end
+
+local function makeControlHandle(section, name, instance, getValue, setValue)
+    local handle = setmetatable({
+        Name = name,
+        Instance = instance,
+        _get = getValue,
+        _set = setValue,
+    }, Control)
+    table.insert(section.Controls, handle)
+    table.insert(section.Tab.SearchIndex, name)
+    return handle
+end
+
+function Control:Get()
+    if not self._get then return nil end
+    return self._get()
+end
+
+function Control:Set(value, silent)
+    if self._set then
+        self._set(value, silent == true)
+    end
+end
+
+function Control:Destroy()
+    if self.Instance and self.Instance.Parent then
+        self.Instance:Destroy()
+    end
+    self.Instance = nil
+end
+
+function Window.new(options)
+    options = options or {}
+
+    local player = game:GetService("Players").LocalPlayer
+    assert(player, "Liberium UI requires a local player")
+
+    local playerGui = options.Parent or player:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then
+        playerGui = player:WaitForChild("PlayerGui", 15)
+    end
+    assert(playerGui, "Liberium UI could not find PlayerGui")
+
+    local self = setmetatable({}, Window)
+    self.Options = options
+    self.Title = options.Title or "LIBERIUM HUB"
+    self.Subtitle = options.Subtitle or "MURDER MYSTERY 2"
+    self.Version = options.Version or "v92"
+    self.Size = options.Size or DEFAULT_SIZE
+    self.MinSize = options.MinSize or MIN_SIZE
+    self.ScaleValue = tonumber(options.Scale) or 0.86
+    self.IsOpen = true
+    self.Destroyed = false
+    self.Tabs = {}
+    self.TabsByName = {}
+    self.TabList = self.Tabs
+    self.Groups = {}
+    self.CurrentTab = nil
+    self.CurrentSubTab = nil
+    self._tabOrder = 0
+    self._toastOrder = 0
+    self._connections = Maid.new()
+    self._theme = options.ThemeObject or ThemeFactory.create(options.Theme)
+    self._ownsTheme = options.ThemeObject == nil
+
+    self:_mount(playerGui)
+    self:_bindViewport()
+    return self
+end
+
+function Window:_bindColor(object, property, token, key)
+    local cleanup = self._theme:Bind(object, property, token)
+    self._connections:Give(cleanup, key)
+    return object
+end
+
+function Window:_mount(parent)
+    local theme = self._theme
+    local accent = theme:Get("Accent")
+    local gui = create("ScreenGui", {
+        Name = "LiberiumNovaUI",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder = 9999,
+    }, parent)
+    self.Gui = gui
+    self._connections:Give(gui, "gui")
+
+    local root = create("Frame", {
+        Name = "Root",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(self.Size.X, self.Size.Y),
+        BackgroundTransparency = 1,
+        ClipsDescendants = false,
+    }, gui)
+    self.Root = root
+    self.Scale = create("UIScale", {Scale = self.ScaleValue}, root)
+
+    local shadow = create("Frame", {
+        Name = "Shadow",
+        Position = UDim2.fromOffset(8, 10),
+        Size = UDim2.new(1, -16, 1, -16),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.5,
+        BorderSizePixel = 0,
+        ZIndex = 0,
+    }, root)
+    corner(shadow, 16)
+
+    local shell = create("Frame", {
+        Name = "Window",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = theme:Get("Background"),
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 1,
+    }, root)
+    self.Shell = shell
+    corner(shell, 14)
+    self:_bindColor(shell, "BackgroundColor3", "Background", "shell-color")
+    self:_bindColor(stroke(shell, theme:Get("Line"), 0.12, 1.1), "Color", "Line", "shell-stroke")
+
+    local sidebar = create("Frame", {
+        Name = "Sidebar",
+        Size = UDim2.new(0, SIDEBAR_WIDTH, 1, 0),
+        BackgroundColor3 = theme:Get("Sidebar"),
+        BorderSizePixel = 0,
+        ZIndex = 2,
+    }, shell)
+    self.Sidebar = sidebar
+    self:_bindColor(sidebar, "BackgroundColor3", "Sidebar", "sidebar-color")
+
+    local brand = create("Frame", {
+        Name = "Brand",
+        Position = UDim2.fromOffset(16, 13),
+        Size = UDim2.new(1, -32, 0, 52),
+        BackgroundTransparency = 1,
+    }, sidebar)
+    self.Brand = brand
+
+    local logo = create("Frame", {
+        Name = "Logo",
+        Size = UDim2.fromOffset(34, 34),
+        Position = UDim2.fromOffset(0, 7),
+        BackgroundColor3 = accent,
+        BorderSizePixel = 0,
+    }, brand)
+    corner(logo, 10)
+    self:_bindColor(logo, "BackgroundColor3", "Accent", "brand-logo")
+    local logoText = text(logo, "L", 20, theme:Get("OnAccent"), Enum.Font.GothamBlack)
+    logoText.TextXAlignment = Enum.TextXAlignment.Center
+
+    local titleBox = create("Frame", {
+        Position = UDim2.fromOffset(44, 4),
+        Size = UDim2.new(1, -44, 0, 42),
+        BackgroundTransparency = 1,
+    }, brand)
+    local titleText = text(titleBox, self.Title, 13, theme:Get("Text"), Enum.Font.GothamBold)
+    titleText.Size = UDim2.new(1, 0, 0, 19)
+    titleText.TextTruncate = Enum.TextTruncate.AtEnd
+    local subtitleText = text(titleBox, self.Subtitle, 9, theme:Get("Muted"), Enum.Font.GothamMedium)
+    subtitleText.Position = UDim2.fromOffset(0, 20)
+    subtitleText.Size = UDim2.new(1, 0, 0, 15)
+    self.BrandTitle = titleText
+    self.BrandSubtitle = subtitleText
+    self:_bindColor(titleText, "TextColor3", "Text", "brand-title")
+    self:_bindColor(subtitleText, "TextColor3", "Muted", "brand-subtitle")
+
+    local searchWrap = create("Frame", {
+        Name = "SearchWrap",
+        Position = UDim2.fromOffset(13, 76),
+        Size = UDim2.new(1, -26, 0, 36),
+        BackgroundColor3 = theme:Get("Surface"),
+        BorderSizePixel = 0,
+    }, sidebar)
+    self.SearchWrap = searchWrap
+    corner(searchWrap, 8)
+    self:_bindColor(searchWrap, "BackgroundColor3", "Surface", "search-wrap")
+    local searchStroke = stroke(searchWrap, theme:Get("Line"), 0.2, 1)
+    self:_bindColor(searchStroke, "Color", "Line", "search-stroke")
+
+    local searchIcon = text(searchWrap, "⌕", 18, theme:Get("Muted"), Enum.Font.GothamBold)
+    searchIcon.Position = UDim2.fromOffset(9, 0)
+    searchIcon.Size = UDim2.fromOffset(22, 36)
+    searchIcon.TextXAlignment = Enum.TextXAlignment.Center
+    local search = create("TextBox", {
+        Name = "Search",
+        Position = UDim2.fromOffset(34, 0),
+        Size = UDim2.new(1, -42, 1, 0),
+        BackgroundTransparency = 1,
+        ClearTextOnFocus = false,
+        PlaceholderText = "Search tabs and sections",
+        PlaceholderColor3 = theme:Get("Faint"),
+        Text = "",
+        TextColor3 = theme:Get("Text"),
+        Font = Enum.Font.Gotham,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, searchWrap)
+    self.Search = search
+    self:_bindColor(search, "TextColor3", "Text", "search-text")
+    self:_bindColor(search, "PlaceholderColor3", "Faint", "search-placeholder")
+
+    local nav = create("ScrollingFrame", {
+        Name = "Navigation",
+        Position = UDim2.fromOffset(8, 122),
+        Size = UDim2.new(1, -16, 1, -164),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = theme:Get("Faint"),
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    }, sidebar)
+    self.Navigation = nav
+    addPadding(nav, 3, 3, 4, 8)
+    self.NavLayout = addList(nav, 9)
+
+    local footer = create("Frame", {
+        Name = "Footer",
+        AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.new(0, 12, 1, -10),
+        Size = UDim2.new(1, -24, 0, 24),
+        BackgroundTransparency = 1,
+    }, sidebar)
+    self.Footer = footer
+    local version = text(footer, self.Version, 10, theme:Get("Faint"), Enum.Font.GothamMedium)
+    version.Size = UDim2.new(0.48, 0, 1, 0)
+    local status = text(footer, "●  READY", 9, theme:Get("Success"), Enum.Font.GothamBold)
+    status.AnchorPoint = Vector2.new(1, 0)
+    status.Position = UDim2.new(1, 0, 0, 0)
+    status.Size = UDim2.new(0.52, 0, 1, 0)
+    status.TextXAlignment = Enum.TextXAlignment.Right
+    self.FooterStatus = status
+    self:_bindColor(version, "TextColor3", "Faint", "footer-version")
+    self:_bindColor(status, "TextColor3", "Success", "footer-status")
+
+    local main = create("Frame", {
+        Name = "Main",
+        Position = UDim2.fromOffset(SIDEBAR_WIDTH, 0),
+        Size = UDim2.new(1, -SIDEBAR_WIDTH, 1, 0),
+        BackgroundTransparency = 1,
+        ZIndex = 2,
+    }, shell)
+    self.Main = main
+
+    local header = create("Frame", {
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, HEADER_HEIGHT),
+        BackgroundTransparency = 1,
+    }, main)
+    self.Header = header
+
+    local activeTitle = text(header, "Home", 20, theme:Get("Text"), Enum.Font.GothamBold)
+    activeTitle.Position = UDim2.fromOffset(24, 10)
+    activeTitle.Size = UDim2.new(1, -86, 0, 25)
+    activeTitle.TextTruncate = Enum.TextTruncate.AtEnd
+    local activeDescription = text(header, "Your session at a glance", 11, theme:Get("Muted"), Enum.Font.Gotham)
+    activeDescription.Position = UDim2.fromOffset(24, 37)
+    activeDescription.Size = UDim2.new(1, -86, 0, 18)
+    activeDescription.TextTruncate = Enum.TextTruncate.AtEnd
+    self.ActiveTitle = activeTitle
+    self.ActiveDescription = activeDescription
+    self:_bindColor(activeTitle, "TextColor3", "Text", "active-title")
+    self:_bindColor(activeDescription, "TextColor3", "Muted", "active-description")
+
+    local close = create("TextButton", {
+        Name = "Close",
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -17, 0, 17),
+        Size = UDim2.fromOffset(28, 28),
+        BackgroundColor3 = theme:Get("Surface2"),
+        BorderSizePixel = 0,
+        Text = "×",
+        TextSize = 19,
+        TextColor3 = theme:Get("Muted"),
+        Font = Enum.Font.Gotham,
+        AutoButtonColor = false,
+    }, header)
+    self.CloseButton = close
+    corner(close, 8)
+    self:_bindColor(close, "BackgroundColor3", "Surface2", "close-background")
+    self:_bindColor(close, "TextColor3", "Muted", "close-text")
+    self._connections:Connect(close.Activated, function()
+        self:SetVisible(false)
+    end, "close-click")
+
+    local line = create("Frame", {
+        Name = "HeaderLine",
+        Position = UDim2.new(0, 20, 0, HEADER_HEIGHT - 1),
+        Size = UDim2.new(1, -40, 0, 1),
+        BorderSizePixel = 0,
+        BackgroundColor3 = theme:Get("Line"),
+    }, header)
+    self:_bindColor(line, "BackgroundColor3", "Line", "header-line")
+
+    local subNav = create("Frame", {
+        Name = "SubNavigation",
+        Position = UDim2.fromOffset(22, HEADER_HEIGHT + 5),
+        Size = UDim2.new(1, -44, 0, 34),
+        BackgroundTransparency = 1,
+        Visible = false,
+    }, main)
+    self.SubNavigation = subNav
+    self.SubNavLayout = addList(subNav, 7, Enum.FillDirection.Horizontal)
+
+    local pages = create("Frame", {
+        Name = "Pages",
+        Position = UDim2.fromOffset(20, HEADER_HEIGHT + 46),
+        Size = UDim2.new(1, -40, 1, -(HEADER_HEIGHT + 60)),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+    }, main)
+    self.Pages = pages
+
+    self:_bindDragging(header)
+    self:_bindSearch()
+end
+
+function Window:_bindDragging(handle)
+    local inputService = game:GetService("UserInputService")
+    local activeInput, startPosition, startRoot
+    self._connections:Connect(handle.InputBegan, function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        activeInput = input
+        startPosition = input.Position
+        startRoot = self.Root.Position
+    end, "drag-began")
+
+    self._connections:Connect(inputService.InputChanged, function(input)
+        if not activeInput then
+            return
+        end
+        local matchingTouch = activeInput.UserInputType == Enum.UserInputType.Touch and input == activeInput
+        local matchingMouse = activeInput.UserInputType == Enum.UserInputType.MouseButton1
+            and input.UserInputType == Enum.UserInputType.MouseMovement
+        if not matchingTouch and not matchingMouse then
+            return
+        end
+        local delta = input.Position - startPosition
+        self.Root.Position = UDim2.new(
+            startRoot.X.Scale, startRoot.X.Offset + delta.X,
+            startRoot.Y.Scale, startRoot.Y.Offset + delta.Y
+        )
+    end, "drag-changed")
+
+    self._connections:Connect(inputService.InputEnded, function(input)
+        if activeInput and input == activeInput then
+            activeInput = nil
+        end
+    end, "drag-ended")
+end
+
+function Window:_bindViewport()
+    local workspace = game:GetService("Workspace")
+    local function update()
+        local camera = workspace.CurrentCamera
+        if not camera or not self.Root or not self.Root.Parent then
+            return
+        end
+
+        local viewport = camera.ViewportSize
+        local width = math.max(1, viewport.X - 24)
+        local height = math.max(1, viewport.Y - 24)
+        local fit = math.min(width / self.Size.X, height / self.Size.Y)
+        local scale = math.min(self.ScaleValue, fit)
+        self.Scale.Scale = math.clamp(scale, 0.35, self.ScaleValue)
+
+        local isCompact = self.Scale.Scale < 0.64
+        self.BrandSubtitle.Visible = not isCompact
+        self.SearchWrap.Visible = not isCompact
+        self.Sidebar.Size = UDim2.new(0, isCompact and 178 or SIDEBAR_WIDTH, 1, 0)
+        self.Main.Position = UDim2.fromOffset(isCompact and 178 or SIDEBAR_WIDTH, 0)
+        self.Main.Size = UDim2.new(1, -(isCompact and 178 or SIDEBAR_WIDTH), 1, 0)
+        self.Navigation.Position = UDim2.fromOffset(8, isCompact and 72 or 122)
+        self.Navigation.Size = UDim2.new(1, -16, 1, isCompact and -112 or -164)
+        if isCompact then
+            self.BrandTitle.TextSize = 11
+            self.ActiveTitle.TextSize = 17
+        else
+            self.BrandTitle.TextSize = 13
+            self.ActiveTitle.TextSize = 20
+        end
+    end
+
+    local camera = workspace.CurrentCamera
+    if camera then
+        self._connections:Connect(camera:GetPropertyChangedSignal("ViewportSize"), update, "viewport")
+    end
+    self._connections:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), function()
+        local nextCamera = workspace.CurrentCamera
+        if nextCamera then
+            self._connections:Connect(nextCamera:GetPropertyChangedSignal("ViewportSize"), update, "viewport")
+        end
+        update()
+    end, "camera-change")
+    update()
+end
+
+function Window:_ensureGroup(name)
+    local key = tostring(name or "General")
+    if self.Groups[key] then
+        return self.Groups[key]
+    end
+
+    local theme = self._theme
+    local frame = create("Frame", {
+        Name = "Group_" .. key:gsub("%W", ""),
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+    }, self.Navigation)
+
+    local heading = create("TextButton", {
+        Name = "Heading",
+        Size = UDim2.new(1, 0, 0, 24),
+        BackgroundTransparency = 1,
+        Text = key:upper() .. "   ▾",
+        TextColor3 = theme:Get("Faint"),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        AutoButtonColor = false,
+    }, frame)
+
+    local entries = create("Frame", {
+        Name = "Entries",
+        Position = UDim2.fromOffset(0, 25),
+        Size = UDim2.new(1, 0, 0, 0),
+        BackgroundTransparency = 1,
+        AutomaticSize = Enum.AutomaticSize.Y,
+    }, frame)
+    local layout = addList(entries, 3)
+
+    local group = {
+        Name = key,
+        Frame = frame,
+        Heading = heading,
+        Entries = entries,
+        Layout = layout,
+        Expanded = true,
+        Tabs = {},
+    }
+    self.Groups[key] = group
+
+    self._connections:Connect(heading.Activated, function()
+        group.Expanded = not group.Expanded
+        entries.Visible = group.Expanded
+        heading.Text = key:upper() .. (group.Expanded and "   ▾" or "   ▸")
+    end, "group-" .. key)
+
+    self._connections:Give(layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        entries.Size = UDim2.new(1, 0, 0, layout.AbsoluteContentSize.Y)
+    end))
+    return group
+end
+
+function Window:_createNavButton(tab)
+    local theme = self._theme
+    local group = self:_ensureGroup(tab.Group)
+    local button = create("TextButton", {
+        Name = "Tab_" .. tab.Name:gsub("%W", ""),
+        Size = UDim2.new(1, 0, 0, 34),
+        BackgroundColor3 = theme:Get("Surface2"),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+    }, group.Entries)
+    corner(button, 7)
+
+    local icon = text(button, tab.Icon, 15, theme:Get("Muted"), Enum.Font.GothamBold)
+    icon.Position = UDim2.fromOffset(10, 0)
+    icon.Size = UDim2.fromOffset(22, 34)
+    icon.TextXAlignment = Enum.TextXAlignment.Center
+
+    local label = text(button, tab.Name, 11, theme:Get("Muted"), Enum.Font.GothamMedium)
+    label.Position = UDim2.fromOffset(40, 0)
+    label.Size = UDim2.new(1, -50, 1, 0)
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+
+    tab.NavButton = button
+    tab.NavIcon = icon
+    tab.NavLabel = label
+    table.insert(group.Tabs, tab)
+
+    self._connections:Connect(button.Activated, function()
+        self:SelectTab(tab)
+    end, "tab-select-" .. tab.Name)
+    return button
+end
+
+function Window:AddTab(name, icon, options)
+    assert(not self.Destroyed, "cannot add a tab to a destroyed window")
+    options = options or {}
+    name = tostring(name or ("Tab " .. tostring(#self.TabList + 1)))
+    assert(not self.TabsByName[name], "duplicate tab name: " .. name)
+
+    self._tabOrder += 1
+    local tab = setmetatable({
+        Window = self,
+        Name = name,
+        Icon = tostring(icon or "•"),
+        Group = options.Group or "General",
+        Description = options.Description or "",
+        Order = self._tabOrder,
+        SubTabs = {},
+        Pages = {},
+        SearchIndex = {},
+        ActiveSub = nil,
+        _defaultSub = nil,
+    }, Tab)
+
+    self.TabsByName[name] = tab
+    table.insert(self.TabList, tab)
+    self:_createNavButton(tab)
+    tab:_createDefaultPage()
+
+    if not self.CurrentTab then
+        self:SelectTab(tab)
+    end
+    self:_applySearch(self.Search.Text)
+    return tab
+end
+
+function Tab:_createPage(name, description)
+    local window = self.Window
+    local page = create("ScrollingFrame", {
+        Name = "Page_" .. tostring(name):gsub("%W", ""),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = window._theme:Get("Faint"),
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Visible = false,
+    }, window.Pages)
+    addPadding(page, 2, 7, 4, 14)
+    local layout = addList(page, 12)
+    window._connections:Connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        page.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 10)
+    end)
+    return page
+end
+
+function Tab:_createDefaultPage()
+    if self._defaultSub then
+        return self._defaultSub
+    end
+    local page = self:_createPage(self.Name, self.Description)
+    local sub = setmetatable({
+        Tab = self,
+        Name = self.Name,
+        Page = page,
+        Button = nil,
+        IsDefault = true,
+        Empty = true,
+    }, SubTab)
+    self._defaultSub = sub
+    self.SubTabs[1] = sub
+    return sub
+end
+
+function Tab:AddSubTab(name, description)
+    name = tostring(name or ("Page " .. tostring(#self.SubTabs + 1)))
+    if self._defaultSub and self._defaultSub.IsDefault and self._defaultSub.Empty then
+        self._defaultSub.Page:Destroy()
+        self.SubTabs = {}
+        self._defaultSub = nil
+    end
+
+    for _, existing in ipairs(self.SubTabs) do
+        if existing.Name == name then
+            return existing
+        end
+    end
+
+    local page = self:_createPage(name, description)
+    local button = create("TextButton", {
+        Name = "SubTab_" .. name:gsub("%W", ""),
+        Size = UDim2.fromOffset(112, 28),
+        BackgroundColor3 = self.Window._theme:Get("Surface2"),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Text = name,
+        TextColor3 = self.Window._theme:Get("Muted"),
+        TextSize = 10,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false,
+    }, self.Window.SubNavigation)
+    corner(button, 7)
+
+    local sub = setmetatable({
+        Tab = self,
+        Name = name,
+        Description = description or self.Description,
+        Page = page,
+        Button = button,
+        IsDefault = false,
+    }, SubTab)
+    table.insert(self.SubTabs, sub)
+    table.insert(self.SearchIndex, name)
+
+    self.Window._connections:Connect(button.Activated, function()
+        self.Window:SelectSubTab(sub)
+    end, "subtab-" .. self.Name .. "-" .. name)
+
+    self.Window.SubNavigation.Visible = true
+    if #self.SubTabs == 1 then
+        self.Window:SelectSubTab(sub)
+    else
+        self.Window:_refreshSubTabs(self)
+    end
+    return sub
+end
+
+function SubTab:AddSection(name, options)
+    assert(not self.Tab.Window.Destroyed, "cannot add a section to a destroyed window")
+    options = options or {}
+    name = tostring(name or "Section")
+
+    local theme = self.Tab.Window._theme
+    local card = create("Frame", {
+        Name = "Section_" .. name:gsub("%W", ""),
+        Size = UDim2.new(1, -4, 0, 46),
+        BackgroundColor3 = theme:Get("Surface"),
+        BorderSizePixel = 0,
+        AutomaticSize = Enum.AutomaticSize.Y,
+        ClipsDescendants = false,
+    }, self.Page)
+    corner(card, 10)
+    local cardStroke = stroke(card, theme:Get("Line"), 0.24, 1)
+    self.Tab.Window:_bindColor(card, "BackgroundColor3", "Surface")
+    self.Tab.Window:_bindColor(cardStroke, "Color", "Line")
+
+    local header = create("Frame", {
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 38),
+        BackgroundTransparency = 1,
+    }, card)
+    local heading = text(header, name, 11, theme:Get("Text"), Enum.Font.GothamBold)
+    heading.Position = UDim2.fromOffset(14, 0)
+    heading.Size = UDim2.new(1, -28, 1, 0)
+    self.Tab.Window:_bindColor(heading, "TextColor3", "Text")
+
+    local content = create("Frame", {
+        Name = "Content",
+        Position = UDim2.fromOffset(10, 38),
+        Size = UDim2.new(1, -20, 0, 0),
+        BackgroundTransparency = 1,
+        AutomaticSize = Enum.AutomaticSize.Y,
+    }, card)
+    local layout = addList(content, 7)
+    addPadding(content, 0, 0, 0, 10)
+
+    local section = setmetatable({
+        Tab = self.Tab,
+        SubTab = self,
+        Name = name,
+        Card = card,
+        Header = header,
+        Content = content,
+        Frame = content,
+        Layout = layout,
+        Controls = {},
+        _connections = Maid.new(),
+    }, Section)
+
+    self.Tab.Window._connections:Give(section._connections)
+    section._connections:Connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        content.Size = UDim2.new(1, -20, 0, layout.AbsoluteContentSize.Y + 10)
+        card.Size = UDim2.new(1, -4, 0, 38 + layout.AbsoluteContentSize.Y + 10)
+    end)
+    if self.Tab._defaultSub == self then
+        self.Empty = false
+    end
+    table.insert(self.Tab.SearchIndex, name)
+    table.insert(self.Tab.Pages, card)
+    return section
+end
+
+function Section:_row(name, height)
+    local theme = self.Tab.Window._theme
+    local row = create("Frame", {
+        Name = "Control_" .. tostring(name):gsub("%W", ""),
+        Size = UDim2.new(1, 0, 0, height or 36),
+        BackgroundColor3 = theme:Get("Surface2"),
+        BackgroundTransparency = 0.48,
+        BorderSizePixel = 0,
+    }, self.Content)
+    corner(row, 7)
+    self.Tab.Window:_bindColor(row, "BackgroundColor3", "Surface2")
+    return row
+end
+
+function Section:AddLabel(name, description)
+    local row = self:_row(name, description and 48 or 30)
+    local title = text(row, name, 11, self.Tab.Window._theme:Get("Text"), Enum.Font.GothamSemibold)
+    title.Position = UDim2.fromOffset(11, description and 5 or 0)
+    title.Size = UDim2.new(1, -22, 0, description and 18 or 30)
+    self.Tab.Window:_bindColor(title, "TextColor3", "Text")
+    if description then
+        local desc = text(row, description, 9, self.Tab.Window._theme:Get("Muted"), Enum.Font.Gotham)
+        desc.Position = UDim2.fromOffset(11, 24)
+        desc.Size = UDim2.new(1, -22, 0, 16)
+        self.Tab.Window:_bindColor(desc, "TextColor3", "Muted")
+    end
+    return makeControlHandle(self, name, row, function() return name end, function() end)
+end
+
+function Section:AddToggle(name, defaultValue, callback)
+    local value = defaultValue == true
+    local row = self:_row(name, 38)
+    local title = text(row, name, 11, self.Tab.Window._theme:Get("Text"), Enum.Font.GothamMedium)
+    title.Position = UDim2.fromOffset(11, 0)
+    title.Size = UDim2.new(1, -76, 1, 0)
+    self.Tab.Window:_bindColor(title, "TextColor3", "Text")
+
+    local track = create("Frame", {
+        Name = "Track",
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -10, 0.5, 0),
+        Size = UDim2.fromOffset(38, 21),
+        BackgroundColor3 = value and self.Tab.Window._theme:Get("Accent") or self.Tab.Window._theme:Get("Elevated"),
+        BorderSizePixel = 0,
+    }, row)
+    corner(track, 11)
+
+    local knob = create("Frame", {
+        Name = "Knob",
+        AnchorPoint = Vector2.new(0, 0.5),
+        Position = UDim2.new(0, value and 20 or 3, 0.5, 0),
+        Size = UDim2.fromOffset(15, 15),
+        BackgroundColor3 = Color3.fromRGB(245, 246, 250),
+        BorderSizePixel = 0,
+    }, track)
+    corner(knob, 8)
+
+    local function update(nextValue, silent)
+        value = nextValue == true
+        track.BackgroundColor3 = value and self.Tab.Window._theme:Get("Accent") or self.Tab.Window._theme:Get("Elevated")
+        knob.Position = UDim2.new(0, value and 20 or 3, 0.5, 0)
+        if not silent and type(callback) == "function" then
+            callback(value)
+        end
+    end
+
+    local hitbox = create("TextButton", {
+        Name = "Hitbox",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, row)
+    self._connections:Connect(hitbox.Activated, function()
+        update(not value, false)
+    end)
+    update(value, true)
+    return makeControlHandle(self, name, row, function() return value end, update)
+end
+
+function Section:AddButton(name, callback)
+    local row = self:_row(name, 38)
+    local button = create("TextButton", {
+        Size = UDim2.new(1, -14, 1, -8),
+        Position = UDim2.fromOffset(7, 4),
+        BackgroundColor3 = self.Tab.Window._theme:Get("Elevated"),
+        BorderSizePixel = 0,
+        Text = tostring(name),
+        TextColor3 = self.Tab.Window._theme:Get("Text"),
+        TextSize = 10,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false,
+    }, row)
+    corner(button, 7)
+    self.Tab.Window:_bindColor(button, "BackgroundColor3", "Elevated")
+    self.Tab.Window:_bindColor(button, "TextColor3", "Text")
+    self._connections:Connect(button.Activated, function()
+        if type(callback) == "function" then
+            callback()
+        end
+    end)
+    return makeControlHandle(self, name, row, function() return button end, function() end)
+end
+
+function Section:AddSlider(name, minimum, maximum, defaultValue, callback, increment)
+    minimum = tonumber(minimum) or 0
+    maximum = tonumber(maximum) or 100
+    if maximum < minimum then
+        minimum, maximum = maximum, minimum
+    end
+    increment = tonumber(increment) or 1
+    if increment <= 0 then
+        increment = 1
+    end
+    local value = math.clamp(tonumber(defaultValue) or minimum, minimum, maximum)
+    local row = self:_row(name, 58)
+    local title = text(row, name, 10, self.Tab.Window._theme:Get("Text"), Enum.Font.GothamMedium)
+    title.Position = UDim2.fromOffset(10, 4)
+    title.Size = UDim2.new(1, -76, 0, 18)
+    self.Tab.Window:_bindColor(title, "TextColor3", "Text")
+
+    local valueLabel = text(row, tostring(value), 10, self.Tab.Window._theme:Get("Accent"), Enum.Font.GothamBold)
+    valueLabel.AnchorPoint = Vector2.new(1, 0)
+    valueLabel.Position = UDim2.new(1, -10, 0, 4)
+    valueLabel.Size = UDim2.fromOffset(58, 18)
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    self.Tab.Window:_bindColor(valueLabel, "TextColor3", "Accent")
+
+    local bar = create("Frame", {
+        Position = UDim2.new(0, 10, 0, 34),
+        Size = UDim2.new(1, -20, 0, 6),
+        BackgroundColor3 = self.Tab.Window._theme:Get("Elevated"),
+        BorderSizePixel = 0,
+    }, row)
+    corner(bar, 4)
+    self.Tab.Window:_bindColor(bar, "BackgroundColor3", "Elevated")
+
+    local fill = create("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = self.Tab.Window._theme:Get("Accent"),
+        BorderSizePixel = 0,
+    }, bar)
+    corner(fill, 4)
+    self.Tab.Window:_bindColor(fill, "BackgroundColor3", "Accent")
+
+    local knob = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.fromOffset(13, 13),
+        BackgroundColor3 = Color3.fromRGB(244, 245, 249),
+        BorderSizePixel = 0,
+    }, bar)
+    corner(knob, 8)
+
+    local inputService = game:GetService("UserInputService")
+    local dragging = false
+    local function snap(nextValue)
+        nextValue = math.clamp(tonumber(nextValue) or minimum, minimum, maximum)
+        local steps = math.floor(((nextValue - minimum) / increment) + 0.5)
+        return math.clamp(minimum + steps * increment, minimum, maximum)
+    end
+    local function update(nextValue, silent)
+        value = snap(nextValue)
+        local alpha = maximum == minimum and 0 or (value - minimum) / (maximum - minimum)
+        fill.Size = UDim2.new(alpha, 0, 1, 0)
+        knob.Position = UDim2.new(alpha, 0, 0.5, 0)
+        valueLabel.Text = tostring(value)
+        if not silent and type(callback) == "function" then
+            callback(value)
+        end
+    end
+    local function setFromInput(input)
+        local width = math.max(1, bar.AbsoluteSize.X)
+        local alpha = math.clamp((input.Position.X - bar.AbsolutePosition.X) / width, 0, 1)
+        update(minimum + (maximum - minimum) * alpha, false)
+    end
+    self._connections:Connect(bar.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            setFromInput(input)
+        end
+    end)
+    self._connections:Connect(inputService.InputChanged, function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            setFromInput(input)
+        end
+    end)
+    self._connections:Connect(inputService.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    update(value, true)
+
+    return makeControlHandle(self, name, row, function() return value end, update)
+end
+
+function Section:AddDropdown(name, options, defaultValue, callback)
+    options = options or {}
+    local labels = {}
+    for _, option in ipairs(options) do
+        if type(option) == "table" then
+            table.insert(labels, tostring(option.label or option.Name or option.value or option.Value or "Option"))
+        else
+            table.insert(labels, tostring(option))
+        end
+    end
+
+    local value = tostring(defaultValue or labels[1] or "")
+    local row = self:_row(name, 58)
+    local title = text(row, name, 10, self.Tab.Window._theme:Get("Text"), Enum.Font.GothamMedium)
+    title.Position = UDim2.fromOffset(10, 4)
+    title.Size = UDim2.new(1, -20, 0, 17)
+    self.Tab.Window:_bindColor(title, "TextColor3", "Text")
+
+    local button = create("TextButton", {
+        Position = UDim2.fromOffset(8, 25),
+        Size = UDim2.new(1, -16, 0, 27),
+        BackgroundColor3 = self.Tab.Window._theme:Get("Elevated"),
+        BorderSizePixel = 0,
+        Text = value .. "   ▾",
+        TextColor3 = self.Tab.Window._theme:Get("Text"),
+        TextSize = 10,
+        Font = Enum.Font.GothamMedium,
+        AutoButtonColor = false,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, row)
+    corner(button, 6)
+    addPadding(button, 9, 7, 0, 0)
+    self.Tab.Window:_bindColor(button, "BackgroundColor3", "Elevated")
+    self.Tab.Window:_bindColor(button, "TextColor3", "Text")
+
+    local popup
+    local function closePopup()
+        if popup then
+            popup:Destroy()
+            popup = nil
+        end
+    end
+    local function choose(nextValue)
+        value = tostring(nextValue)
+        button.Text = value .. "   ▾"
+        closePopup()
+        if type(callback) == "function" then
+            callback(value)
+        end
+    end
+    local function openPopup()
+        closePopup()
+        local root = self.Tab.Window.Root
+        local screenPosition = button.AbsolutePosition
+        local screenSize = button.AbsoluteSize
+        local scale = self.Tab.Window.Scale.Scale
+        local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(800, 600)
+        local height = math.min(180, #labels * 30 + 8)
+        local below = viewport.Y - (screenPosition.Y + screenSize.Y)
+        local above = screenPosition.Y
+        local y = screenPosition.Y + screenSize.Y + 3
+        if below < height and above > below then
+            y = screenPosition.Y - height - 3
+        end
+        local x = math.clamp(screenPosition.X, 4, math.max(4, viewport.X - screenSize.X - 4))
+        popup = create("ScrollingFrame", {
+            Name = "DropdownPopup",
+            Position = UDim2.fromOffset(x, y),
+            Size = UDim2.fromOffset(screenSize.X, height),
+            BackgroundColor3 = self.Tab.Window._theme:Get("Elevated"),
+            BorderSizePixel = 0,
+            ScrollBarThickness = 2,
+            CanvasSize = UDim2.fromOffset(0, #labels * 30 + 8),
+            ZIndex = 100,
+        }, self.Tab.Window.Gui)
+        corner(popup, 8)
+        stroke(popup, self.Tab.Window._theme:Get("Line"), 0.08, 1)
+        local list = addList(popup, 2)
+        addPadding(popup, 4, 4, 4, 4)
+        for index, labelText in ipairs(labels) do
+            local optionButton = create("TextButton", {
+                LayoutOrder = index,
+                Size = UDim2.new(1, -4, 0, 28),
+                BackgroundColor3 = labelText == value and self.Tab.Window._theme:Get("Surface2") or self.Tab.Window._theme:Get("Elevated"),
+                BorderSizePixel = 0,
+                Text = (labelText == value and "✓  " or "   ") .. labelText,
+                TextColor3 = self.Tab.Window._theme:Get("Text"),
+                TextSize = 10,
+                Font = Enum.Font.GothamMedium,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                AutoButtonColor = false,
+                ZIndex = 101,
+            }, popup)
+            corner(optionButton, 5)
+            addPadding(optionButton, 7, 5, 0, 0)
+            optionButton.Activated:Connect(function()
+                choose(labelText)
+            end)
+        end
+        local total = list.AbsoluteContentSize.Y + 8
+        popup.CanvasSize = UDim2.fromOffset(0, total)
+    end
+
+    self._connections:Connect(button.Activated, openPopup)
+    self._connections:Give(function()
+        closePopup()
+    end)
+    return makeControlHandle(self, name, row, function() return value end, function(nextValue, silent)
+        if silent then
+            value = tostring(nextValue)
+            button.Text = value .. "   ▾"
+        else
+            choose(nextValue)
+        end
+    end)
+end
+
+function Section:AddKeybind(name, defaultKey, callback)
+    local value = defaultKey or Enum.KeyCode.RightShift
+    local row = self:_row(name, 38)
+    local label = text(row, name, 10, self.Tab.Window._theme:Get("Text"), Enum.Font.GothamMedium)
+    label.Position = UDim2.fromOffset(10, 0)
+    label.Size = UDim2.new(1, -100, 1, 0)
+    self.Tab.Window:_bindColor(label, "TextColor3", "Text")
+
+    local capture = create("TextButton", {
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -9, 0.5, 0),
+        Size = UDim2.fromOffset(78, 25),
+        BackgroundColor3 = self.Tab.Window._theme:Get("Elevated"),
+        BorderSizePixel = 0,
+        Text = value.Name,
+        TextColor3 = self.Tab.Window._theme:Get("Text"),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold,
+        AutoButtonColor = false,
+    }, row)
+    corner(capture, 6)
+    self.Tab.Window:_bindColor(capture, "BackgroundColor3", "Elevated")
+    self.Tab.Window:_bindColor(capture, "TextColor3", "Text")
+
+    local listening = false
+    local inputService = game:GetService("UserInputService")
+    self._connections:Connect(capture.Activated, function()
+        listening = true
+        capture.Text = "PRESS KEY"
+    end)
+    self._connections:Connect(inputService.InputBegan, function(input, processed)
+        if not listening or processed then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        value = input.KeyCode
+        listening = false
+        capture.Text = value.Name
+        if type(callback) == "function" then callback(value) end
+    end)
+    return makeControlHandle(self, name, row, function() return value end, function(nextValue, silent)
+        if typeof(nextValue) == "EnumItem" and nextValue.EnumType == Enum.KeyCode then
+            value = nextValue
+            capture.Text = value.Name
+            if not silent and type(callback) == "function" then callback(value) end
+        end
+    end)
+end
+
+function Window:_refreshSubTabs(tab)
+    local current = self.CurrentSubTab
+    for _, sub in ipairs(tab.SubTabs) do
+        if sub.Button then
+            local selected = sub == current
+            sub.Button.BackgroundTransparency = selected and 0 or 1
+            sub.Button.BackgroundColor3 = selected and self._theme:Get("AccentSoft") or self._theme:Get("Surface2")
+            sub.Button.TextColor3 = selected and self._theme:Get("Accent") or self._theme:Get("Muted")
+        end
+    end
+end
+
+function Window:SelectTab(tab)
+    if type(tab) == "string" then
+        tab = self.TabsByName[tab]
+    end
+    if not tab or self.Destroyed then
+        return false
+    end
+
+    self.CurrentTab = tab
+    self.ActiveTitle.Text = tab.Name
+    self.ActiveDescription.Text = tab.Description or ""
+    self.SubNavigation.Visible = #tab.SubTabs > 1
+
+    for _, item in ipairs(self.TabList) do
+        local selected = item == tab
+        item.NavButton.BackgroundTransparency = selected and 0 or 1
+        item.NavButton.BackgroundColor3 = selected and self._theme:Get("AccentSoft") or self._theme:Get("Surface2")
+        item.NavIcon.TextColor3 = selected and self._theme:Get("Accent") or self._theme:Get("Muted")
+        item.NavLabel.TextColor3 = selected and self._theme:Get("Text") or self._theme:Get("Muted")
+        for _, sub in ipairs(item.SubTabs) do
+            sub.Page.Visible = selected and (sub == (tab == item and self.CurrentSubTab or nil))
+        end
+    end
+
+    local activeSub = tab.SubTabs[1]
+    if activeSub then
+        self:SelectSubTab(activeSub)
+    end
+    return true
+end
+
+function Window:SelectSubTab(sub)
+    if not sub or self.Destroyed then
+        return false
+    end
+
+    self.CurrentTab = sub.Tab
+    self.CurrentSubTab = sub
+    sub.Tab.ActiveSub = sub
+    self.ActiveTitle.Text = sub.Tab.Name
+    self.ActiveDescription.Text = sub.Description or sub.Tab.Description or ""
+    self.SubNavigation.Visible = #sub.Tab.SubTabs > 1
+
+    for _, tab in ipairs(self.TabList) do
+        for _, item in ipairs(tab.SubTabs) do
+            item.Page.Visible = tab == sub.Tab and item == sub
+        end
+    end
+    self:_refreshSubTabs(sub.Tab)
+    return true
+end
+
+function Window:_bindSearch()
+    self._connections:Connect(self.Search:GetPropertyChangedSignal("Text"), function()
+        self:_applySearch(self.Search.Text)
+    end, "search-change")
+end
+
+function Window:_applySearch(query)
+    query = string.lower(tostring(query or ""))
+    local searching = query ~= ""
+
+    for _, tab in ipairs(self.TabList) do
+        local matched = not searching
+            or string.find(string.lower(tab.Name), query, 1, true) ~= nil
+            or string.find(string.lower(tab.Description or ""), query, 1, true) ~= nil
+        if not matched and searching then
+            for _, searchable in ipairs(tab.SearchIndex or {}) do
+                if string.find(string.lower(tostring(searchable)), query, 1, true) then
+                    matched = true
+                    break
+                end
+            end
+        end
+        tab.NavButton.Visible = matched
+        local group = self.Groups[tab.Group]
+        if group and searching and matched then
+            group.Expanded = true
+            group.Entries.Visible = true
+            group.Heading.Text = group.Name:upper() .. "   ▾"
+        end
+    end
+
+    for _, group in pairs(self.Groups) do
+        local anyVisible = false
+        for _, tab in ipairs(group.Tabs) do
+            if tab.NavButton.Visible then anyVisible = true break end
+        end
+        group.Frame.Visible = anyVisible
+        if not searching then
+            group.Entries.Visible = group.Expanded
+            group.Heading.Text = group.Name:upper() .. (group.Expanded and "   ▾" or "   ▸")
+        end
+    end
+end
+
+function Window:SetVisible(visible)
+    if self.Destroyed then return end
+    self.IsOpen = visible ~= false
+    self.Root.Visible = self.IsOpen
+end
+
+function Window:Toggle()
+    self:SetVisible(not self.IsOpen)
+end
+
+function Window:SetKey(key)
+    if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
+        self.Key = key
+        if type(self._onKeyChanged) == "function" then
+            pcall(self._onKeyChanged, key)
+        end
+        return true
+    end
+    return false
+end
+
+function Window:Notify(options)
+    options = options or {}
+    if self.Destroyed then return nil end
+    self._toastOrder += 1
+
+    local toast = create("Frame", {
+        Name = "Toast",
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -18, 0, 18 + (self._toastOrder - 1) * 72),
+        Size = UDim2.fromOffset(250, 62),
+        BackgroundColor3 = self._theme:Get("Surface"),
+        BorderSizePixel = 0,
+        ZIndex = 200,
+    }, self.Gui)
+    corner(toast, 9)
+    stroke(toast, self._theme:Get("Line"), 0.1, 1)
+    local title = text(toast, options.Title or "Liberium Hub", 11, self._theme:Get("Text"), Enum.Font.GothamBold)
+    title.Position = UDim2.fromOffset(12, 7)
+    title.Size = UDim2.new(1, -24, 0, 19)
+    local body = text(toast, options.Text or options.Description or "", 10, self._theme:Get("Muted"), Enum.Font.Gotham)
+    body.Position = UDim2.fromOffset(12, 28)
+    body.Size = UDim2.new(1, -24, 0, 25)
+    body.TextWrapped = true
+    local accent = create("Frame", {
+        Size = UDim2.new(0, 3, 1, -12),
+        Position = UDim2.fromOffset(5, 6),
+        BackgroundColor3 = options.Color or self._theme:Get("Accent"),
+        BorderSizePixel = 0,
+        ZIndex = 201,
+    }, toast)
+    corner(accent, 2)
+
+    local duration = math.clamp(tonumber(options.Duration) or 3, 1, 10)
+    task.delay(duration, function()
+        if toast and toast.Parent then
+            toast:Destroy()
+        end
+    end)
+    return toast
+end
+
+function Window:OnKeyChanged(callback)
+    self._onKeyChanged = callback
+end
+
+function Window:SetThemeToken(token, value)
+    self._theme:Set(token, value)
+end
+
+function Window:Destroy()
+    if self.Destroyed then return end
+    self.Destroyed = true
+
+    if self._connections then
+        self._connections:Destroy()
+    end
+    if self._ownsTheme and self._theme then
+        self._theme:Destroy()
+    end
+    if self.Gui and self.Gui.Parent then
+        self.Gui:Destroy()
+    end
+    self.Gui, self.Root, self.Shell = nil, nil, nil
+end
+
+Window.Tab = Tab
+Window.SubTab = SubTab
+Window.Section = Section
+Window.Control = Control
+Window.ThemeFactory = ThemeFactory
+
+return Window
+end)()
+
+local EmbeddedAdapter = (function()
+-- Liberium Hub | legacy API bridge for the Nova UI
+-- Keeps the current Keyless feature modules using their established API.
+
+local Adapter = {}
+
+local GROUPS = {
+    Home = "OVERVIEW",
+    Farm = "AUTOMATION",
+    Visuals = "VISUALS",
+    Player = "PLAYER",
+    Combat = "COMBAT",
+    Settings = "SYSTEM",
+}
+
+local DESCRIPTIONS = {
+    Home = "Your MM2 session at a glance",
+    Farm = "Coin collection and pickup controls",
+    Visuals = "Player, role and world visual tools",
+    Player = "Movement and character controls",
+    Combat = "Round combat and aim utilities",
+    Settings = "Configuration and session management",
+}
+
+function Adapter.create(WindowModule)
+    assert(type(WindowModule) == "table" and type(WindowModule.new) == "function",
+        "LegacyAdapter requires the Nova Window module")
+
+    local Lib = {}
+
+    function Lib.new(title)
+        local window = WindowModule.new({
+            Title = tostring(title or "LIBERIUM HUB"),
+            Subtitle = "MURDER MYSTERY 2",
+            Version = "v92 • NOVA",
+            Size = Vector2.new(812, 584),
+            MinSize = Vector2.new(660, 420),
+            Scale = 0.86,
+            Theme = {
+                Base = "Midnight",
+                Accent = "Crimson",
+                Density = "Compact",
+            },
+        })
+
+        -- Existing v91 feature pages call AddTab(name, icon). The bridge adds
+        -- Nova navigation groups and descriptions without changing that API.
+        local addTab = WindowModule.AddTab
+        function window:AddTab(name, icon)
+            name = tostring(name or "Tab")
+            return addTab(self, name, icon, {
+                Group = GROUPS[name] or "GENERAL",
+                Description = DESCRIPTIONS[name] or "",
+            })
+        end
+
+        -- Compatibility fields used by LiberiumAPI and the existing cleanup path.
+        window.Conns = window.Conns or {}
+        window.Version = "v92 • NOVA"
+        return window
+    end
+
+    return Lib
+end
+
+return Adapter
+end)()
+
+local Lib = EmbeddedAdapter.create(EmbeddedWindow)
 
 local Config = ConfigManager.new() local SavedData = Config:Load("settings")
 local savedSchemaVersion = tonumber(SavedData.ConfigSchemaVersion) or 0
@@ -2894,7 +4411,7 @@ eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Co
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
 uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
-task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v91.70 ready", "Success", 2.5) end end)
+task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v92 ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.15 Delta/MM2 full static audit fixes: Hero=yellow, role-coloured ESP fill/outline, touch retry and dead-target cooldowns,
@@ -3008,4 +4525,4 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
 
 -- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
--- v91.70: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- Static source validation only; in-game execution still requires an on-device Delta test.
+-- v92: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- Static source validation only; in-game execution still requires an on-device Delta test.
