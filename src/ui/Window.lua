@@ -88,11 +88,13 @@ local function makeControlHandle(section, name, instance, getValue, setValue)
         _set = setValue,
     }, Control)
     table.insert(section.Controls, handle)
+    table.insert(section.Tab.SearchIndex, name)
     return handle
 end
 
 function Control:Get()
-    return self._get and self._get() or nil
+    if not self._get then return nil end
+    return self._get()
 end
 
 function Control:Set(value, silent)
@@ -131,7 +133,8 @@ function Window.new(options)
     self.IsOpen = true
     self.Destroyed = false
     self.Tabs = {}
-    self.TabList = {}
+    self.TabsByName = {}
+    self.TabList = self.Tabs
     self.Groups = {}
     self.CurrentTab = nil
     self.CurrentSubTab = nil
@@ -577,7 +580,7 @@ function Window:AddTab(name, icon, options)
     assert(not self.Destroyed, "cannot add a tab to a destroyed window")
     options = options or {}
     name = tostring(name or ("Tab " .. tostring(#self.TabList + 1)))
-    assert(not self.Tabs[name], "duplicate tab name: " .. name)
+    assert(not self.TabsByName[name], "duplicate tab name: " .. name)
 
     self._tabOrder += 1
     local tab = setmetatable({
@@ -589,10 +592,12 @@ function Window:AddTab(name, icon, options)
         Order = self._tabOrder,
         SubTabs = {},
         Pages = {},
+        SearchIndex = {},
+        ActiveSub = nil,
         _defaultSub = nil,
     }, Tab)
 
-    self.Tabs[name] = tab
+    self.TabsByName[name] = tab
     table.insert(self.TabList, tab)
     self:_createNavButton(tab)
     tab:_createDefaultPage()
@@ -681,6 +686,7 @@ function Tab:AddSubTab(name, description)
         IsDefault = false,
     }, SubTab)
     table.insert(self.SubTabs, sub)
+    table.insert(self.SearchIndex, name)
 
     self.Window._connections:Connect(button.Activated, function()
         self.Window:SelectSubTab(sub)
@@ -741,6 +747,7 @@ function SubTab:AddSection(name, options)
         Card = card,
         Header = header,
         Content = content,
+        Frame = content,
         Layout = layout,
         Controls = {},
         _connections = Maid.new(),
@@ -754,6 +761,7 @@ function SubTab:AddSection(name, options)
     if self.Tab._defaultSub == self then
         self.Empty = false
     end
+    table.insert(self.Tab.SearchIndex, name)
     table.insert(self.Tab.Pages, card)
     return section
 end
@@ -1137,7 +1145,7 @@ end
 
 function Window:SelectTab(tab)
     if type(tab) == "string" then
-        tab = self.Tabs[tab]
+        tab = self.TabsByName[tab]
     end
     if not tab or self.Destroyed then
         return false
@@ -1173,6 +1181,7 @@ function Window:SelectSubTab(sub)
 
     self.CurrentTab = sub.Tab
     self.CurrentSubTab = sub
+    sub.Tab.ActiveSub = sub
     self.ActiveTitle.Text = sub.Tab.Name
     self.ActiveDescription.Text = sub.Description or sub.Tab.Description or ""
     self.SubNavigation.Visible = #sub.Tab.SubTabs > 1
@@ -1200,6 +1209,14 @@ function Window:_applySearch(query)
         local matched = not searching
             or string.find(string.lower(tab.Name), query, 1, true) ~= nil
             or string.find(string.lower(tab.Description or ""), query, 1, true) ~= nil
+        if not matched and searching then
+            for _, searchable in ipairs(tab.SearchIndex or {}) do
+                if string.find(string.lower(tostring(searchable)), query, 1, true) then
+                    matched = true
+                    break
+                end
+            end
+        end
         tab.NavButton.Visible = matched
         local group = self.Groups[tab.Group]
         if group and searching and matched then
@@ -1235,6 +1252,9 @@ end
 function Window:SetKey(key)
     if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
         self.Key = key
+        if type(self._onKeyChanged) == "function" then
+            pcall(self._onKeyChanged, key)
+        end
         return true
     end
     return false
