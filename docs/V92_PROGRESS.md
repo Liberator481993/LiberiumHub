@@ -44,9 +44,10 @@ Completed in source and bundled entry point:
 - Bhop speed controller with bounded horizontal speed and adjustable power.
 - Camera Noclip using Invisicam fallback, restoring the user's previous camera occlusion mode.
 - Bhop speed control with a bounded horizontal speed and adjustable power.
+- Anti Coin toggle disables coin touch collection while enabled and restores each pickup's original `CanTouch` value on disable/unload.
 - Config values are clamped, persisted through the existing ConfigManager, applied at startup/load, and cleaned up on re-execution.
 
-Still pending in this stage: anti-coin, bomb jump, invisibility, glitch speed, wall hop and the remaining reference movement options. MovementPlus, including Camera Noclip and Bhop, passed compile/reproducible-build checks at commit `f13bb6d`. There is no live Delta/Arceus X runtime confirmation.
+Still pending in this stage: bomb jump, invisibility, glitch speed, wall hop and the remaining reference movement options. MovementPlus, including Camera Noclip and Bhop, passed compile/reproducible-build checks at commit `f13bb6d`. There is no live Delta/Arceus X runtime confirmation.
 
 ## Stage 3 — Advanced ESP
 
