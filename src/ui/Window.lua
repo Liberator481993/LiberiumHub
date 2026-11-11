@@ -163,10 +163,13 @@ function Window:_mount(parent)
         ResetOnSpawn = false,
         IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-        DisplayOrder = 9999,
+        DisplayOrder = 2000,
     }, parent)
     self.Gui = gui
     self._connections:Give(gui, "gui")
+    self._connections:Connect(gui:GetPropertyChangedSignal("Enabled"), function()
+        self.IsOpen = gui.Enabled
+    end, "gui-enabled")
 
     self.LayoutSize = self.Size
     self.SidebarWidth = SIDEBAR_WIDTH
@@ -1273,11 +1276,10 @@ function Window:_applySearch(query)
 end
 
 function Window:SetVisible(visible)
-    if self.Destroyed then return end
+    if self.Destroyed or not self.Gui then return end
     self.IsOpen = visible ~= false
-    self.Root.Visible = self.IsOpen
+    self.Gui.Enabled = self.IsOpen
 end
-
 function Window:Toggle()
     self:SetVisible(not self.IsOpen)
 end
