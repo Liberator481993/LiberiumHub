@@ -8,7 +8,7 @@ Target executors: Delta Android and Arceus X Android
 ## Stage 1 — Nova UI foundation
 
 **Implementation status:** integrated into the executor-ready single-file entry point.  
-**Validation status:** GitHub Actions Luau compile and bundle reproducibility check pending.
+**Validation status:** passed in GitHub Actions at commit `0ab80aa`. A later movement update (Camera Noclip/Bhop) is awaiting its next CI run.
 
 Completed in this branch:
 
@@ -40,13 +40,15 @@ Completed in source and bundled entry point:
 - On-screen Android ascend/descend controls while Fly is enabled; controls and flight rig are removed when disabled or unloaded.
 - Spin with the prior angular velocity restored when disabled.
 - Custom Gravity with saved/restored Workspace.Gravity.
+- Camera Noclip using Invisicam fallback, restoring the user's previous camera occlusion mode.
+- Bhop speed control with a bounded horizontal speed and adjustable power.
 - Config values are clamped, persisted through the existing ConfigManager, applied at startup/load, and cleaned up on re-execution.
 
-Still pending in this stage: camera noclip, anti-coin, bomb jump, invisibility, B-hop, glitch speed, wall hop and the remaining reference movement options. The source has not yet passed the current CI compile/reproducible-build gate, and there is no live Delta/Arceus X runtime confirmation.
+Still pending in this stage: camera noclip, anti-coin, bomb jump, invisibility, B-hop, glitch speed, wall hop and the remaining reference movement options. The initial MovementPlus subset passed compile/reproducible-build checks before Camera Noclip/Bhop were added. The latest changes are awaiting CI, and there is no live Delta/Arceus X runtime confirmation.
 
 ## Next stages
 
-2. Movement extensions and shared feature lifecycle.
+2. Finish remaining Movement options and shared feature lifecycle.
 3. ESP and world visuals.
 4. Coin/role/box farming and webhook hooks.
 5. Sheriff and Murderer combat systems.
