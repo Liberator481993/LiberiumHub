@@ -1,6 +1,6 @@
 # Liberium Hub v92 — PulseHub port map
 
-Status: Stage 1 foundation started  
+Status: Stage 1 UI foundation integrated; static validation pending  
 Working branch: `v92/pulsehub-port`  
 Base: `v92/pulsehub-ui-parity`  
 Production entry point remains: `Keyless`  
