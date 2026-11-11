@@ -34,6 +34,7 @@ def build() -> str:
     theme = read_text("src/ui/Theme.lua")
     window = read_text("src/ui/Window.lua")
     adapter = read_text("src/ui/LegacyAdapter.lua")
+    movement = read_text("src/features/Movement/MovementPlus.lua")
 
     start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\n"
     end_marker = "local Config = ConfigManager.new()"
@@ -59,6 +60,11 @@ def build() -> str:
         "local Window = EmbeddedWindow",
         1,
     )
+    movement = movement.replace(
+        "local Maid = require(script.Parent.Parent.Parent.core.Maid)",
+        "local Maid = EmbeddedMaid",
+        1,
+    )
 
     embedded = [
         "-- v92 Nova UI modules are embedded for executor compatibility.",
@@ -66,6 +72,8 @@ def build() -> str:
         wrap_module("EmbeddedTheme", theme),
         wrap_module("EmbeddedWindow", window),
         wrap_module("EmbeddedAdapter", adapter),
+        wrap_module("EmbeddedMovementPlus", movement),
+        "local MovementPlus = EmbeddedMovementPlus",
         "local Lib = EmbeddedAdapter.create(EmbeddedWindow)",
         "",
     ]
