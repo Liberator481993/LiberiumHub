@@ -1348,6 +1348,18 @@ function Window:Destroy()
     if self.Destroyed then return end
     self.Destroyed = true
 
+    -- Preserve the legacy Lib/Win cleanup contract used by LiberiumAPI.
+    for _, connection in ipairs(self.Conns or {}) do
+        if connection and type(connection.Disconnect) == "function" then
+            pcall(function()
+                connection:Disconnect()
+            end)
+        end
+    end
+    if self.Conns then
+        table.clear(self.Conns)
+    end
+
     if self._connections then
         self._connections:Destroy()
     end
