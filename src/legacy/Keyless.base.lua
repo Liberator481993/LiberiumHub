@@ -56,7 +56,7 @@ local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleH
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
 local currentSession, canFarmNow
 local VisualOptimizer, Crosshair, crosshairObj, SessionManager, AestheticsManager, StatsTracker, statsObj, eventLogger, logGui, TargetHUD, targetHUD, Stabilizer
-local MovementUtility, movementObj, MovementPlus, movementPlus, AntiCoin, antiCoinObj, ESPManager, advancedESP, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
+local MovementUtility, movementObj, MovementPlus, movementPlus, AntiCoin, antiCoinObj, BoxFarm, boxFarm, ESPManager, advancedESP, LootTracker, lootObj, FOVCircle, fovObj, TracerEffect, SkeletonVisualizer, skeletonObj, weaponTracker
 local getTouchPart
 local Dropdown
 local stopTracerHooks
@@ -80,6 +80,7 @@ getgenv().LiberiumCleanup = function()
     if NotificationManager then pcall(function() NotificationManager.Destroy() end) end
     if overheadTracker then pcall(function() overheadTracker:Destroy() end) end
     if aimMarker then pcall(function() aimMarker:Destroy() end) end
+    if boxFarm then pcall(function() boxFarm:Destroy() end) end
     if antiCoinObj then pcall(function() antiCoinObj:Destroy() end) end
     if advancedESP then pcall(function() advancedESP:Destroy() end) end
     if roleHUD then pcall(function() roleHUD:Destroy() end) end
@@ -116,7 +117,7 @@ local CFG = {
     FOVCircle = false, FOVRadius = 150, FOVColor = "Purple",
     SkeletonESP = false, SkeletonColor = "Purple", ShaderPreset = "Default", LocalAura = "None",
     Tracers = false, TracerColor = "Yellow",
-    AutoPickup = false, PickupRange = 300, ConfigSchemaVersion = 2
+    AutoPickup = false, PickupRange = 300, BoxName = "", BoxCurrency = "Auto", BoxDelay = 1, BoxAuto = false, BoxAnimation = false, ConfigSchemaVersion = 2
 }
 local roles = {} currentSession = nil canFarmNow = false
 local KILLER_ROLES = { murderer = true, zombie = true, killer = true }
@@ -1606,7 +1607,7 @@ for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 CFG.ConfigSchemaVersion = 2
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
-local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, CameraNoclip=false, Bhop=false, BhopPower=5, AntiCoin=false, GlitchEnabled=false, GlitchMax=120, GlitchAcceleration=60, BoxESP=false, ChamsESP=false, TracersESP=false, RadarESP=false, ESPMaxDistance=250, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, ConfigSchemaVersion=2}
+local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, CameraNoclip=false, Bhop=false, BhopPower=5, AntiCoin=false, GlitchEnabled=false, GlitchMax=120, GlitchAcceleration=60, BoxESP=false, ChamsESP=false, TracersESP=false, RadarESP=false, ESPMaxDistance=250, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, BoxName="", BoxCurrency="Auto", BoxDelay=1, BoxAuto=false, BoxAnimation=false, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
     PredictionStyle = {"Classic", "Compact", "HUD Only"},
     FOVColor = {"Purple", "Red", "Green", "Yellow", "Cyan", "Blue", "White"},
@@ -1614,6 +1615,7 @@ local ENUM_CONFIG_VALUES = {
     ShaderPreset = {"Default", "Neon", "Cinematic"},
     LocalAura = {"None", "Fire", "Ice"},
     TracerColor = {"Yellow", "Purple", "Red", "Green", "Cyan", "Blue", "White"},
+    BoxCurrency = {"Auto", "Candies", "Halloween Key", "Key", "Coins", "Gems"},
 }
 local function normalizeConfig()
     for key, defaultValue in pairs(CONFIG_DEFAULTS) do
@@ -1642,6 +1644,7 @@ local function normalizeConfig()
     CFG.GlitchMax = math.clamp(CFG.GlitchMax, 30, 300)
     CFG.GlitchAcceleration = math.clamp(CFG.GlitchAcceleration, 10, 300)
     CFG.ESPMaxDistance = math.clamp(CFG.ESPMaxDistance, 25, 1500)
+    CFG.BoxDelay = math.clamp(CFG.BoxDelay, 0.5, 10)
 end
 normalizeConfig()
 -- Prevent stale saved settings from forcing a reticle on during startup; it can be enabled manually in the UI.
@@ -2852,8 +2855,74 @@ task.spawn(function()
     end
 end)
 
+boxFarm = BoxFarm.new({
+    Storage = game:GetService("ReplicatedStorage"),
+    Player = LocalPlayer,
+    BoxId = CFG.BoxName,
+    Currency = CFG.BoxCurrency,
+    Delay = CFG.BoxDelay,
+    ShowAnimation = CFG.BoxAnimation,
+    Notify = function(title, message, kind)
+        if NotificationManager then
+            NotificationManager.Notify(title, message, kind or "Info")
+        end
+    end,
+})
+
 local tFarm = win:AddTab("Farm", "💰"); local sFarm = tFarm:AddSubTab("Coins"); local secF = sFarm:AddSection("Settings"); local farmToggle = secF:AddToggle("Auto Farm", CFG.AutoFarm, function(v) CFG.AutoFarm = v if v then coinTracker:Start(); if CFG.AutoPickup then weaponTracker:Stop() end else coinTracker:Stop(); if CFG.AutoPickup then weaponTracker:Start() end end end); local speedSlider = secF:AddSlider("Farm Speed", 25, 80, CFG.MaxSpeed, function(v) CFG.MaxSpeed = v end)
 local sPick = tFarm:AddSubTab("Pickup"); local secPick = sPick:AddSection("Gun Pickup"); local pickupToggle = secPick:AddToggle("Auto Pickup Guns", CFG.AutoPickup, function(v) CFG.AutoPickup = v if v and not CFG.AutoFarm then weaponTracker:Start() else weaponTracker:Stop() end end); local pickupRangeSlider = secPick:AddSlider("Pickup Distance", 20, 300, CFG.PickupRange, function(v) CFG.PickupRange = v end)
+
+local sBoxes = tFarm:AddSubTab("Boxes"); local secBoxes = sBoxes:AddSection("Mystery Box Opener")
+local boxOptions = boxFarm:GetBoxOptions()
+if #boxOptions == 0 then boxOptions = {"Catalog unavailable"} end
+local initialBox = CFG.BoxName ~= "" and CFG.BoxName or boxOptions[1]
+local boxSelect = secBoxes:AddDropdown("Box", boxOptions, initialBox, function(value)
+    if boxFarm:SetBox(value) then CFG.BoxName = boxFarm.SelectedBox end
+end)
+local currencySelect = secBoxes:AddDropdown("Pay With", {"Auto", "Candies", "Halloween Key", "Key", "Coins", "Gems"}, CFG.BoxCurrency, function(value)
+    if boxFarm:SetCurrency(value) then CFG.BoxCurrency = value end
+end)
+local boxDelaySlider = secBoxes:AddSlider("Open Delay", 0.5, 10, CFG.BoxDelay, function(value)
+    CFG.BoxDelay = value
+    boxFarm:SetDelay(value)
+end)
+local boxAnimationToggle = secBoxes:AddToggle("Show Animation", CFG.BoxAnimation, function(value)
+    CFG.BoxAnimation = value
+    boxFarm:SetShowAnimation(value)
+end)
+local boxAutoToggle = secBoxes:AddToggle("Auto Open", CFG.BoxAuto, function(value)
+    CFG.BoxAuto = value
+    boxFarm:SetAuto(value)
+end)
+local boxOpenOnce = secBoxes:AddButton("Open Once", function()
+    task.spawn(function()
+        local ok, message = boxFarm:OpenOnce()
+        if not ok and NotificationManager then
+            NotificationManager.Notify("Box Farm", tostring(message), "Warning")
+        end
+    end)
+end)
+local secBoxStats = sBoxes:AddSection("Opening Stats")
+local boxOpenedLabel = secBoxStats:AddLabel("Opened: 0")
+local boxStatusLabel = secBoxStats:AddLabel("Status: Idle")
+local boxBalanceLabel = secBoxStats:AddLabel("Balance: —")
+local boxDropLabel = secBoxStats:AddLabel("Last Drop: —")
+boxFarm:SetBox(initialBox)
+if boxFarm.SelectedBox then CFG.BoxName = boxFarm.SelectedBox end
+boxFarm:SetCurrency(CFG.BoxCurrency)
+boxFarm:SetDelay(CFG.BoxDelay)
+boxFarm:SetShowAnimation(CFG.BoxAnimation)
+boxFarm:SetAuto(CFG.BoxAuto)
+task.spawn(function()
+    while isRunning and win and not win.Destroyed do
+        local stats = boxFarm:GetStats()
+        boxOpenedLabel:Set("Opened: " .. tostring(stats.Opened), true)
+        boxStatusLabel:Set("Status: " .. tostring(stats.Status), true)
+        boxBalanceLabel:Set("Balance: " .. tostring(stats.Balance) .. " " .. tostring(stats.Currency), true)
+        boxDropLabel:Set("Last Drop: " .. tostring(stats.LastDrop), true)
+        task.wait(0.6)
+    end
+end)
 
 local tVis = win:AddTab("Visuals", "👁"); local sVis = tVis:AddSubTab("ESP"); local secV = sVis:AddSection("Players"); local espOutlineToggle = secV:AddToggle("ESP Outline", CFG.ESP_Outline, function(v) CFG.ESP_Outline = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espFillToggle = secV:AddToggle("ESP Fill", CFG.ESP_Fill, function(v) CFG.ESP_Fill = v roleHUD:Refresh() if CFG.ESP_Outline or CFG.ESP_Fill then roleHUD:Start() else roleHUD:Stop() end end); local espNameToggle = secV:AddToggle("ESP Name", CFG.ESP_Name, function(v) CFG.ESP_Name = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end); local espDistToggle = secV:AddToggle("ESP Distance", CFG.ESP_Distance, function(v) CFG.ESP_Distance = v if CFG.ESP_Name or CFG.ESP_Distance then overheadTracker:Start() else overheadTracker:Stop() end end)
 colorFromName = function(name)
