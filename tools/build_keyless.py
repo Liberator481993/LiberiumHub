@@ -36,6 +36,7 @@ def build() -> str:
     adapter = read_text("src/ui/LegacyAdapter.lua")
     movement = read_text("src/features/Movement/MovementPlus.lua")
     esp = read_text("src/features/ESP/ESPManager.lua")
+    anti_coin = read_text("src/features/Movement/AntiCoin.lua")
 
     start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\n"
     end_marker = "local Config = ConfigManager.new()"
@@ -67,7 +68,12 @@ def build() -> str:
         1,
     )
     esp = esp.replace(
-        "local Maid = require(script.Parent.Parent.core.Maid)",
+        "local Maid = require(script.Parent.Parent.Parent.core.Maid)",
+        "local Maid = EmbeddedMaid",
+        1,
+    )
+    anti_coin = anti_coin.replace(
+        "local Maid = require(script.Parent.Parent.Parent.core.Maid)",
         "local Maid = EmbeddedMaid",
         1,
     )
@@ -82,6 +88,8 @@ def build() -> str:
         "local MovementPlus = EmbeddedMovementPlus",
         wrap_module("EmbeddedESPManager", esp),
         "local ESPManager = EmbeddedESPManager",
+        wrap_module("EmbeddedAntiCoin", anti_coin),
+        "local AntiCoin = EmbeddedAntiCoin",
         "local Lib = EmbeddedAdapter.create(EmbeddedWindow)\n",
         "",
     ]
