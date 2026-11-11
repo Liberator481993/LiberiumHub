@@ -29,7 +29,7 @@ def wrap_module(local_name: str, source: str) -> str:
 
 
 def build() -> str:
-    base = read_text("Keyless")
+    base = read_text("src/legacy/Keyless.base.lua")
     maid = read_text("src/core/Maid.lua")
     theme = read_text("src/ui/Theme.lua")
     window = read_text("src/ui/Window.lua")
