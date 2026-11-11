@@ -3863,7 +3863,7 @@ function ESPManager:_makeEntry(player)
         BorderSizePixel = 0,
         Visible = false,
         ZIndex = 31,
-    }, self._gui)
+    }, self._radar or self._gui)
     create("UICorner", {CornerRadius = UDim.new(1, 0)}, dot)
 
     local entry = {
@@ -3943,6 +3943,11 @@ function ESPManager:_makeRadar()
     }, radar)
     create("UICorner", {CornerRadius = UDim.new(1, 0)}, center)
     self._radar = radar
+    for _, entry in pairs(self._entries) do
+        if entry.Dot then
+            entry.Dot.Parent = radar
+        end
+    end
 end
 
 function ESPManager:_colorFor(player)

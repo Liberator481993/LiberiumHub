@@ -24,7 +24,7 @@ Completed in this branch:
 
 Not yet accepted as complete:
 
-- Luau compiler validation and exact builder-output comparison must pass.
+- The latest Advanced ESP implementation must pass the same Luau compile and exact bundle check.
 - Pixel-level comparison against a live PulseHub screenshot is still pending.
 - Appearance controls and saved UI preferences are not yet wired into the Settings tab.
 - No live Roblox, Delta Android or Arceus X runtime test has been performed.
@@ -46,7 +46,7 @@ Completed in source and bundled entry point:
 - Bhop speed control with a bounded horizontal speed and adjustable power.
 - Config values are clamped, persisted through the existing ConfigManager, applied at startup/load, and cleaned up on re-execution.
 
-Still pending in this stage: anti-coin, bomb jump, invisibility, glitch speed, wall hop and the remaining reference movement options. The initial MovementPlus subset passed compile/reproducible-build checks before Camera Noclip/Bhop were added. The latest changes are awaiting CI, and there is no live Delta/Arceus X runtime confirmation.
+Still pending in this stage: anti-coin, bomb jump, invisibility, glitch speed, wall hop and the remaining reference movement options. MovementPlus, including Camera Noclip and Bhop, passed compile/reproducible-build checks at commit `f13bb6d`. There is no live Delta/Arceus X runtime confirmation.
 
 ## Stage 3 — Advanced ESP
 
