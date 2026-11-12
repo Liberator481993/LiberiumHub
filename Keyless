@@ -1484,19 +1484,43 @@ function Win:AddTab(name, icon, group)
             order = 6 + self.GroupOrder
         end
         local headerOrder = 50 + order * 100
-        local header = create("TextLabel", {
+        local header = create("TextButton", {
             Name = "Group_" .. group:gsub("[^%w_]", ""),
-            Size = UDim2.new(1,0,0,20),
+            Size = UDim2.new(1,0,0,24),
             BackgroundTransparency = 1,
+            BackgroundColor3 = THEME.Element,
+            Text = "",
+            AutoButtonColor = false,
+            LayoutOrder = headerOrder,
+            Parent = self.Side
+        })
+        local groupTitle = label({
+            Name = "GroupTitle",
             Text = string.upper(group),
             Font = Enum.Font.GothamBold,
             TextSize = 9,
             TextColor3 = THEME.SubText,
             TextXAlignment = Enum.TextXAlignment.Left,
-            LayoutOrder = headerOrder,
-            Parent = self.Side
+            Position = UDim2.fromOffset(4,0),
+            Size = UDim2.new(1,-22,1,0),
+            Parent = header
         })
-        groupRecord = {Header=header, LayoutOrder=headerOrder, Count=0, Tabs={}}
+        local groupChevron = label({
+            Name = "GroupChevron",
+            Text = "⌄",
+            Font = Enum.Font.GothamBold,
+            TextSize = 13,
+            TextColor3 = THEME.Accent2,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            Position = UDim2.new(1,-20,0,0),
+            Size = UDim2.fromOffset(16,24),
+            Parent = header
+        })
+        groupRecord = {Header=header, Title=groupTitle, Chevron=groupChevron, Expanded=true, LayoutOrder=headerOrder, Count=0, Tabs={}}
+        header.Activated:Connect(function()
+            groupRecord.Expanded = not groupRecord.Expanded
+            self:ApplySearch()
+        end)
         self.Groups[group] = groupRecord
     end
     groupRecord.Count += 1
@@ -1522,10 +1546,17 @@ end
 function Win:ApplySearch()
     if not self.SearchInput then return end
     local query = string.lower(tostring(self.SearchInput.Text or "")):gsub("^%s+", ""):gsub("%s+$", "")
+    local searching = query ~= ""
     local groupVisibility = {}
+    local groupMatches = {}
+    for groupName, group in pairs(self.Groups) do
+        groupMatches[groupName] = searching and string.find(string.lower(groupName), query, 1, true) ~= nil
+    end
     for _, tab in ipairs(self.Tabs) do
-        local matched = query == "" or string.find(string.lower(tab.Name), query, 1, true) ~= nil
-        if not matched then
+        local matched = not searching
+            or groupMatches[tab.Group]
+            or string.find(string.lower(tab.Name), query, 1, true) ~= nil
+        if searching and not matched then
             for _, sub in ipairs(tab.Subs) do
                 if string.find(string.lower(sub.Name), query, 1, true) then
                     matched = true
@@ -1533,11 +1564,16 @@ function Win:ApplySearch()
                 end
             end
         end
-        tab.Btn.Visible = matched
+        local group = self.Groups[tab.Group]
+        tab.Btn.Visible = matched and (searching or group.Expanded)
         groupVisibility[tab.Group] = groupVisibility[tab.Group] or matched
     end
     for groupName, group in pairs(self.Groups) do
-        group.Header.Visible = groupVisibility[groupName] == true
+        local visible = groupVisibility[groupName] == true
+        group.Header.Visible = visible
+        group.Chevron.Text = group.Expanded and "⌄" or "›"
+        group.Title.TextColor3 = group.Expanded and THEME.Text or THEME.SubText
+        group.Header.BackgroundTransparency = group.Expanded and 1 or 0.82
     end
 end
 function Win:Destroy()
