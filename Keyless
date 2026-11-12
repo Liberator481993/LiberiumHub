@@ -1657,59 +1657,75 @@ function Sec:AddToggle(name, def, cb)
     return obj
 end
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
-    inc = inc or 1
+    inc = math.max(tonumber(inc) or 1, 0.000001)
+    local range = math.max(mx - mn, 0.000001)
     local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,68),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
+    local r = create("Frame", {Size=UDim2.new(1,0,0,56),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Body}, {
+        corner(11), stroke(1,0.82),
+        create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})
+    })
     label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=12})
     local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,11,1,-32),Size=UDim2.new(1,-22,0,22),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
-    local alpha0=(val-mn)/(mx-mn)
-    local f = create("Frame", {Size=UDim2.fromScale(alpha0,1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(9),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})
-    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=UDim2.fromOffset(18,18),BackgroundColor3=Color3.fromRGB(246,249,255),Parent=t}, {corner(8),stroke(1,0.42)})
+    -- Keep a generous 22 px hit area while rendering the reference's slim 8 px track.
+    local t = create("TextButton", {Position=UDim2.new(0,11,0,28),Size=UDim2.new(1,-22,0,22),Text="",AutoButtonColor=false,BackgroundTransparency=1,Parent=r})
+    local alpha0 = math.clamp((val-mn)/range,0,1)
+    local bar = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=UDim2.fromScale(0,0.5),Size=UDim2.new(1,0,0,8),BackgroundColor3=Color3.fromRGB(40,47,66),BorderSizePixel=0,Parent=t}, {corner(4),stroke(1,0.86)})
+    local f = create("Frame", {Size=UDim2.fromScale(alpha0,1),BackgroundColor3=THEME.Accent,Parent=bar}, {
+        corner(4), create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})
+    })
+    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=UDim2.fromOffset(16,16),BackgroundColor3=Color3.fromRGB(246,249,255),Parent=bar}, {corner(8),stroke(1,0.42)})
     hover(r,r,0.3,0.16)
     local obj = {}
     function obj:Set(v, silent)
-        v=tonumber(v) or val
-        v=math.clamp(math.floor(v/inc+0.5)*inc,mn,mx)
-        val=v
-        local alpha=(v-mn)/(mx-mn)
-        vl.Text=tostring(math.round(v*1000)/1000)
+        v = tonumber(v) or val
+        v = math.clamp(math.floor(v/inc+0.5)*inc,mn,mx)
+        val = v
+        local alpha = math.clamp((v-mn)/range,0,1)
+        vl.Text = tostring(math.round(v*1000)/1000)
         tween(f,TweenInfo.new(0.08),{Size=UDim2.fromScale(alpha,1)})
         tween(knob,TweenInfo.new(0.08),{Position=UDim2.fromScale(alpha,0.5)})
         if not silent and cb then task.spawn(cb,v) end
     end
-    local activeInput=nil
+    local activeInput = nil
     local function fromX(x)
-        local width=t.AbsoluteSize.X
-        if width<=0 then return end
-        local alpha=math.clamp((x-t.AbsolutePosition.X)/width,0,1)
-        obj:Set(mn+(mx-mn)*alpha)
+        local width = t.AbsoluteSize.X
+        if width <= 0 then return end
+        local alpha = math.clamp((x-t.AbsolutePosition.X)/width,0,1)
+        obj:Set(mn+range*alpha)
     end
     t.InputBegan:Connect(function(input)
         if activeInput then return end
-        local inputType=input.UserInputType
-        if inputType~=Enum.UserInputType.MouseButton1 and inputType~=Enum.UserInputType.Touch then return end
-        activeInput=input
+        local inputType = input.UserInputType
+        if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then return end
+        activeInput = input
         fromX(input.Position.X)
     end)
     table.insert(self.Win.Conns,UserInputService.InputChanged:Connect(function(input)
         if not activeInput then return end
-        local touchMove=input==activeInput
-        local mouseMove=activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseMovement
+        local touchMove = input == activeInput
+        local mouseMove = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
         if touchMove or mouseMove then fromX(input.Position.X) end
     end))
     table.insert(self.Win.Conns,UserInputService.InputEnded:Connect(function(input)
         if not activeInput then return end
-        local touchEnd=input==activeInput
-        local mouseEnd=activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseButton1
-        if touchEnd or mouseEnd then activeInput=nil end
+        local touchEnd = input == activeInput
+        local mouseEnd = activeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
+        if touchEnd or mouseEnd then activeInput = nil end
     end))
     return obj
 end
 function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,50),Parent=self.Body}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})})
-    hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
-    b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
+    local row = create("Frame", {Name="ButtonRow",Size=UDim2.new(1,0,0,44),BackgroundTransparency=1,Parent=self.Body})
+    local b = create("TextButton", {Name="ActionButton",Text=name,Font=Enum.Font.GothamSemibold,TextSize=14,TextColor3=THEME.Text,
+        BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Position=UDim2.fromOffset(8,5),Size=UDim2.new(1,-16,0,34),Parent=row}, {
+        corner(10), stroke(1,0.62),
+        create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})
+    })
+    hover(b,b,0.75,0.55)
+    b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end)
+    b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
+    b.Activated:Connect(function() if cb then task.spawn(cb) end end)
+    return b
 end
 function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Body, name, opts, def, cb) end
 
