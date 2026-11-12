@@ -1416,9 +1416,9 @@ function Lib.new(title)
     end
     bindCamera()
     table.insert(s.Conns, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera))
-    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=0.025,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
+    s.Main = create("Frame", {Name="Main",AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(620,460),BackgroundColor3=THEME.Background,BackgroundTransparency=1,Parent=s.Gui}, {corner(18), stroke(1.35,0.22)})
     create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(27,20,24)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(12,13,16)),ColorSequenceKeypoint.new(1,Color3.fromRGB(12,13,16))}),Rotation=32,Parent=s.Main})
-    s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.105,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
+    s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.4,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
     s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(15,16,20),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(49,29,34)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,23,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(29,21,22))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
     local logo = create("Frame", {Name="BrandMark",Position=UDim2.fromOffset(13,8),Size=UDim2.fromOffset(31,31),BackgroundColor3=THEME.Accent,Parent=s.Title}, {corner(9),stroke(1,0.34),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=35})})
     label({Text="L",Font=Enum.Font.GothamBlack,TextSize=20,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromScale(0,0),Size=UDim2.fromScale(1,1),Parent=logo})
@@ -1461,6 +1461,11 @@ function Lib.new(title)
         local isMouseEnd = dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
         if isTouchEnd or isMouseEnd then dragInput, dragStart, dragPosition = nil, nil, nil end
     end))
+    local targetScale = s.Scale.Scale
+    s.Scale.Scale = targetScale * 0.96
+    tween(s.Main,SLOW,{BackgroundTransparency=0.025})
+    tween(s.Inner,SLOW,{BackgroundTransparency=0.105})
+    tween(s.Scale,SLOW,{Scale=targetScale})
     return s
 end
 function Win:_Select(t)
