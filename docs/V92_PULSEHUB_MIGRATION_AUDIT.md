@@ -1,6 +1,6 @@
 # LiberiumHub v92 — PulseHub Migration Audit
 
-Status: Initial UI shell committed; feature migration not started.
+Status: Stage 1 UI shell, navigation, shared controls, and responsive source pass committed; runtime visual sign-off pending. Feature migration not started.
 Working branch: `v92/pulsehub-ui-parity`
 Baseline: `main/Keyless` (v91.70)
 Reference artifact: user-provided `PulseHub.luau.txt` (12,469,988 bytes; approximately 53.1k lines).
@@ -99,3 +99,10 @@ Not yet verified:
 ## 6. Acceptance policy
 
 A feature is not marked complete merely because its UI control exists. Completion requires implementation, a static review of state transitions and cleanup, and runtime verification where the executor/game behavior matters. Until runtime verification is available, mark it as static-only and do not ask the user to test a half-finished stage.
+
+
+### Stage 1 implementation update — 2026-11-12
+
+The working branch now includes the full source-side UI pass: reference desktop sizing/scale, compact touch layouts, brand and page headers, grouped sidebar navigation, tab/subtab search filtering, subtab auto-reveal, section cards, toggle/slider/button/dropdown styling, popup viewport clamping, hover/selection/expand animations, floating UI toggle, notification stack, and cleanup wiring. Startup keybind and blur defaults were aligned with the reference notes. Existing feature callbacks and the public `Lib` / `Win` / `Tab` / `Sub` / `Sec` control API remain in place.
+
+This is implementation completion at source level only. Stage 1 is not signed off until the file is parsed/compiled and the UI is launched in Roblox on target Delta/Arceus devices, then compared against PulseHub screenshots at matching viewports. Do not begin feature migration until that visual/runtime gate is passed.
