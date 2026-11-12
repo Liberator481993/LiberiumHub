@@ -1578,24 +1578,29 @@ function Win:ApplySearch()
     local searching = query ~= ""
     local groupVisibility = {}
     local groupMatches = {}
-    for groupName, group in pairs(self.Groups) do
+    for groupName in pairs(self.Groups) do
         groupMatches[groupName] = searching and string.find(string.lower(groupName), query, 1, true) ~= nil
     end
     for _, tab in ipairs(self.Tabs) do
-        local matched = not searching
-            or groupMatches[tab.Group]
-            or string.find(string.lower(tab.Name), query, 1, true) ~= nil
-        if searching and not matched then
-            for _, sub in ipairs(tab.Subs) do
-                if string.find(string.lower(sub.Name), query, 1, true) then
-                    matched = true
-                    break
-                end
-            end
-        end
         local group = self.Groups[tab.Group]
+        local groupMatch = groupMatches[tab.Group] == true
+        local tabMatch = searching and string.find(string.lower(tab.Name), query, 1, true) ~= nil
+        local matched = not searching or groupMatch or tabMatch
+        local firstVisibleSub = nil
+        local activeSubVisible = false
+        for _, sub in ipairs(tab.Subs) do
+            local subMatch = searching and string.find(string.lower(sub.Name), query, 1, true) ~= nil
+            local subVisible = not searching or groupMatch or tabMatch or subMatch
+            sub.Btn.Visible = subVisible
+            if subVisible and not firstVisibleSub then firstVisibleSub = sub end
+            if sub == tab.ActiveSub and subVisible then activeSubVisible = true end
+            if subMatch then matched = true end
+        end
         tab.Btn.Visible = matched and (searching or group.Expanded)
         groupVisibility[tab.Group] = groupVisibility[tab.Group] or matched
+        if searching and self.Active == tab and firstVisibleSub and not activeSubVisible then
+            tab:_SelectSub(firstVisibleSub)
+        end
     end
     for groupName, group in pairs(self.Groups) do
         local visible = groupVisibility[groupName] == true
@@ -1618,7 +1623,34 @@ function Win:Destroy()
     end
 end
 
-function Tab:_SelectSub(s) if self.ActiveSub==s then return end self.ActiveSub=s for _, v in ipairs(self.Subs) do local a = v==s tween(v.Btn,FAST,{BackgroundTransparency=a and 0.7 or 0.96,TextColor3=a and THEME.Text or THEME.SubText}) if v.Mark then v.Mark.Visible=a end if v.BtnStroke then v.BtnStroke.Transparency=a and 0.48 or 0.96 end if not a then v.Page.Visible=false end end s.Page.Visible=true s.Page.Position=UDim2.fromOffset(0,5) tween(s.Page,FAST,{Position=UDim2.fromOffset(0,0)}) if s.Scroll then s.Scroll.CanvasPosition=Vector2.zero end end
+function Tab:_SelectSub(s)
+    if self.ActiveSub==s then return end
+    self.ActiveSub=s
+    for _, v in ipairs(self.Subs) do
+        local active = v==s
+        tween(v.Btn,FAST,{BackgroundTransparency=active and 0.7 or 0.96,TextColor3=active and THEME.Text or THEME.SubText})
+        if v.Mark then v.Mark.Visible=active end
+        if v.BtnStroke then v.BtnStroke.Transparency=active and 0.48 or 0.96 end
+        if not active then v.Page.Visible=false end
+    end
+    s.Page.Visible=true
+    s.Page.Position=UDim2.fromOffset(0,5)
+    tween(s.Page,FAST,{Position=UDim2.fromOffset(0,0)})
+    if s.Scroll then s.Scroll.CanvasPosition=Vector2.zero end
+    if self.SubBar and s.Btn then
+        local viewLeft = self.SubBar.AbsolutePosition.X
+        local viewRight = viewLeft + self.SubBar.AbsoluteSize.X
+        local buttonLeft = s.Btn.AbsolutePosition.X
+        local buttonRight = buttonLeft + s.Btn.AbsoluteSize.X
+        local nextX = self.SubBar.CanvasPosition.X
+        if buttonLeft < viewLeft then
+            nextX = math.max(0, nextX - (viewLeft - buttonLeft))
+        elseif buttonRight > viewRight then
+            nextX += buttonRight - viewRight
+        end
+        self.SubBar.CanvasPosition = Vector2.new(nextX, 0)
+    end
+end
 function Tab:AddSubTab(name)
     local s = setmetatable({Tab=self,Name=name}, Sub)
     s.Btn = create("TextButton", {Text=name,Font=Enum.Font.GothamBold,TextSize=11,TextColor3=THEME.SubText,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.96,AutoButtonColor=false,AutomaticSize=Enum.AutomaticSize.X,Size=UDim2.new(0,0,1,0),Parent=self.SubBar}, {corner(9),stroke(1,0.95),create("UIPadding", {PaddingLeft=UDim.new(0,14),PaddingRight=UDim.new(0,14)})})
