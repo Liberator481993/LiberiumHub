@@ -50,7 +50,7 @@ if getgenv().LiberiumCleanup then pcall(getgenv().LiberiumCleanup) getgenv().Lib
 
 local blur = Lighting:FindFirstChild("LiberiumBlur")
 if not blur then blur = Instance.new("BlurEffect", Lighting) blur.Name = "LiberiumBlur" end
-blur.Size = 10 blur.Enabled = true
+blur.Size = 10 blur.Enabled = false
 
 local uiToggle, NotificationManager, UIToggle, overheadTracker, aimMarker, roleHUD, win, characterAddedConnection
 local Hotkeys, coinTracker, farmHudGui, farmHudLabel
@@ -1398,7 +1398,7 @@ function Lib.new(title)
             local availableWidth = math.max(1, cam.ViewportSize.X - 12)
             local availableHeight = math.max(1, cam.ViewportSize.Y - verticalMargin)
             local fitScale = math.min(availableWidth / baseWidth, availableHeight / baseHeight)
-            s.Scale.Scale = math.clamp(fitScale, 0.35, 1)
+            s.Scale.Scale = math.clamp(fitScale, 0.35, mobile and 1 or 0.86)
             if s.Main then s.Main.Size = UDim2.fromOffset(baseWidth, baseHeight) end
             if s.Side then s.Side.Size = UDim2.new(0, sideWidth, 1, -54) end
             if s.Content then
@@ -1435,7 +1435,7 @@ function Lib.new(title)
     create("Frame", {Position=UDim2.new(0,4,1,-2),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.42,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.SearchFrame = create("Frame", {Name="NavigationSearch",Size=UDim2.new(1,0,0,36),BackgroundTransparency=1,LayoutOrder=-9,Parent=s.Side})
     local searchSurface = create("Frame", {Name="SearchSurface",Position=UDim2.fromOffset(0,1),Size=UDim2.new(1,0,0,32),BackgroundColor3=THEME.Element,BackgroundTransparency=0.08,Parent=s.SearchFrame}, {corner(9),stroke(1,0.62)})
-    s.SearchInput = create("TextBox", {Name="SearchInput",Position=UDim2.fromOffset(9,0),Size=UDim2.new(1,-18,1,0),BackgroundTransparency=1,ClearTextOnFocus=false,Text="",PlaceholderText="Search tabs...",PlaceholderColor3=THEME.SubText,TextColor3=THEME.Text,Font=Enum.Font.Gotham,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,Parent=searchSurface})
+    s.SearchInput = create("TextBox", {Name="SearchInput",Position=UDim2.fromOffset(9,0),Size=UDim2.new(1,-18,1,0),BackgroundTransparency=1,ClearTextOnFocus=false,Text="",PlaceholderText="Search",PlaceholderColor3=THEME.SubText,TextColor3=THEME.Text,Font=Enum.Font.Gotham,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,Parent=searchSurface})
     table.insert(s.Conns, s.SearchInput:GetPropertyChangedSignal("Text"):Connect(function() s:ApplySearch() end))
     s.NavFooter = create("Frame", {Name="NavFooter",Size=UDim2.new(1,0,0,37),BackgroundColor3=THEME.Element,BackgroundTransparency=0.42,LayoutOrder=9999,Parent=s.Side}, {corner(9),stroke(1,0.72)})
     label({Text="DELTA / ARCEUS  •  ANDROID",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-16,0,13),Parent=s.NavFooter})
@@ -1558,9 +1558,14 @@ function Win:AddTab(name, icon, group)
     t.Btn.MouseLeave:Connect(function() if self.Active~=t then tween(t.Btn,FAST,{BackgroundTransparency=1}) end end)
     t.Btn.Activated:Connect(function() self:_Select(t) end)
     t.Cont = create("Frame", {Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,Parent=self.Content})
+    local pageHeaderHeight = 38
+    t.PageHeader = create("Frame", {Name="PageHeader",Position=UDim2.fromOffset(8,2),Size=UDim2.new(1,-16,0,pageHeaderHeight),BackgroundTransparency=1,Parent=t.Cont})
+    t.PageTitle = label({Name="PageTitle",Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=15,TextColor3=THEME.Text,Position=UDim2.fromOffset(2,0),Size=UDim2.new(1,-4,0,20),Parent=t.PageHeader})
+    t.PageDescription = label({Name="PageDescription",Text=string.upper(group).."  /  MM2 CONTROL PANEL",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(3,21),Size=UDim2.new(1,-6,0,13),Parent=t.PageHeader})
+    create("Frame", {Position=UDim2.new(0,2,1,-1),Size=UDim2.new(1,-4,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.45,BorderSizePixel=0,Parent=t.PageHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.08),NumberSequenceKeypoint.new(1,0.78)})})})
     local subBarHeight = UserInputService.TouchEnabled and 44 or 40
-    t.SubBar = create("ScrollingFrame", {Size=UDim2.new(1,0,0,subBarHeight),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,ScrollingDirection=Enum.ScrollingDirection.X,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
-    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,subBarHeight+4),Size=UDim2.new(1,0,1,-(subBarHeight+4)),BackgroundTransparency=1,Parent=t.Cont})
+    t.SubBar = create("ScrollingFrame", {Position=UDim2.fromOffset(0,pageHeaderHeight+4),Size=UDim2.new(1,0,0,subBarHeight),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent,ScrollingDirection=Enum.ScrollingDirection.X,AutomaticCanvasSize=Enum.AutomaticSize.X,CanvasSize=UDim2.new(0,0,0,0),Parent=t.Cont}, {pad(4), create("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
+    t.PageHolder = create("Frame", {Position=UDim2.fromOffset(0,pageHeaderHeight+subBarHeight+8),Size=UDim2.new(1,0,1,-(pageHeaderHeight+subBarHeight+8)),BackgroundTransparency=1,Parent=t.Cont})
     table.insert(self.Tabs, t)
     table.insert(groupRecord.Tabs, t)
     self:ApplySearch()
@@ -2551,7 +2556,7 @@ task.spawn(function()
     end
 end)
 
-roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("LIBERIUM HUB")
+roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("MURDER MYSTERY 2")
 
 -- LIBERIUM API v92: additive developer facade.
 -- Keeps the v91.18 UI and gameplay systems intact while providing a consistent
@@ -3050,7 +3055,7 @@ logGui = Instance.new("ScreenGui") logGui.Name = "LiberiumLogs" logGui.ResetOnSp
 eventLogger = EventLogger.new(logGui) eventLogger:Log("Liberium Hub loaded.", Color3.fromRGB(140, 100, 255))
 
 Hotkeys.Bind(Enum.KeyCode.F1, function() espOutlineToggle:Set(not CFG.ESP_Outline) end) Hotkeys.Bind(Enum.KeyCode.F2, function() farmToggle:Set(not CFG.AutoFarm) end) Hotkeys.Bind(Enum.KeyCode.F3, function() autoFlingToggle:Set(not CFG.AutoFling) end) Hotkeys.Bind(Enum.KeyCode.F4, function() optToggle:Set(not CFG.OptimizeFPS) end)
-uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.RightShift, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = visible end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
+uiToggle = UIToggle.new(win.Gui, { Keybind = Enum.KeyCode.LeftControl, AccentColor = THEME.Accent, OnToggle = function(visible) if blur then blur.Enabled = false end NotificationManager.Notify(visible and "UI shown" or "UI hidden", "Info", 1.5) end })
 task.delay(0.8, function() if NotificationManager then NotificationManager.Notify("Liberium Hub v92.0 UI preview ready", "Success", 2.5) end end)
 if CFG.AntiFling then Stabilizer.Start() end
 
