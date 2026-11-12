@@ -1622,17 +1622,17 @@ function Sub:AddSection(name)
 end
 function Sec:AddToggle(name, def, cb)
     local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
-    local rail = create("Frame", {Position=UDim2.fromOffset(0,10),Size=UDim2.fromOffset(3,32),BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72,BorderSizePixel=0,Parent=r}, {corner(2)})
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,56),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
+    local rail = create("Frame", {Position=UDim2.fromOffset(0,11),Size=UDim2.fromOffset(4,34),BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72,BorderSizePixel=0,Parent=r}, {corner(2)})
     label({Text=name,Position=UDim2.fromOffset(12,0),Size=UDim2.new(1,-82,1,0),Font=Enum.Font.GothamSemibold,TextSize=12,Parent=r})
-    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(42,23),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61),Parent=r}, {corner(12),stroke(1,st and 0.48 or 0.84),create("UIGradient", {Color=ColorSequence.new(st and Color3.fromRGB(119,83,204) or Color3.fromRGB(54,61,80),st and Color3.fromRGB(49,166,191) or Color3.fromRGB(31,37,54)),Rotation=0})})
-    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0),Size=UDim2.fromOffset(16,16),BackgroundColor3=Color3.fromRGB(245,248,255),Parent=t}, {corner(8),stroke(1,0.58)})
+    local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(48,26),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61),Parent=r}, {corner(12),stroke(1,st and 0.48 or 0.84),create("UIGradient", {Color=ColorSequence.new(st and Color3.fromRGB(119,83,204) or Color3.fromRGB(54,61,80),st and Color3.fromRGB(49,166,191) or Color3.fromRGB(31,37,54)),Rotation=0})})
+    local k = create("Frame", {AnchorPoint=Vector2.new(0,0.5),Position=st and UDim2.new(1,-22,0.5,0) or UDim2.new(0,4,0.5,0),Size=UDim2.fromOffset(18,18),BackgroundColor3=Color3.fromRGB(245,248,255),Parent=t}, {corner(8),stroke(1,0.58)})
     hover(r,r,0.28,0.13)
     local obj = {}
     function obj:Set(v, silent)
         st = v and true or false
         tween(t,FAST,{BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61)})
-        tween(k,FAST,{Position=st and UDim2.new(1,-19,0.5,0) or UDim2.new(0,3,0.5,0)})
+        tween(k,FAST,{Position=st and UDim2.new(1,-22,0.5,0) or UDim2.new(0,4,0.5,0)})
         tween(rail,FAST,{BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72})
         if not silent and cb then task.spawn(cb,st) end
     end
@@ -1642,13 +1642,13 @@ end
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
     inc = inc or 1
     local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
+    local r = create("Frame", {Size=UDim2.new(1,0,0,68),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
     label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=12})
     local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
-    local t = create("TextButton", {Position=UDim2.new(0,11,1,-29),Size=UDim2.new(1,-22,0,18),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
+    local t = create("TextButton", {Position=UDim2.new(0,11,1,-32),Size=UDim2.new(1,-22,0,22),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
     local alpha0=(val-mn)/(mx-mn)
     local f = create("Frame", {Size=UDim2.fromScale(alpha0,1),BackgroundColor3=THEME.Accent,Parent=t}, {corner(9),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})
-    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=UDim2.fromOffset(15,15),BackgroundColor3=Color3.fromRGB(246,249,255),Parent=t}, {corner(8),stroke(1,0.42)})
+    local knob = create("Frame", {AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(alpha0,0.5),Size=UDim2.fromOffset(18,18),BackgroundColor3=Color3.fromRGB(246,249,255),Parent=t}, {corner(8),stroke(1,0.42)})
     hover(r,r,0.3,0.16)
     local obj = {}
     function obj:Set(v, silent)
@@ -1690,7 +1690,7 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     return obj
 end
 function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Body}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})})
+    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,50),Parent=self.Body}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})})
     hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
     b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
 end
