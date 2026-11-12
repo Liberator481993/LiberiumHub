@@ -1384,11 +1384,15 @@ function Lib.new(title)
             local mobile = UserInputService.TouchEnabled and (cam.ViewportSize.X < 700 or cam.ViewportSize.Y < 500)
             local portrait = cam.ViewportSize.Y >= cam.ViewportSize.X
             local compactPortrait = mobile and portrait
-            local baseWidth = compactPortrait and 480 or 812
-            local baseHeight = compactPortrait and 620 or 584
-            local sideWidth = compactPortrait and 128 or 208
+            local compactLandscape = mobile and not portrait
+            -- Use a smaller design canvas on touch devices so controls remain physically usable
+            -- instead of scaling the full desktop window down to phone-sized tap targets.
+            local baseWidth = compactPortrait and 420 or (compactLandscape and 760 or 812)
+            local baseHeight = compactPortrait and 620 or (compactLandscape and 420 or 584)
+            local sideWidth = compactPortrait and 116 or (compactLandscape and 176 or 208)
             s.MobileLayout = mobile
             s.PortraitLayout = compactPortrait
+            s.LandscapeLayout = compactLandscape
             s.SideWidth = sideWidth
             local verticalMargin = UserInputService.TouchEnabled and 52 or 18
             local availableWidth = math.max(1, cam.ViewportSize.X - 12)
