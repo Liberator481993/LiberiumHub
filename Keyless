@@ -1420,17 +1420,19 @@ function Lib.new(title)
     create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(27,20,24)),ColorSequenceKeypoint.new(0.46,Color3.fromRGB(12,13,16)),ColorSequenceKeypoint.new(1,Color3.fromRGB(12,13,16))}),Rotation=32,Parent=s.Main})
     s.Inner = create("Frame", {Name="Inner",Position=UDim2.fromOffset(5,5),Size=UDim2.new(1,-10,1,-10),BackgroundColor3=THEME.Background,BackgroundTransparency=0.4,ClipsDescendants=true,Parent=s.Main}, {corner(14), stroke(1,0.68)})
     s.Title = create("Frame", {Name="TopBar",Size=UDim2.new(1,0,0,54),BackgroundColor3=Color3.fromRGB(15,16,20),BackgroundTransparency=0.025,Active=true,Parent=s.Inner}, {create("UIGradient", {Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(49,29,34)),ColorSequenceKeypoint.new(0.52,Color3.fromRGB(24,23,27)),ColorSequenceKeypoint.new(1,Color3.fromRGB(29,21,22))}),Rotation=0}), create("Frame", {Name="AccentLine",Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),BackgroundColor3=THEME.Accent,BorderSizePixel=0}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=0})})})
-    local logo = create("Frame", {Name="BrandMark",Position=UDim2.fromOffset(13,8),Size=UDim2.fromOffset(31,31),BackgroundColor3=THEME.Accent,Parent=s.Title}, {corner(9),stroke(1,0.34),create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Rotation=35})})
-    label({Text="L",Font=Enum.Font.GothamBlack,TextSize=20,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromScale(0,0),Size=UDim2.fromScale(1,1),Parent=logo})
-    label({Text="LIBERIUM HUB",Font=Enum.Font.GothamBlack,TextSize=17,TextColor3=THEME.Text,Position=UDim2.fromOffset(53,5),Size=UDim2.new(0,160,0,24),Parent=s.Title})
-    label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(54,29),Size=UDim2.new(1,-200,0,16),Parent=s.Title})
-    local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.48),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
+    local logo = create("Frame", {Name="BrandMark",Position=UDim2.fromOffset(13,8),Size=UDim2.fromOffset(34,34),BackgroundColor3=THEME.Accent,Parent=s.Title}, {corner(10),stroke(1,0.28),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=35})})
+    create("Frame", {Name="BrandGlyph",Position=UDim2.fromOffset(9,7),Size=UDim2.fromOffset(7,20),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,Rotation=0,Parent=logo}, {corner(3)})
+    create("Frame", {Name="BrandGlyphFoot",Position=UDim2.fromOffset(9,20),Size=UDim2.fromOffset(17,7),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,Parent=logo}, {corner(3)})
+    label({Text="LIBERIUM HUB",Font=Enum.Font.GothamBlack,TextSize=17,TextColor3=THEME.Text,Position=UDim2.fromOffset(56,5),Size=UDim2.new(0,160,0,24),Parent=s.Title})
+    label({Text=title or "NEON CONTROL CENTER  /  MM2",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(57,29),Size=UDim2.new(1,-205,0,16),Parent=s.Title})
+    local status = create("Frame", {Name="StatusPill",AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-14,0.5,0),Size=UDim2.fromOffset(132,27),BackgroundColor3=Color3.fromRGB(19,43,53),BackgroundTransparency=0.06,Parent=s.Title}, {corner(13),stroke(1,0.42),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(25,55,62),Color3.fromRGB(22,30,51)),Rotation=90})})
     create("Frame", {Position=UDim2.fromOffset(10,10),Size=UDim2.fromOffset(7,7),BackgroundColor3=Color3.fromRGB(90,240,174),BorderSizePixel=0,Parent=status}, {corner(4),stroke(1,0.25)})
     label({Text="MM2  /  UI PARITY  /  v92.0",Font=Enum.Font.GothamBold,TextSize=8,TextColor3=Color3.fromRGB(170,246,220),Position=UDim2.fromOffset(23,0),Size=UDim2.new(1,-27,1,0),Parent=status})
     s.Side = create("ScrollingFrame", {Position=UDim2.fromOffset(0,54),Size=UDim2.new(0,158,1,-54),BackgroundColor3=THEME.Surface,BackgroundTransparency=0.005,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=THEME.Accent2,AutomaticCanvasSize=Enum.AutomaticSize.Y,Parent=s.Inner}, {pad(9),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(20,21,25),Color3.fromRGB(15,16,20)),Rotation=90}),create("UIListLayout", {Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder})})
-    s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
-    label({Text="WORKSPACE  /  NAVIGATION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,2),Size=UDim2.new(1,-8,0,14),Parent=s.NavHeader})
-    create("Frame", {Position=UDim2.new(0,4,1,-3),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.52,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent,THEME.Accent2),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
+    s.NavHeader = create("Frame", {Name="NavHeader",Size=UDim2.new(1,0,0,34),BackgroundTransparency=1,LayoutOrder=-10,Parent=s.Side})
+    label({Text="LIBERIUM  /  MENU",Font=Enum.Font.GothamBlack,TextSize=9,TextColor3=THEME.Text,Position=UDim2.fromOffset(4,1),Size=UDim2.new(1,-8,0,13),Parent=s.NavHeader})
+    label({Text="NAVIGATION",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=THEME.SubText,Position=UDim2.fromOffset(4,15),Size=UDim2.new(1,-8,0,11),Parent=s.NavHeader})
+    create("Frame", {Position=UDim2.new(0,4,1,-2),Size=UDim2.new(1,-8,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.42,BorderSizePixel=0,Parent=s.NavHeader}, {create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.05),NumberSequenceKeypoint.new(1,0.72)})})})
     s.SearchFrame = create("Frame", {Name="NavigationSearch",Size=UDim2.new(1,0,0,36),BackgroundTransparency=1,LayoutOrder=-9,Parent=s.Side})
     local searchSurface = create("Frame", {Name="SearchSurface",Position=UDim2.fromOffset(0,1),Size=UDim2.new(1,0,0,32),BackgroundColor3=THEME.Element,BackgroundTransparency=0.08,Parent=s.SearchFrame}, {corner(9),stroke(1,0.62)})
     s.SearchInput = create("TextBox", {Name="SearchInput",Position=UDim2.fromOffset(9,0),Size=UDim2.new(1,-18,1,0),BackgroundTransparency=1,ClearTextOnFocus=false,Text="",PlaceholderText="Search tabs...",PlaceholderColor3=THEME.SubText,TextColor3=THEME.Text,Font=Enum.Font.Gotham,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,Parent=searchSurface})
@@ -1476,8 +1478,9 @@ function Win:_Select(t)
         tween(v.Btn, FAST, {BackgroundTransparency=active and 0.69 or 1})
         tween(v.Lbl, FAST, {TextColor3=active and THEME.Text or THEME.SubText})
         tween(v.Icon, FAST, {TextColor3=active and THEME.Accent2 or THEME.SubText})
-        if v.BtnStroke then v.BtnStroke.Transparency = active and 0.48 or 0.94 end
+        if v.BtnStroke then v.BtnStroke.Transparency = active and 0.34 or 0.94 end
         v.ActiveMark.Visible = active
+        if v.ActiveGlow then v.ActiveGlow.Visible = active end
         if not active then v.Cont.Visible=false v.Cont.BackgroundTransparency=1 end
     end
     t.Cont.Position=UDim2.fromOffset(0,7) t.Cont.Visible=true
@@ -1526,8 +1529,18 @@ function Win:AddTab(name, icon, group)
             Parent = header
         })
         groupRecord = {Header=header, Title=groupTitle, Chevron=groupChevron, Expanded=true, LayoutOrder=headerOrder, Count=0, Tabs={}}
+        header.MouseEnter:Connect(function()
+            tween(header, FAST, {BackgroundTransparency=0.78})
+            tween(groupTitle, FAST, {TextColor3=THEME.Text})
+        end)
+        header.MouseLeave:Connect(function()
+            tween(header, FAST, {BackgroundTransparency=groupRecord.Expanded and 1 or 0.88})
+            tween(groupTitle, FAST, {TextColor3=groupRecord.Expanded and THEME.Text or THEME.SubText})
+        end)
         header.Activated:Connect(function()
             groupRecord.Expanded = not groupRecord.Expanded
+            tween(groupChevron, FAST, {Rotation=groupRecord.Expanded and 0 or -90, TextColor3=groupRecord.Expanded and THEME.Accent2 or THEME.SubText})
+            tween(header, FAST, {BackgroundTransparency=groupRecord.Expanded and 1 or 0.88})
             self:ApplySearch()
         end)
         self.Groups[group] = groupRecord
@@ -1536,7 +1549,8 @@ function Win:AddTab(name, icon, group)
     local t = setmetatable({Win=self,Name=name,Subs={},Group=group}, Tab)
     t.Btn = create("TextButton", {Size=UDim2.new(1,0,0,UserInputService.TouchEnabled and 46 or 43),BackgroundTransparency=1,BackgroundColor3=THEME.Accent,Text="",AutoButtonColor=false,Parent=self.Side}, {corner(10),stroke(1,0.94),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(70,34,45),Color3.fromRGB(33,25,29)),Rotation=0,Transparency=NumberSequence.new(0.56)})})
     t.BtnStroke = t.Btn:FindFirstChildOfClass("UIStroke")
-    t.ActiveMark = create("Frame", {Name="ActiveMark",Position=UDim2.fromOffset(0,8),Size=UDim2.fromOffset(4,27),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(3),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
+    t.ActiveMark = create("Frame", {Name="ActiveMark",Position=UDim2.fromOffset(0,7),Size=UDim2.fromOffset(4,UserInputService.TouchEnabled and 32 or 29),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(3),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
+    t.ActiveGlow = create("Frame", {Name="ActiveGlow",Position=UDim2.fromOffset(4,8),Size=UDim2.fromOffset(1,UserInputService.TouchEnabled and 30 or 27),BackgroundColor3=THEME.Accent2,BackgroundTransparency=0.72,BorderSizePixel=0,Visible=false,Parent=t.Btn}, {corner(2)})
     t.Icon = label({Text=icon or "•",TextSize=15,TextColor3=THEME.SubText,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromOffset(8,0),Size=UDim2.new(0,22,1,0),Parent=t.Btn})
     t.Lbl = label({Text=name,TextColor3=THEME.SubText,Position=UDim2.fromOffset(38,0),Size=UDim2.new(1,-44,1,0),Parent=t.Btn})
     t.Btn.LayoutOrder = groupRecord.LayoutOrder + groupRecord.Count
@@ -1582,8 +1596,9 @@ function Win:ApplySearch()
         local visible = groupVisibility[groupName] == true
         group.Header.Visible = visible
         group.Chevron.Text = group.Expanded and "⌄" or "›"
+        group.Chevron.Rotation = group.Expanded and 0 or -90
         group.Title.TextColor3 = group.Expanded and THEME.Text or THEME.SubText
-        group.Header.BackgroundTransparency = group.Expanded and 1 or 0.82
+        group.Header.BackgroundTransparency = group.Expanded and 1 or 0.88
     end
 end
 function Win:Destroy()
