@@ -140,6 +140,6 @@ A screenshot of the actual PulseHub menu in its normal state and one screenshot 
 
 ## Current implementation checkpoint (v92.0)
 
-The first UI-shell pass is now present in `Keyless` on this branch. It adds grouped sidebar navigation, search across tab/subtab names, 812 × 584 desktop sizing with a 208 px sidebar, and the dark neutral/crimson palette. Existing gameplay feature logic remains in place. This checkpoint has been fetched back from GitHub and statically inspected; it has not been compiled or executed in Roblox, Delta, or Arceus X. The acceptance checklist below remains open until the relevant visual and device checks are performed.
+The initial UI-shell pass and a follow-up navigation interaction pass are present in `Keyless` on this branch. The sidebar now has clickable collapsible groups; searching tab, subtab, or group names temporarily reveals matching tabs even when their group is collapsed. The existing 812 × 584 desktop baseline, 208 px desktop sidebar, compact portrait layout, and dark neutral/crimson palette remain in place. Existing gameplay feature logic and the public UI control API were preserved. The latest change was fetched back from GitHub and statically inspected. It has not been compiled or executed in Roblox, Delta, or Arceus X, so runtime behavior and visual parity remain unverified. The acceptance checklist below remains open.
 
 See `docs/V92_PULSEHUB_MIGRATION_AUDIT.md` for the full feature map and migration order.
