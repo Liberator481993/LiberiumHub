@@ -1601,15 +1601,24 @@ end
 function Sub:AddSection(name)
     local s = setmetatable({Sub=self,Win=self.Tab.Win}, Sec)
     s.Frame = create("Frame", {Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundColor3=THEME.Element,BackgroundTransparency=0.075,Parent=self.Scroll}, {corner(14),stroke(1,0.56),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(27,30,36),Color3.fromRGB(20,22,27)),Rotation=90}),pad(12),create("UIListLayout", {Padding=UDim.new(0,8)})})
-    local heading = create("Frame", {Size=UDim2.new(1,0,0,23),BackgroundTransparency=1,Parent=s.Frame})
-    create("Frame", {Position=UDim2.fromOffset(0,2),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
-    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-12,0,18),Parent=heading})
+    local heading = create("TextButton", {Size=UDim2.new(1,0,0,27),BackgroundTransparency=1,Text="",AutoButtonColor=false,Parent=s.Frame})
+    create("Frame", {Position=UDim2.fromOffset(0,4),Size=UDim2.fromOffset(3,17),BackgroundColor3=THEME.Accent2,BorderSizePixel=0,Parent=heading}, {corner(2),create("UIGradient", {Color=ColorSequence.new(THEME.Accent2,THEME.Accent),Rotation=90})})
+    label({Text=string.upper(name),Font=Enum.Font.GothamBlack,TextSize=11,TextColor3=THEME.Text,Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-34,0,22),Parent=heading})
+    local chevron = label({Text="⌄",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=THEME.Accent2,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.new(1,-24,0,0),Size=UDim2.fromOffset(20,24),Parent=heading})
     create("Frame", {Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-10,0,1),BackgroundColor3=THEME.Stroke,BackgroundTransparency=0.68,BorderSizePixel=0,Parent=heading})
+    s.Body = create("Frame", {Name="SectionBody",Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1,Parent=s.Frame}, {create("UIListLayout", {Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder})})
+    s.Collapsed = false
+    heading.Activated:Connect(function()
+        s.Collapsed = not s.Collapsed
+        s.Body.Visible = not s.Collapsed
+        chevron.Text = s.Collapsed and "›" or "⌄"
+        chevron.TextColor3 = s.Collapsed and THEME.SubText or THEME.Accent2
+    end)
     return s
 end
 function Sec:AddToggle(name, def, cb)
     local st = def==true
-    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
+    local r = create("TextButton", {Size=UDim2.new(1,0,0,52),Text="",AutoButtonColor=false,BackgroundColor3=THEME.Element,BackgroundTransparency=0.2,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
     local rail = create("Frame", {Position=UDim2.fromOffset(0,10),Size=UDim2.fromOffset(3,32),BackgroundColor3=st and THEME.Accent2 or THEME.Stroke,BackgroundTransparency=st and 0.08 or 0.72,BorderSizePixel=0,Parent=r}, {corner(2)})
     label({Text=name,Position=UDim2.fromOffset(12,0),Size=UDim2.new(1,-82,1,0),Font=Enum.Font.GothamSemibold,TextSize=12,Parent=r})
     local t = create("Frame", {AnchorPoint=Vector2.new(1,0.5),Position=UDim2.new(1,-10,0.5,0),Size=UDim2.fromOffset(42,23),BackgroundColor3=st and THEME.Accent or Color3.fromRGB(38,43,61),Parent=r}, {corner(12),stroke(1,st and 0.48 or 0.84),create("UIGradient", {Color=ColorSequence.new(st and Color3.fromRGB(119,83,204) or Color3.fromRGB(54,61,80),st and Color3.fromRGB(49,166,191) or Color3.fromRGB(31,37,54)),Rotation=0})})
@@ -1629,7 +1638,7 @@ end
 function Sec:AddSlider(name, mn, mx, def, cb, inc)
     inc = inc or 1
     local val = math.clamp(def or mn, mn, mx)
-    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Frame}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
+    local r = create("Frame", {Size=UDim2.new(1,0,0,62),BackgroundColor3=THEME.Element,BackgroundTransparency=0.22,Parent=self.Body}, {corner(11),stroke(1,0.82),create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(28,30,37),Color3.fromRGB(21,23,28)),Rotation=0})})
     label({Text=name,Position=UDim2.fromOffset(11,5),Size=UDim2.new(1,-82,0,18),Parent=r,Font=Enum.Font.GothamSemibold,TextSize=12})
     local vl = label({Text=tostring(val),TextColor3=THEME.Accent2,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Right,Position=UDim2.new(1,-70,0,5),Size=UDim2.fromOffset(58,18),Parent=r})
     local t = create("TextButton", {Position=UDim2.new(0,11,1,-29),Size=UDim2.new(1,-22,0,18),Text="",AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(40,47,66),Parent=r}, {corner(9),stroke(1,0.86)})
@@ -1677,11 +1686,11 @@ function Sec:AddSlider(name, mn, mx, def, cb, inc)
     return obj
 end
 function Sec:AddButton(name, cb)
-    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Frame}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})})
+    local b = create("TextButton", {Text=name,Font=Enum.Font.GothamSemibold,TextSize=13,TextColor3=THEME.Text,BackgroundColor3=THEME.Accent,BackgroundTransparency=0.68,Size=UDim2.new(1,0,0,46),Parent=self.Body}, {corner(10), stroke(1,0.62), create("UIGradient", {Color=ColorSequence.new(Color3.fromRGB(89,43,53),Color3.fromRGB(39,30,35)),Rotation=0})})
     hover(b,b,0.75,0.55) b.MouseButton1Down:Connect(function() tween(b,FAST,{BackgroundTransparency=0.35}) end) b.MouseButton1Up:Connect(function() tween(b,FAST,{BackgroundTransparency=0.55}) end)
     b.Activated:Connect(function() if cb then task.spawn(cb) end end) return b
 end
-function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Frame, name, opts, def, cb) end
+function Sec:AddDropdown(name, opts, def, cb) return Dropdown.new(self.Body, name, opts, def, cb) end
 
 local Config = ConfigManager.new() local SavedData = Config:Load("settings")
 local savedSchemaVersion = tonumber(SavedData.ConfigSchemaVersion) or 0
