@@ -153,3 +153,14 @@ See `docs/V92_PULSEHUB_MIGRATION_AUDIT.md` for the full feature map and migratio
 - Strengthened the active-tab rail with a restrained adjacent glow; existing tab selection and public UI methods remain unchanged.
 - Kept the existing touch-sized tab rows, search matching, group expansion behavior, and responsive sidebar widths.
 - Verification performed: source-level assertions for the brand mark, sidebar hierarchy, hover/chevron behavior, active-tab glow, search path, touch sizing, and public UI API. These checks do not replace Luau compilation or on-device Delta/Arceus runtime and visual testing.
+
+
+## v92 Stage 1 implementation pass — 2026-11-12
+
+- Added a dedicated content-page heading for each main tab, with its tab name and group/MM2 descriptor; shifted the horizontal subtab strip and page holder to maintain a clear hierarchy.
+- Search now filters subtab buttons as well as main tabs. Group-name and tab-name matches reveal their full contents; subtab-only matches show the matching subtabs, and the active page moves to a visible subtab when necessary.
+- Selecting a subtab now scrolls the horizontal strip just enough to bring the selected control into view.
+- Desktop startup scale now follows the reference's 0.86 initial scale ceiling; touch layouts retain viewport-fit scaling and their portrait/landscape design canvases.
+- Aligned the startup behavior with the reference notes: search placeholder is `Search`, initial keybind is LeftControl, and background blur remains disabled.
+- Updated the main page subtitle to `MURDER MYSTERY 2` while retaining Liberium branding.
+- Verification performed: source-level checks for layout hierarchy, responsive scale branches, search filtering, selected-subtab visibility, dropdown viewport clamping, and existing public UI methods. No Luau compiler or Roblox/Delta/Arceus runtime is available in this workflow; screenshots at matching viewports are still required before visual sign-off.
