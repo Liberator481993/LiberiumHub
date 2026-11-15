@@ -12,6 +12,180 @@ local TeleportService = game:GetService("TeleportService")
 local Stats = game:GetService("Stats")
 local Debris = game:GetService("Debris")
 
+
+-- TEMPORARY V92 BOOT DIAGNOSTICS (remove after final runtime validation).
+local BootDiag = {
+    Stage = "ENTRY",
+    Started = os.clock(),
+    Errors = {},
+    Gui = nil,
+    Status = nil,
+    ReportBox = nil,
+    LogConnection = nil,
+}
+local function diagGlobal(name)
+    local ok, env = pcall(function()
+        if type(getgenv) == "function" then return getgenv() end
+        return getfenv()
+    end)
+    if not ok or type(env) ~= "table" then return nil end
+    return env[name]
+end
+local function diagMark(stage)
+    BootDiag.Stage = tostring(stage)
+    pcall(function() warn("[Liberium][BOOT] " .. BootDiag.Stage) end)
+    if BootDiag.Status then
+        pcall(function() BootDiag.Status.Text = "BOOT: " .. BootDiag.Stage end)
+    end
+end
+local function diagCapture(message, messageType)
+    if messageType ~= Enum.MessageType.MessageError then return end
+    local line = tostring(message)
+    if not line:find("Liberium", 1, true) and #BootDiag.Errors >= 8 then
+        table.remove(BootDiag.Errors, 1)
+    end
+    table.insert(BootDiag.Errors, line:sub(1, 420))
+    while #BootDiag.Errors > 8 do table.remove(BootDiag.Errors, 1) end
+end
+local function diagBuildReport()
+    local executor = "unknown"
+    local identify = diagGlobal("identifyexecutor") or diagGlobal("getexecutorname")
+    if type(identify) == "function" then
+        local ok, name = pcall(identify)
+        if ok and name then executor = tostring(name) end
+    end
+    local function available(name)
+        local value = diagGlobal(name)
+        return type(value) == "function" or (name == "Drawing" and type(value) == "table")
+    end
+    local player = Players and Players.LocalPlayer
+    local gui = player and player:FindFirstChildOfClass("PlayerGui")
+    local screenGuis = 0
+    if gui then
+        for _, child in ipairs(gui:GetChildren()) do
+            if child:IsA("ScreenGui") then screenGuis += 1 end
+        end
+    end
+    local lines = {
+        "LIBERIUM HUB v92 — BOOT REPORT",
+        "Stage: " .. tostring(BootDiag.Stage),
+        "Elapsed: " .. string.format("%.2f sec", os.clock() - BootDiag.Started),
+        "Executor: " .. executor,
+        "Platform: " .. (UserInputService.TouchEnabled and "Touch/Mobile" or "Desktop"),
+        "PlaceId: " .. tostring(game.PlaceId),
+        "Player: " .. (player and player.Name or "nil"),
+        "PlayerGui: " .. (gui and "available" or "nil"),
+        "ScreenGuis in PlayerGui: " .. tostring(screenGuis),
+        "Capabilities:",
+        "  getgenv=" .. tostring(type(diagGlobal("getgenv")) == "function"),
+        "  setclipboard=" .. tostring(available("setclipboard") or available("toclipboard")),
+        "  gethui=" .. tostring(available("gethui")),
+        "  request=" .. tostring(available("request") or available("http_request")),
+        "  Drawing=" .. tostring(available("Drawing")),
+        "  hookmetamethod=" .. tostring(available("hookmetamethod")),
+        "  newcclosure=" .. tostring(available("newcclosure")),
+        "Errors (" .. tostring(#BootDiag.Errors) .. "):",
+    }
+    if #BootDiag.Errors == 0 then
+        table.insert(lines, "  none captured by LogService")
+    else
+        for index, message in ipairs(BootDiag.Errors) do
+            table.insert(lines, "  " .. tostring(index) .. ". " .. message)
+        end
+    end
+    return table.concat(lines, "\n")
+end
+local function diagInstall(playerGui)
+    local ok, err = pcall(function()
+        local screen = Instance.new("ScreenGui")
+        screen.Name = "LiberiumBootDiagnostics"
+        screen.ResetOnSpawn = false
+        screen.IgnoreGuiInset = true
+        screen.DisplayOrder = 10000
+        screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        screen.Parent = playerGui
+        BootDiag.Gui = screen
+
+        local frame = Instance.new("Frame")
+        frame.Name = "DiagnosticPanel"
+        frame.AnchorPoint = Vector2.new(0.5, 1)
+        frame.Position = UDim2.new(0.5, 0, 1, -12)
+        frame.Size = UDim2.fromOffset(326, 74)
+        frame.BackgroundColor3 = Color3.fromRGB(12, 16, 29)
+        frame.BackgroundTransparency = 0.06
+        frame.BorderSizePixel = 0
+        frame.Parent = screen
+
+        local status = Instance.new("TextLabel")
+        status.BackgroundTransparency = 1
+        status.Position = UDim2.fromOffset(10, 5)
+        status.Size = UDim2.new(1, -20, 0, 24)
+        status.Font = Enum.Font.GothamMedium
+        status.TextSize = 11
+        status.TextColor3 = Color3.fromRGB(240, 242, 255)
+        status.TextXAlignment = Enum.TextXAlignment.Left
+        status.Text = "BOOT: " .. BootDiag.Stage
+        status.Parent = frame
+        BootDiag.Status = status
+
+        local button = Instance.new("TextButton")
+        button.Position = UDim2.fromOffset(10, 35)
+        button.Size = UDim2.new(1, -20, 0, 29)
+        button.BackgroundColor3 = Color3.fromRGB(155, 104, 255)
+        button.BorderSizePixel = 0
+        button.Font = Enum.Font.GothamBold
+        button.TextSize = 11
+        button.TextColor3 = Color3.new(1, 1, 1)
+        button.Text = "COPY REPORT"
+        button.Parent = frame
+
+        local reportBox = Instance.new("TextBox")
+        reportBox.Name = "ReportText"
+        reportBox.Visible = false
+        reportBox.ClearTextOnFocus = false
+        reportBox.MultiLine = true
+        reportBox.TextWrapped = false
+        reportBox.TextXAlignment = Enum.TextXAlignment.Left
+        reportBox.TextYAlignment = Enum.TextYAlignment.Top
+        reportBox.TextEditable = true
+        reportBox.Font = Enum.Font.Code
+        reportBox.TextSize = 10
+        reportBox.TextColor3 = Color3.fromRGB(240, 242, 255)
+        reportBox.BackgroundColor3 = Color3.fromRGB(7, 9, 18)
+        reportBox.Position = UDim2.fromOffset(10, 70)
+        reportBox.Size = UDim2.new(1, -20, 0, 150)
+        reportBox.Parent = frame
+        BootDiag.ReportBox = reportBox
+
+        button.Activated:Connect(function()
+            local report = diagBuildReport()
+            reportBox.Text = report
+            local clipboard = diagGlobal("setclipboard") or diagGlobal("toclipboard")
+            local copied = false
+            if type(clipboard) == "function" then
+                copied = pcall(clipboard, report)
+            end
+            if copied then
+                status.Text = "REPORT COPIED • SEND IT HERE"
+                button.Text = "COPY AGAIN"
+            else
+                reportBox.Visible = true
+                frame.Size = UDim2.fromOffset(326, 230)
+                status.Text = "SELECT AND COPY THE TEXT BELOW"
+                button.Text = "REFRESH REPORT"
+            end
+        end)
+    end)
+    if not ok then
+        pcall(function() warn("[Liberium][BOOT] Diagnostic panel failed: " .. tostring(err)) end)
+    end
+end
+pcall(function()
+    local logService = game:GetService("LogService")
+    BootDiag.LogConnection = logService.MessageOut:Connect(diagCapture)
+end)
+
+
 -- Delta can execute during the first moments of client startup.
 -- Wait briefly for the local player and PlayerGui instead of indexing nil or yielding forever.
 local LocalPlayer = Players.LocalPlayer
@@ -24,6 +198,7 @@ if not LocalPlayer then
     warn("[Liberium] Startup stopped: LocalPlayer was not available.")
     return
 end
+diagMark("LOCAL_PLAYER_READY")
 
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
 if not PlayerGui then
@@ -33,6 +208,8 @@ if not PlayerGui then
     warn("[Liberium] Startup stopped: PlayerGui was not available.")
     return
 end
+diagMark("PLAYER_GUI_READY")
+diagInstall(PlayerGui)
 
 local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -66,6 +243,8 @@ local staleRoleFolder = Workspace:FindFirstChild("LibHUD") if staleRoleFolder th
 local isRunning = true
 getgenv().LiberiumCleanup = function()
     isRunning = false
+    if BootDiag.LogConnection then pcall(function() BootDiag.LogConnection:Disconnect() end) end
+    if BootDiag.Gui then pcall(function() BootDiag.Gui:Destroy() end) BootDiag.Gui = nil end
     if characterAddedConnection then pcall(function() characterAddedConnection:Disconnect() end) characterAddedConnection = nil end
     if Hotkeys then pcall(function() Hotkeys.Destroy() end) end
     if currentSession then
@@ -4812,6 +4991,7 @@ for k, v in pairs(SavedData) do if CFG[k] ~= nil then CFG[k] = v end end
 -- Migrate only old schemas: a user-selected 100-stud range in a new config must remain 100.
 if savedSchemaVersion < 2 and CFG.PickupRange == 100 then CFG.PickupRange = 300 end
 CFG.ConfigSchemaVersion = 2
+diagMark("CONFIG_LOADED")
 -- Validate persisted executor config before controls consume it; stale/corrupt values must not break the UI on Delta.
 local CONFIG_DEFAULTS = {MaxSpeed=62, AutoFarm=false, AutoFling=false, ESP_Outline=false, ESP_Fill=false, ESP_Name=false, ESP_Distance=false, LootESP=false, AntiFling=true, PredictionStyle="Classic", Prediction=false, ProjSpeed=100, OptimizeFPS=false, Crosshair=false, AntiAFK=false, ShowStats=true, WalkSpeed=16, JumpPower=50, Noclip=false, InfiniteJump=false, Fly=false, FlySpeed=60, Spin=false, SpinSpeed=12, CustomGravity=false, GravityValue=196.2, CameraNoclip=false, Bhop=false, BhopPower=5, AntiCoin=false, GlitchEnabled=false, GlitchMax=120, GlitchAcceleration=60, BoxESP=false, ChamsESP=false, TracersESP=false, RadarESP=false, ESPMaxDistance=250, FOVCircle=false, FOVRadius=150, FOVColor="Purple", SkeletonESP=false, SkeletonColor="Purple", ShaderPreset="Default", LocalAura="None", Tracers=false, TracerColor="Yellow", AutoPickup=false, PickupRange=300, BoxName="", BoxCurrency="Auto", BoxDelay=1, BoxAuto=false, BoxAnimation=false, ConfigSchemaVersion=2}
 local ENUM_CONFIG_VALUES = {
@@ -5617,8 +5797,22 @@ task.spawn(function()
     end
 end)
 
-roleHUD = RoleHUD.new(function() return roles end) overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false }) win = Lib.new("LIBERIUM HUB")
+diagMark("WINDOW_CONSTRUCTOR_START")
+roleHUD = RoleHUD.new(function() return roles end)
+overheadTracker = OverheadTracker.new(function() return roles end, { MaxDistance = 150, UpdateInterval = 0.2, AutoStart = false })
+local windowOk, windowResult = xpcall(function() return Lib.new("LIBERIUM HUB") end, function(err)
+    local trace = (debug and debug.traceback and debug.traceback()) or ""
+    return tostring(err) .. "\n" .. trace
+end)
+if not windowOk then
+    table.insert(BootDiag.Errors, "WINDOW_CONSTRUCTOR: " .. tostring(windowResult):sub(1, 420))
+    diagMark("WINDOW_CONSTRUCTOR_FAILED")
+    error(windowResult)
+end
+win = windowResult
+diagMark("WINDOW_CREATED")
 
+diagMark("ESP_MANAGER_START")
 advancedESP = ESPManager.new({
     Players = Players,
     LocalPlayer = LocalPlayer,
@@ -5641,6 +5835,7 @@ advancedESP = ESPManager.new({
     end,
 })
 
+diagMark("ESP_MANAGER_READY")
 antiCoinObj = AntiCoin.new({
     Workspace = Workspace,
     Player = LocalPlayer,
@@ -5651,6 +5846,7 @@ antiCoinObj = AntiCoin.new({
     end,
 })
 
+diagMark("FEATURE_MANAGERS_READY")
 -- LIBERIUM API v92: additive developer facade.
 -- Keeps the v91.18 UI and gameplay systems intact while providing a consistent
 -- registry, event bus, middleware hooks, pre-checks, and cleanup lifecycle.
@@ -6353,3 +6549,7 @@ if CFG.AntiFling then Stabilizer.Start() end
 
 -- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
 -- v92: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- Static source validation only; in-game execution still requires an on-device Delta test.
+
+
+-- Final temporary boot checkpoint; remove diagnostics after runtime validation.
+diagMark("SCRIPT_INITIALIZATION_COMPLETE")
