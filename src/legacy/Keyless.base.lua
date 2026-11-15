@@ -100,6 +100,7 @@ local function diagBuildReport()
     return table.concat(lines, "\n")
 end
 local function diagInstall(playerGui)
+    if BootDiag.Gui and BootDiag.Gui.Parent then return end
     local ok, err = pcall(function()
         local screen = Instance.new("ScreenGui")
         screen.Name = "LiberiumBootDiagnostics"
@@ -107,8 +108,6 @@ local function diagInstall(playerGui)
         screen.IgnoreGuiInset = true
         screen.DisplayOrder = 10000
         screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        screen.Parent = playerGui
-        BootDiag.Gui = screen
 
         local frame = Instance.new("Frame")
         frame.Name = "DiagnosticPanel"
@@ -128,7 +127,7 @@ local function diagInstall(playerGui)
         status.TextSize = 11
         status.TextColor3 = Color3.fromRGB(240, 242, 255)
         status.TextXAlignment = Enum.TextXAlignment.Left
-        status.Text = "BOOT: " .. BootDiag.Stage
+        status.Text = "LIBERIUM BOOT: " .. BootDiag.Stage
         status.Parent = frame
         BootDiag.Status = status
 
@@ -179,6 +178,32 @@ local function diagInstall(playerGui)
                 button.Text = "REFRESH REPORT"
             end
         end)
+
+        local hosts = {}
+        local hiddenGui = diagGlobal("gethui")
+        if type(hiddenGui) == "function" then
+            local hiddenOk, hidden = pcall(hiddenGui)
+            if hiddenOk and hidden then table.insert(hosts, hidden) end
+        end
+        local coreOk, coreGui = pcall(function()
+            return game:GetService("CoreGui")
+        end)
+        if coreOk and coreGui then table.insert(hosts, coreGui) end
+        if playerGui then table.insert(hosts, playerGui) end
+
+        local mounted = false
+        for _, host in ipairs(hosts) do
+            local parentOk = pcall(function() screen.Parent = host end)
+            if parentOk and screen.Parent == host then
+                mounted = true
+                break
+            end
+        end
+        if not mounted then
+            screen:Destroy()
+            error("No supported GUI parent (gethui/CoreGui/PlayerGui)")
+        end
+        BootDiag.Gui = screen
     end)
     if not ok then
         pcall(function() warn("[Liberium][BOOT] Diagnostic panel failed: " .. tostring(err)) end)
@@ -191,7 +216,7 @@ pcall(function()
 end)
 
 
-pcall(function() warn("[Liberium][BOOT] BOOT_5_BEFORE_LOCAL_PLAYER") end)
+\n-- Mount diagnostics before waiting for LocalPlayer/PlayerGui; prefer executor UI roots.\npcall(function() diagInstall(nil) end)\npcall(function() warn("[Liberium][BOOT] BOOT_5_BEFORE_LOCAL_PLAYER") end)
 -- Delta can execute during the first moments of client startup.
 -- Wait briefly for the local player and PlayerGui instead of indexing nil or yielding forever.
 local LocalPlayer = Players.LocalPlayer
