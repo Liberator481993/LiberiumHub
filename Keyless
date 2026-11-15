@@ -1,5 +1,7 @@
+pcall(function() warn("[Liberium][BOOT] BOOT_0_ENTRY") end)
 -- LIBERIUM HUB | v92 | NOVA UI + PULSEHUB FEATURE PORT
 local Players = game:GetService("Players")
+pcall(function() warn("[Liberium][BOOT] BOOT_1_PLAYERS_SERVICE") end)
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -11,8 +13,10 @@ local TextService = game:GetService("TextService")
 local TeleportService = game:GetService("TeleportService")
 local Stats = game:GetService("Stats")
 local Debris = game:GetService("Debris")
+pcall(function() warn("[Liberium][BOOT] BOOT_2_SERVICES_READY") end)
 
 
+pcall(function() warn("[Liberium][BOOT] BOOT_3_DIAGNOSTICS_INIT") end)
 -- TEMPORARY V92 BOOT DIAGNOSTICS (remove after final runtime validation).
 local BootDiag = {
     Stage = "ENTRY",
@@ -180,12 +184,14 @@ local function diagInstall(playerGui)
         pcall(function() warn("[Liberium][BOOT] Diagnostic panel failed: " .. tostring(err)) end)
     end
 end
+pcall(function() warn("[Liberium][BOOT] BOOT_4_DIAGNOSTIC_FUNCTIONS_READY") end)
 pcall(function()
     local logService = game:GetService("LogService")
     BootDiag.LogConnection = logService.MessageOut:Connect(diagCapture)
 end)
 
 
+pcall(function() warn("[Liberium][BOOT] BOOT_5_BEFORE_LOCAL_PLAYER") end)
 -- Delta can execute during the first moments of client startup.
 -- Wait briefly for the local player and PlayerGui instead of indexing nil or yielding forever.
 local LocalPlayer = Players.LocalPlayer
@@ -199,6 +205,7 @@ if not LocalPlayer then
     return
 end
 diagMark("LOCAL_PLAYER_READY")
+pcall(function() warn("[Liberium][BOOT] BOOT_6_LOCAL_PLAYER_READY") end)
 
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
 if not PlayerGui then
@@ -209,7 +216,9 @@ if not PlayerGui then
     return
 end
 diagMark("PLAYER_GUI_READY")
+pcall(function() warn("[Liberium][BOOT] BOOT_7_PLAYER_GUI_READY") end)
 diagInstall(PlayerGui)
+pcall(function() warn("[Liberium][BOOT] BOOT_8_DIAGNOSTIC_GUI_INSTALL_RETURNED") end)
 
 local THEME = { Background = Color3.fromRGB(7, 9, 18), Element = Color3.fromRGB(17, 21, 37), Accent = Color3.fromRGB(155, 104, 255), Accent2 = Color3.fromRGB(70, 222, 255), Text = Color3.fromRGB(247, 248, 255), SubText = Color3.fromRGB(147, 160, 189), Stroke = Color3.fromRGB(112, 117, 178), Surface = Color3.fromRGB(12, 16, 29), Good = Color3.fromRGB(92, 239, 183) }
 local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
