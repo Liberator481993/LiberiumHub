@@ -216,7 +216,9 @@ pcall(function()
 end)
 
 
-\n-- Mount diagnostics before waiting for LocalPlayer/PlayerGui; prefer executor UI roots.\npcall(function() diagInstall(nil) end)\npcall(function() warn("[Liberium][BOOT] BOOT_5_BEFORE_LOCAL_PLAYER") end)
+-- Mount diagnostics before waiting for LocalPlayer/PlayerGui; prefer executor UI roots.
+pcall(function() diagInstall(nil) end)
+pcall(function() warn("[Liberium][BOOT] BOOT_5_BEFORE_LOCAL_PLAYER") end)
 -- Delta can execute during the first moments of client startup.
 -- Wait briefly for the local player and PlayerGui instead of indexing nil or yielding forever.
 local LocalPlayer = Players.LocalPlayer
