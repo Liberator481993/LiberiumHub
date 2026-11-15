@@ -101,114 +101,141 @@ local function diagBuildReport()
 end
 local function diagInstall(playerGui)
     if BootDiag.Gui and BootDiag.Gui.Parent then return end
-    local ok, err = pcall(function()
-        local screen = Instance.new("ScreenGui")
-        screen.Name = "LiberiumBootDiagnostics"
-        screen.ResetOnSpawn = false
-        screen.IgnoreGuiInset = true
-        screen.DisplayOrder = 10000
-        screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-        local frame = Instance.new("Frame")
-        frame.Name = "DiagnosticPanel"
-        frame.AnchorPoint = Vector2.new(0.5, 1)
-        frame.Position = UDim2.new(0.5, 0, 1, -12)
-        frame.Size = UDim2.fromOffset(326, 74)
-        frame.BackgroundColor3 = Color3.fromRGB(12, 16, 29)
-        frame.BackgroundTransparency = 0.06
-        frame.BorderSizePixel = 0
-        frame.Parent = screen
-
-        local status = Instance.new("TextLabel")
-        status.BackgroundTransparency = 1
-        status.Position = UDim2.fromOffset(10, 5)
-        status.Size = UDim2.new(1, -20, 0, 24)
-        status.Font = Enum.Font.GothamMedium
-        status.TextSize = 11
-        status.TextColor3 = Color3.fromRGB(240, 242, 255)
-        status.TextXAlignment = Enum.TextXAlignment.Left
-        status.Text = "LIBERIUM BOOT: " .. BootDiag.Stage
-        status.Parent = frame
-        BootDiag.Status = status
-
-        local button = Instance.new("TextButton")
-        button.Position = UDim2.fromOffset(10, 35)
-        button.Size = UDim2.new(1, -20, 0, 29)
-        button.BackgroundColor3 = Color3.fromRGB(155, 104, 255)
-        button.BorderSizePixel = 0
-        button.Font = Enum.Font.GothamBold
-        button.TextSize = 11
-        button.TextColor3 = Color3.new(1, 1, 1)
-        button.Text = "COPY REPORT"
-        button.Parent = frame
-
-        local reportBox = Instance.new("TextBox")
-        reportBox.Name = "ReportText"
-        reportBox.Visible = false
-        reportBox.ClearTextOnFocus = false
-        reportBox.MultiLine = true
-        reportBox.TextWrapped = false
-        reportBox.TextXAlignment = Enum.TextXAlignment.Left
-        reportBox.TextYAlignment = Enum.TextYAlignment.Top
-        reportBox.TextEditable = true
-        reportBox.Font = Enum.Font.Code
-        reportBox.TextSize = 10
-        reportBox.TextColor3 = Color3.fromRGB(240, 242, 255)
-        reportBox.BackgroundColor3 = Color3.fromRGB(7, 9, 18)
-        reportBox.Position = UDim2.fromOffset(10, 70)
-        reportBox.Size = UDim2.new(1, -20, 0, 150)
-        reportBox.Parent = frame
-        BootDiag.ReportBox = reportBox
-
-        button.Activated:Connect(function()
-            local report = diagBuildReport()
-            reportBox.Text = report
-            local clipboard = diagGlobal("setclipboard") or diagGlobal("toclipboard")
-            local copied = false
-            if type(clipboard) == "function" then
-                copied = pcall(clipboard, report)
-            end
-            if copied then
-                status.Text = "REPORT COPIED • SEND IT HERE"
-                button.Text = "COPY AGAIN"
-            else
-                reportBox.Visible = true
-                frame.Size = UDim2.fromOffset(326, 230)
-                status.Text = "SELECT AND COPY THE TEXT BELOW"
-                button.Text = "REFRESH REPORT"
-            end
-        end)
-
-        local hosts = {}
-        local hiddenGui = diagGlobal("gethui")
-        if type(hiddenGui) == "function" then
-            local hiddenOk, hidden = pcall(hiddenGui)
-            if hiddenOk and hidden then table.insert(hosts, hidden) end
-        end
-        local coreOk, coreGui = pcall(function()
-            return game:GetService("CoreGui")
-        end)
-        if coreOk and coreGui then table.insert(hosts, coreGui) end
-        if playerGui then table.insert(hosts, playerGui) end
-
-        local mounted = false
-        for _, host in ipairs(hosts) do
-            local parentOk = pcall(function() screen.Parent = host end)
-            if parentOk and screen.Parent == host then
-                mounted = true
-                break
-            end
-        end
-        if not mounted then
-            screen:Destroy()
-            error("No supported GUI parent (gethui/CoreGui/PlayerGui)")
-        end
-        BootDiag.Gui = screen
+    local screenOk, screen = pcall(function()
+        return Instance.new("ScreenGui")
     end)
-    if not ok then
-        pcall(function() warn("[Liberium][BOOT] Diagnostic panel failed: " .. tostring(err)) end)
+    if not screenOk or not screen then
+        table.insert(BootDiag.Errors, "ScreenGui creation failed: " .. tostring(screen))
+        return
+    end
+
+    pcall(function() screen.Name = "LiberiumBootDiagnostics" end)
+    pcall(function() screen.ResetOnSpawn = false end)
+    pcall(function() screen.IgnoreGuiInset = true end)
+    pcall(function() screen.DisplayOrder = 10000 end)
+
+    local hosts = {}
+    if playerGui then table.insert(hosts, playerGui) end
+    local hiddenGui = diagGlobal("gethui")
+    if type(hiddenGui) == "function" then
+        local hiddenOk, hidden = pcall(hiddenGui)
+        if hiddenOk and hidden then table.insert(hosts, hidden) end
+    end
+    local coreOk, coreGui = pcall(function()
+        return game:GetService("CoreGui")
+    end)
+    if coreOk and coreGui then table.insert(hosts, coreGui) end
+
+    local mounted = false
+    local mountErrors = {}
+    for _, host in ipairs(hosts) do
+        local parentOk, parentErr = pcall(function()
+            screen.Parent = host
+        end)
+        if parentOk and screen.Parent == host then
+            mounted = true
+            break
+        end
+        table.insert(mountErrors, tostring(parentErr or "parent rejected"))
+    end
+    if not mounted then
+        pcall(function() screen:Destroy() end)
+        table.insert(BootDiag.Errors, "GUI mount failed: " .. table.concat(mountErrors, " | "))
+        pcall(function() warn("[Liberium][BOOT] GUI mount failed: " .. table.concat(mountErrors, " | ")) end)
+        return
+    end
+    BootDiag.Gui = screen
+
+    -- Build each visual independently: an unsupported optional property must not remove the root GUI.
+    local frameOk, frame = pcall(function()
+        local item = Instance.new("Frame")
+        item.Name = "DiagnosticPanel"
+        item.AnchorPoint = Vector2.new(0.5, 1)
+        item.Position = UDim2.new(0.5, 0, 1, -12)
+        item.Size = UDim2.fromOffset(326, 78)
+        item.BackgroundColor3 = Color3.fromRGB(12, 16, 29)
+        item.BackgroundTransparency = 0.06
+        item.BorderSizePixel = 0
+        item.Parent = screen
+        return item
+    end)
+    if not frameOk or not frame then
+        diagMark("GUI_MOUNTED_FRAME_FAILED")
+        return
+    end
+
+    local statusOk, status = pcall(function()
+        local item = Instance.new("TextLabel")
+        item.Name = "BootStatus"
+        item.BackgroundTransparency = 1
+        item.Position = UDim2.fromOffset(10, 5)
+        item.Size = UDim2.new(1, -20, 0, 24)
+        item.Font = Enum.Font.GothamMedium
+        item.TextSize = 11
+        item.TextColor3 = Color3.fromRGB(240, 242, 255)
+        item.TextXAlignment = Enum.TextXAlignment.Left
+        item.Text = "LIBERIUM BOOT: " .. BootDiag.Stage
+        item.Parent = frame
+        return item
+    end)
+    if statusOk then BootDiag.Status = status end
+
+    local buttonOk, button = pcall(function()
+        local item = Instance.new("TextButton")
+        item.Name = "CopyReport"
+        item.Position = UDim2.fromOffset(10, 39)
+        item.Size = UDim2.new(1, -20, 0, 29)
+        item.BackgroundColor3 = Color3.fromRGB(155, 104, 255)
+        item.BorderSizePixel = 0
+        item.Font = Enum.Font.GothamBold
+        item.TextSize = 11
+        item.TextColor3 = Color3.new(1, 1, 1)
+        item.Text = "COPY REPORT"
+        item.Parent = frame
+        return item
+    end)
+    if buttonOk and button then
+        pcall(function()
+            button.Activated:Connect(function()
+                local report = diagBuildReport()
+                local clipboard = diagGlobal("setclipboard") or diagGlobal("toclipboard")
+                local copied = false
+                if type(clipboard) == "function" then
+                    copied = pcall(clipboard, report)
+                end
+                if copied then
+                    if BootDiag.Status then BootDiag.Status.Text = "REPORT COPIED • SEND IT HERE" end
+                    button.Text = "COPY AGAIN"
+                    return
+                end
+
+                -- Fallback uses a plain TextLabel, not TextBox, for executor compatibility.
+                pcall(function()
+                    local old = frame:FindFirstChild("ReportText")
+                    if old then old:Destroy() end
+                    local reportLabel = Instance.new("TextLabel")
+                    reportLabel.Name = "ReportText"
+                    reportLabel.BackgroundColor3 = Color3.fromRGB(7, 9, 18)
+                    reportLabel.TextColor3 = Color3.fromRGB(240, 242, 255)
+                    reportLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    reportLabel.TextYAlignment = Enum.TextYAlignment.Top
+                    reportLabel.TextWrapped = true
+                    reportLabel.Font = Enum.Font.Code
+                    reportLabel.TextSize = 10
+                    reportLabel.Text = report
+                    reportLabel.Position = UDim2.fromOffset(10, 73)
+                    reportLabel.Size = UDim2.new(1, -20, 0, 190)
+                    reportLabel.Parent = frame
+                    frame.Size = UDim2.fromOffset(326, 282)
+                end)
+                if BootDiag.Status then BootDiag.Status.Text = "REPORT SHOWN BELOW • SEND SCREENSHOT" end
+                button.Text = "REFRESH REPORT"
+            end)
+        end)
     end
 end
+
 pcall(function() warn("[Liberium][BOOT] BOOT_4_DIAGNOSTIC_FUNCTIONS_READY") end)
 pcall(function()
     local logService = game:GetService("LogService")
