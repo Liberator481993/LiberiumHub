@@ -1,5 +1,5 @@
-pcall(function() warn("[Liberium][BOOT] BOOT_0_ENTRY") end)
 -- LIBERIUM HUB | v91.70 | NEON GLASS BRAND REFRESH
+pcall(function() warn("[Liberium][BOOT] BOOT_0_ENTRY") end)
 local Players = game:GetService("Players")
 pcall(function() warn("[Liberium][BOOT] BOOT_1_PLAYERS_SERVICE") end)
 local TweenService = game:GetService("TweenService")
