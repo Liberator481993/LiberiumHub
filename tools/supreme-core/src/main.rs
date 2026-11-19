@@ -8,9 +8,11 @@ const CATEGORIES: &[&str] = &[
     "sets", "uniques", "evos", "ancients", "vintages", "chromas", "godlies",
     "legendaries", "rares", "uncommons", "commons", "pets", "misc", "untradables",
 ];
+// These pages are still read because they can contain valuable outliers,
+ // but only numeric entries worth at least 1.0 are kept in the snapshot.
+const LOW_VALUE_CATEGORIES: &[&str] = &["commons", "uncommons", "rares", "legendaries"];
 const MINIMUM: &[(&str, usize)] = &[
-    ("godlies", 80), ("chromas", 30), ("commons", 150), ("uncommons", 100),
-    ("rares", 80), ("legendaries", 40), ("ancients", 8), ("pets", 40), ("uniques", 1),
+    ("godlies", 80), ("chromas", 30), ("ancients", 8), ("pets", 40), ("uniques", 1),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +96,18 @@ fn parse_numeric_value(raw: &str) -> Option<String> {
     let normalized: String = raw.trim().chars()
         .filter(|ch| !ch.is_whitespace() && *ch != ',' && *ch != '
 
+fn is_low_value_category(category: &str) -> bool {
+    LOW_VALUE_CATEGORIES.contains(&category)
+}
+fn filter_low_value_entries(category: &str, entries: &mut Vec<SupremeEntry>) {
+    if !is_low_value_category(category) { return; }
+    entries.retain(|entry| {
+        entry.v.as_deref()
+            .and_then(parse_numeric_value)
+            .and_then(|value| value.parse::<f64>().ok())
+            .is_some_and(|value| value >= 1.0)
+    });
+}
 fn build(entries: Vec<SupremeEntry>, category_counts: BTreeMap<String, usize>,
          page_card_counts: BTreeMap<String, usize>) -> MappingFile {
     let mut by_name = BTreeMap::new();
@@ -147,6 +161,8 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
             cl: class_re.captures(&text).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or_default(), v: value, t: tier, dm: attr("data-demand"),
         });
     }
+    let mut entries = entries;
+    filter_low_value_entries(category, &mut entries);
     Ok((entries, cards))
 }
 fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEntry>, usize), String> {
@@ -200,6 +216,8 @@ fn parse_markdown_page(category: &str, markdown: &str) -> Result<(Vec<SupremeEnt
     if let Some(entry) = current {
         if !entry.o.to_ascii_lowercase().contains("deletion") { entries.push(entry); }
     }
+    let mut entries = entries;
+    filter_low_value_entries(category, &mut entries);
     Ok((entries, cards))
 }
 fn fetch_category(client: &reqwest::blocking::Client, category: &'static str)
@@ -425,6 +443,25 @@ mod tests {
         assert_eq!(cards, 2);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].n, "Traveler's Gun");
+    }
+    #[test] fn low_tier_pages_keep_only_numeric_values_at_least_one() {
+        let mut entries = vec![
+            entry("Cheap", "commons", "0.5"),
+            entry("Valuable Common", "commons", "1"),
+            entry("Valuable Rare", "rares", "1.25"),
+            SupremeEntry { c: "legendaries".into(), n: "Tier only".into(), im: String::new(),
+                y: String::new(), e: String::new(), o: String::new(), cl: String::new(),
+                v: None, t: "x2 T1 Common".into(), dm: String::new() },
+        ];
+        filter_low_value_entries("commons", &mut entries);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|item| item.n == "Valuable Common"));
+        assert!(entries.iter().any(|item| item.n == "Valuable Rare"));
+        let mut legendaries = vec![entry("Below threshold", "legendaries", "0.99"),
+            entry("At threshold", "legendaries", "1")];
+        filter_low_value_entries("legendaries", &mut legendaries);
+        assert_eq!(legendaries.len(), 1);
+        assert_eq!(legendaries[0].n, "At threshold");
     }
     #[test] fn numeric_parser_handles_thousands_and_millions() {
         assert_eq!(parse_numeric_value("5,000").as_deref(), Some("5000"));
