@@ -79,6 +79,7 @@ local state = {
     unmatchedTrade = {}
 }
 local stopped = false
+local coreTestsPassed = false
 local tileCache = setmetatable({}, {__mode = "k"})
 
 local function clean(value)
@@ -1992,11 +1993,15 @@ end)
 task.spawn(function()
     task.wait(0.25)
     local testsOk, testsError = pcall(runCoreSelfTests)
+    coreTestsPassed = testsOk
     state.selfTestStatus = testsOk and "passed" or ("FAILED: " .. tostring(testsError))
-    if not testsOk then
-        warn("[Supreme Trade Checker] Core self-tests failed: " .. tostring(testsError))
+    if testsOk then
+        loadValues(true)
+    else
+        state.status = "fail"
+        state.lastError = "Core self-tests failed: " .. tostring(testsError)
+        warn("[Supreme Trade Checker] Core self-tests failed; values loading is blocked: " .. tostring(testsError))
     end
-    loadValues(true)
     local nextInventoryScan = 0
     while textGui.Parent and not stopped do
         pcall(scanTrade)
@@ -2005,10 +2010,11 @@ task.spawn(function()
             nextInventoryScan = os.clock() + 1.25
         end
         updateUi()
-        if state.status == "fail" and not state.busy then
+        if coreTestsPassed and state.status == "fail" and not state.busy then
             task.wait(20)
             loadValues(true)
-        elseif state.status == "ok" and os.clock() - state.updated >= 900 and not state.busy then
+        elseif coreTestsPassed and state.status == "ok"
+            and os.clock() - state.updated >= 900 and not state.busy then
             loadValues(false)
         end
         task.wait(0.6)
