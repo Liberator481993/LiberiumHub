@@ -91,11 +91,15 @@ fn add(index: &mut BTreeMap<String, Vec<usize>>, key: String, id: usize) {
     if !key.is_empty() { index.entry(key).or_default().push(id); }
 }
 fn parse_numeric_value(raw: &str) -> Option<String> {
-    // Supreme's rendered text may include grouping commas, currency symbols,
-    // or incidental whitespace. Preserve decimal precision after normalization.
+    // Remove grouping separators, currency symbols and whitespace while
+    // preserving decimal precision from the source.
     let normalized: String = raw.trim().chars()
-        .filter(|ch| !ch.is_whitespace() && *ch != ',' && *ch != '
-
+        .filter(|ch| !ch.is_whitespace() && *ch != ',' && *ch != '$')
+        .collect();
+    let value = normalized.parse::<f64>().ok()?;
+    if !value.is_finite() || value <= 0.0 { return None; }
+    Some(normalized)
+}
 fn is_low_value_category(category: &str) -> bool {
     LOW_VALUE_CATEGORIES.contains(&category)
 }
@@ -463,6 +467,29 @@ mod tests {
         filter_low_value_entries("legendaries", &mut legendaries);
         assert_eq!(legendaries.len(), 1);
         assert_eq!(legendaries[0].n, "At threshold");
+    }
+    #[test] fn low_tier_pages_keep_only_numeric_values_at_least_one() {
+        let mut commons = vec![
+            entry("Below threshold", "commons", "0.99"),
+            entry("At threshold", "commons", "1"),
+            entry("Above threshold", "commons", "1.25"),
+        ];
+        filter_low_value_entries("commons", &mut commons);
+        assert_eq!(commons.len(), 2);
+        assert_eq!(commons[0].n, "At threshold");
+        assert_eq!(commons[1].n, "Above threshold");
+
+        let mut rares = vec![entry("Rare outlier", "rares", "2")];
+        filter_low_value_entries("rares", &mut rares);
+        assert_eq!(rares.len(), 1);
+
+        let mut tier_only = vec![SupremeEntry {
+            c: "legendaries".into(), n: "Tier only".into(), im: String::new(),
+            y: String::new(), e: String::new(), o: String::new(), cl: String::new(),
+            v: None, t: "x2 T1 Legendary".into(), dm: String::new(),
+        }];
+        filter_low_value_entries("legendaries", &mut tier_only);
+        assert!(tier_only.is_empty());
     }
     #[test] fn numeric_parser_handles_thousands_and_millions() {
         assert_eq!(parse_numeric_value("5,000").as_deref(), Some("5000"));
