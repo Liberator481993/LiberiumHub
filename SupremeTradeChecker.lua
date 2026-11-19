@@ -1179,6 +1179,15 @@ local function findTrade()
     return nil
 end
 
+local function hasItemIcon(tile)
+    local container = tile and tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon")
+    if not icon or not (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+        return false
+    end
+    return assetId(icon.Image) ~= nil
+end
+
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
@@ -1190,7 +1199,9 @@ local function scanOffer(offer, group)
             seen[tile] = true
             local name, quantity = itemData(tile)
             local value, resolvedName, tierText, category = valueOf(tile, name)
-            if name or value ~= nil or tierText then
+            -- Some mobile trade slots briefly have no ItemName node.
+            -- A real item asset still counts as an item, even while unmatched.
+            if name or value ~= nil or tierText or hasItemIcon(tile) then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
                     value = value,
