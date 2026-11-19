@@ -66,6 +66,7 @@ local state = {
     inventoryGuiValued = 0,
     inventoryGuiItems = 0,
     inventoryDataEntries = 0,
+    inventoryMissingFrames = 0,
     inventoryGroups = 0,
     inventoryGuiPath = "unknown",
     inventoryScreenList = "not scanned",
@@ -1502,7 +1503,7 @@ local function scanModuleInventory()
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
-    local parentedFrames, detachedFrames = 0, 0
+    local parentedFrames, detachedFrames, missingFrameEntries = 0, 0, 0
     local frameSamples = {}
     local seen = {}
 
@@ -1527,12 +1528,21 @@ local function scanModuleInventory()
             for itemKey, entry in pairs(subgroup) do
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
+                local storedAmount = tonumber(entry.Amount)
+                local entryQuantity = storedAmount and math.max(1, math.floor(storedAmount)) or 1
                 local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
+                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
+                    count = count + entryQuantity
+                    missingFrameEntries = missingFrameEntries + 1
+                    continue
+                end
+                if seen[tile] then continue end
                 seen[tile] = true
                 frameCount = frameCount + 1
                 if not tile.Parent then
                     detachedFrames = detachedFrames + 1
+                    missingFrameEntries = missingFrameEntries + 1
+                    count = count + entryQuantity
                     if #frameSamples < 8 then
                         table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
                     end
@@ -1550,9 +1560,8 @@ local function scanModuleInventory()
                 -- Do not depend on ItemName text: PulseHub's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
-                local storedAmount = tonumber(entry.Amount)
                 if storedAmount and quantity <= 1 then
-                    quantity = math.max(1, math.floor(storedAmount))
+                    quantity = entryQuantity
                 end
                 local resolvedValue, _, tierText, category = valueOf(tile, name)
                 if resolvedValue ~= nil then
@@ -1629,6 +1638,7 @@ local function scanModuleInventory()
     state.inventoryFrames = frameCount
     state.inventoryVisibleFrames = visibleFrames
     state.inventoryDataEntries = dataEntries
+    state.inventoryMissingFrames = missingFrameEntries
     state.inventoryGroups = groupCount
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
@@ -1721,6 +1731,7 @@ local function scanInventory()
     state.latestInventory =
         "InventoryModule: " .. tostring(state.inventoryModuleStatus)
         .. " | Data entries: " .. tostring(state.inventoryDataEntries)
+        .. " | Missing frames: " .. tostring(state.inventoryMissingFrames)
         .. " | Frames: " .. tostring(state.inventoryFrames)
         .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
         .. " | GUI cards: " .. tostring(state.inventoryGuiFrames)
