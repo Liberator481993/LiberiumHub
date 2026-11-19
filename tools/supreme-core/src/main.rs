@@ -126,6 +126,10 @@ fn parse_page(category: &str, html: &str) -> Result<(Vec<SupremeEntry>, usize), 
             .map(|x| x.text().collect::<Vec<_>>().join(" ").trim().to_string()).unwrap_or_default();
         if name.is_empty() { continue; }
         let text = card.text().collect::<Vec<_>>().join(" ");
+        // "Change in Value" is a historical delta, not the current item price.
+        let current_value_text = Regex::new(r"(?i)Change\\s+in\\s+Value")
+            .unwrap().replace_all(&text, "Change in amount");
+        let text = current_value_text.as_ref();
         let tier = tier_re.captures(&text).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
         let value = value_re.captures(&text)
             .and_then(|c| c.get(1))
