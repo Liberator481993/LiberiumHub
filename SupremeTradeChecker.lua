@@ -1282,14 +1282,14 @@ local function runCoreSelfTests()
     local testDatabase = {
         Item = {
             TestGun = {
-                ItemName = "Test Gun",
+                ItemName = "Test",
                 ItemType = "Gun",
                 Rarity = "Godly",
                 Image = "rbxassetid://111111",
                 ItemID = "111111"
             },
             ChromaTestGun = {
-                ItemName = "Test Gun",
+                ItemName = "Test",
                 ItemType = "Gun",
                 Rarity = "Godly",
                 Image = "rbxassetid://222222",
