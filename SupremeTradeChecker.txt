@@ -38,6 +38,7 @@ local BASE = "https://www.supremevalues.com/mm2/"
 
 local state = {
     status = "loading",
+    selfTestStatus = "pending",
     cacheStatus = "not checked",
     mapped = nil,
     updated = 0,
@@ -65,6 +66,7 @@ local state = {
     inventoryGuiValued = 0,
     inventoryGuiItems = 0,
     inventoryDataEntries = 0,
+    inventoryMissingFrames = 0,
     inventoryGroups = 0,
     inventoryGuiPath = "unknown",
     inventoryScreenList = "not scanned",
@@ -1177,6 +1179,15 @@ local function findTrade()
     return nil
 end
 
+local function hasItemIcon(tile)
+    local container = tile and tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon")
+    if not icon or not (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+        return false
+    end
+    return assetId(icon.Image) ~= nil
+end
+
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
@@ -1188,7 +1199,9 @@ local function scanOffer(offer, group)
             seen[tile] = true
             local name, quantity = itemData(tile)
             local value, resolvedName, tierText, category = valueOf(tile, name)
-            if name or value ~= nil or tierText then
+            -- Some mobile trade slots briefly have no ItemName node.
+            -- A real item asset still counts as an item, even while unmatched.
+            if name or value ~= nil or tierText or hasItemIcon(tile) then
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
                     value = value,
@@ -1247,6 +1260,113 @@ local function getVerdict(giveValue, receiveValue)
         return "FAIR", difference
     end
     return difference > 0 and "WIN" or "LOSE", difference
+end
+
+local function runCoreSelfTests()
+    local numericCases = {
+        {"Value - 4,600", 4600},
+        {"Value - 1,000,000", 1000000},
+        {"Value - 0.025", 0.025},
+        {"Value - 14,250.75", 14250.75}
+    }
+    for _, testCase in ipairs(numericCases) do
+        assert(parseDisplayedValue(testCase[1]) == testCase[2],
+            "numeric parser failed: " .. testCase[1])
+    end
+    assert(formatValue(4600) == "4,600", "thousands formatting failed")
+    assert(formatValue(1000000) == "1,000,000", "large value formatting failed")
+    assert(formatValue(0.025) == "0.025", "fraction formatting failed")
+    assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
+
+    local syntheticHtml =
+        '<div class="itemcolumn"><div class="itemhead">Test Gun</div><span>Value - 4,600</span></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">Fractional Knife</div><span>Value - 0.025</span></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">Tier Item</div><span>Value - x1 T3 Godly</span></div>'
+    local parsedEntries = {}
+    local parsedCount, parsedTierCount = parseCategory("godlies", syntheticHtml, parsedEntries)
+    assert(parsedCount == 3 and parsedTierCount == 1, "synthetic Supreme card parsing failed")
+    assert(parsedEntries[1].v == 4600, "comma-separated card value was not preserved")
+    assert(parsedEntries[2].v == 0.025, "fractional card value was not preserved")
+    assert(parsedEntries[3].v == nil and parsedEntries[3].t ~= nil,
+        "tier card was treated as a numeric value")
+
+    local testDatabase = {
+        Item = {
+            TestGun = {
+                ItemName = "Test",
+                ItemType = "Gun",
+                Rarity = "Godly",
+                Image = "rbxassetid://111111",
+                ItemID = "111111"
+            },
+            ChromaTestGun = {
+                ItemName = "Test",
+                ItemType = "Gun",
+                Rarity = "Godly",
+                Image = "rbxassetid://222222",
+                Chroma = true
+            }
+        },
+        Pets = {}
+    }
+    local regularEntry = {
+        c = "godlies", n = "Test Gun", im = "Test Gun (Gun)",
+        v = 10, cl = "Godly"
+    }
+    local chromaEntry = {
+        c = "chromas", n = "Chroma Test Gun", im = "Chroma Test Gun (Gun)",
+        v = 100, cl = "Godly"
+    }
+
+    local function fakeTile(image, isChroma)
+        local icon = {Image = image}
+        local container = {
+            FindFirstChild = function(_, childName)
+                if childName == "Icon" then return icon end
+                return nil
+            end
+        }
+        local chromaTag = {Visible = isChroma}
+        local tags = {
+            FindFirstChild = function(_, childName)
+                if childName == "Chroma" then return chromaTag end
+                return nil
+            end
+        }
+        return {
+            FindFirstChild = function(_, childName)
+                if childName == "Container" then return container end
+                if childName == "Tags" then return tags end
+                return nil
+            end
+        }
+    end
+
+    local previousMapping = state.mapped
+    local mappingOk, mappingError = pcall(function()
+        local fullMapping = buildMapping({regularEntry, chromaEntry}, testDatabase)
+        state.mapped = fullMapping
+        local regularValue = valueOf(fakeTile("rbxassetid://111111", false), "Test Gun")
+        local chromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
+        assert(regularValue == 10, "regular icon mapping failed")
+        assert(chromaValue == 100, "Chroma icon mapping failed")
+
+        local regularOnlyMapping = buildMapping({regularEntry}, testDatabase)
+        state.mapped = regularOnlyMapping
+        local missingChromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
+        assert(missingChromaValue == nil,
+            "unmapped Chroma incorrectly inherited the regular item's value")
+    end)
+    state.mapped = previousMapping
+    if not mappingOk then error(mappingError) end
+
+    local duplicateTotal = 10 * 2 + 100 * 3
+    assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
+    local verdict, difference = getVerdict(200, duplicateTotal)
+    assert(verdict == "WIN" and difference == 120, "trade verdict calculation failed")
+    local fairVerdict = getVerdict(100, 101)
+    assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
+    return true
 end
 
 local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
@@ -1394,7 +1514,7 @@ local function scanModuleInventory()
     local gui = type(module.GUI) == "table" and module.GUI.MyInventory or nil
     local total, known, count, frameCount, tierCount = 0, 0, 0, 0, 0
     local visibleFrames, groupCount, dataEntries = 0, 0, 0
-    local parentedFrames, detachedFrames = 0, 0
+    local parentedFrames, detachedFrames, missingFrameEntries = 0, 0, 0
     local frameSamples = {}
     local seen = {}
 
@@ -1419,12 +1539,21 @@ local function scanModuleInventory()
             for itemKey, entry in pairs(subgroup) do
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
+                local storedAmount = tonumber(entry.Amount)
+                local entryQuantity = storedAmount and math.max(1, math.floor(storedAmount)) or 1
                 local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") or seen[tile] then continue end
+                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
+                    count = count + entryQuantity
+                    missingFrameEntries = missingFrameEntries + 1
+                    continue
+                end
+                if seen[tile] then continue end
                 seen[tile] = true
                 frameCount = frameCount + 1
                 if not tile.Parent then
                     detachedFrames = detachedFrames + 1
+                    missingFrameEntries = missingFrameEntries + 1
+                    count = count + entryQuantity
                     if #frameSamples < 8 then
                         table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
                     end
@@ -1442,9 +1571,8 @@ local function scanModuleInventory()
                 -- Do not depend on ItemName text: PulseHub's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
-                local storedAmount = tonumber(entry.Amount)
                 if storedAmount and quantity <= 1 then
-                    quantity = math.max(1, math.floor(storedAmount))
+                    quantity = entryQuantity
                 end
                 local resolvedValue, _, tierText, category = valueOf(tile, name)
                 if resolvedValue ~= nil then
@@ -1521,6 +1649,7 @@ local function scanModuleInventory()
     state.inventoryFrames = frameCount
     state.inventoryVisibleFrames = visibleFrames
     state.inventoryDataEntries = dataEntries
+    state.inventoryMissingFrames = missingFrameEntries
     state.inventoryGroups = groupCount
     state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
         or "InventoryModule.GUI.MyInventory unavailable"
@@ -1613,6 +1742,7 @@ local function scanInventory()
     state.latestInventory =
         "InventoryModule: " .. tostring(state.inventoryModuleStatus)
         .. " | Data entries: " .. tostring(state.inventoryDataEntries)
+        .. " | Missing frames: " .. tostring(state.inventoryMissingFrames)
         .. " | Frames: " .. tostring(state.inventoryFrames)
         .. " | Visible: " .. tostring(state.inventoryVisibleFrames)
         .. " | GUI cards: " .. tostring(state.inventoryGuiFrames)
@@ -1774,6 +1904,7 @@ local function buildDiagnostic()
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
         "Status: " .. tostring(state.status),
+        "Core self-tests: " .. tostring(state.selfTestStatus),
         "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
         "Values source: " .. BASE,
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
@@ -1859,6 +1990,11 @@ end)
 
 task.spawn(function()
     task.wait(0.25)
+    local testsOk, testsError = pcall(runCoreSelfTests)
+    state.selfTestStatus = testsOk and "passed" or ("FAILED: " .. tostring(testsError))
+    if not testsOk then
+        warn("[Supreme Trade Checker] Core self-tests failed: " .. tostring(testsError))
+    end
     loadValues(true)
     local nextInventoryScan = 0
     while textGui.Parent and not stopped do
