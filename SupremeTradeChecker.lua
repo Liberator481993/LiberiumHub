@@ -296,6 +296,20 @@ local function numericParserSelfTest()
         local actual = parseNumber(case[1])
         if actual == nil or math.abs(actual - case[2]) > 0.000001 then return false end
     end
+    local displayedCases = {
+        {"Value - 5,000", 5000},
+        {"Value: $1,000", 1000},
+        {"Value - 0.25", 0.25},
+        {"Change in Value - 900", nil}
+    }
+    for _, case in ipairs(displayedCases) do
+        local actual = extractDisplayedValue(case[1])
+        if case[2] == nil then
+            if actual ~= nil then return false end
+        elseif actual == nil or math.abs(actual - case[2]) > 0.000001 then
+            return false
+        end
+    end
     if parseNumber("0") ~= nil or parseNumber("-5") ~= nil then return false end
     return true
 end
