@@ -25,9 +25,13 @@ local VALUE_CATEGORIES = {
     legendaries = true, rares = true, uncommons = true, commons = true,
     pets = true, misc = true
 }
+-- Common / Uncommon / Rare / Legendary are not retained as rarity tiers.
+-- Keep only items from those source pages whose numeric value is >= 1.
+local LOW_VALUE_CATEGORIES = {
+    commons = true, uncommons = true, rares = true, legendaries = true
+}
 local MINIMUM = {
-    godlies = 80, chromas = 30, commons = 150, uncommons = 100,
-    rares = 80, legendaries = 40, ancients = 8, pets = 40, uniques = 1
+    godlies = 80, chromas = 30, ancients = 8, pets = 40, uniques = 1
 }
 local RARITIES = {
     godlies = "Godly", ancients = "Ancient", legendaries = "Legendary",
@@ -343,6 +347,11 @@ local function parseCategory(category, html, output)
             or card:match("<img[^>]-alt='([^']*)'")
         imageAlt = decodeText(imageAlt or "")
         local pageEvent = card:match('data%-event="([^"]+)"')
+        -- Low-tier source pages are scanned only for genuinely valuable items.
+        -- A value of exactly 1.0 is included; tier-only cards are excluded there.
+        if LOW_VALUE_CATEGORIES[category] then
+            if not amount or amount < 1 then amount, tierText = nil, nil end
+        end
         if (amount or tierText) and nameMarkup and not origin:find("Deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
@@ -798,6 +807,10 @@ local function buildMapping(entries, database, rustIndexData)
                             or item.Rarity == "Christmas" or item.Rarity == "Halloween"
                     elseif chroma then
                         eligible = databaseIsChroma(item)
+                    elseif LOW_VALUE_CATEGORIES[category] then
+                        -- Match retained low-tier items by their exact item identity,
+                        -- not by Common/Uncommon/Rare/Legendary rarity labels.
+                        eligible = not databaseIsChroma(item)
                     else
                         eligible = not databaseIsChroma(item) and item.Rarity == RARITIES[category]
                     end
