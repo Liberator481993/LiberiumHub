@@ -258,11 +258,31 @@ end
 -- Parse the displayed value first; data-value is only a numeric fallback.
 local function parseNumber(raw)
     if raw == nil then return nil end
-    local value = tonumber(tostring(raw):gsub(",", ""))
+    -- Supreme displays both grouped integers (1,000) and fractional values
+    -- (0.25). Strip presentation-only currency/grouping characters, never
+    -- round the parsed number.
+    local normalized = tostring(raw):gsub("%s+", ""):gsub(",", ""):gsub("^%$", "")
+    local value = tonumber(normalized)
     if value == nil or value <= 0 or value ~= value or value == math.huge or value == -math.huge then
         return nil
     end
     return value
+end
+
+local function extractDisplayedValue(cardText)
+    -- Accept the punctuation variants used by Supreme's rendered cards.
+    -- Do not parse "Change in Value" as the item's current value.
+    local labels = {
+        "[Vv]alue%s*%-%s*%$?([%d][%d,%.]*)",
+        "[Vv]alue%s*:%s*%$?([%d][%d,%.]*)",
+        "[Vv]alue%s+%$?([%d][%d,%.]*)"
+    }
+    for _, pattern in ipairs(labels) do
+        local raw = cardText:match(pattern)
+        local value = parseNumber(raw)
+        if value then return value end
+    end
+    return nil
 end
 
 local function numericParserSelfTest()
@@ -295,9 +315,9 @@ local function parseCategory(category, html, output)
         local cardText = decodeText(card)
         -- Read the displayed value first: tier cards may carry data-value="0",
         -- which is a placeholder and must never become a numeric price.
-        local amountText = cardText:match("Value%s*%-%s*([%d,%.]+)")
-        local amount = parseNumber(amountText)
-        local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
+        local amount = extractDisplayedValue(cardText)
+        local tierText = cardText:match("[Vv]alue%s*%-%s*([x×]%s*%d+%s+T%d+%s+[%a]+)")
+            or cardText:match("[Vv]alue%s*:%s*([x×]%s*%d+%s+T%d+%s+[%a]+)")
         if not amount and not tierText then
             local dataAmount = parseNumber(card:match('data%-value="([%d%.]+)"'))
             if dataAmount and dataAmount > 0 then amount = dataAmount end
