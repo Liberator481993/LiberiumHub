@@ -38,6 +38,7 @@ local BASE = "https://www.supremevalues.com/mm2/"
 
 local state = {
     status = "loading",
+    selfTestStatus = "pending",
     cacheStatus = "not checked",
     mapped = nil,
     updated = 0,
@@ -1249,6 +1250,113 @@ local function getVerdict(giveValue, receiveValue)
     return difference > 0 and "WIN" or "LOSE", difference
 end
 
+local function runCoreSelfTests()
+    local numericCases = {
+        {"Value - 4,600", 4600},
+        {"Value - 1,000,000", 1000000},
+        {"Value - 0.025", 0.025},
+        {"Value - 14,250.75", 14250.75}
+    }
+    for _, testCase in ipairs(numericCases) do
+        assert(parseDisplayedValue(testCase[1]) == testCase[2],
+            "numeric parser failed: " .. testCase[1])
+    end
+    assert(formatValue(4600) == "4,600", "thousands formatting failed")
+    assert(formatValue(1000000) == "1,000,000", "large value formatting failed")
+    assert(formatValue(0.025) == "0.025", "fraction formatting failed")
+    assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
+
+    local syntheticHtml =
+        '<div class="itemcolumn"><div class="itemhead">Test Gun</div><span>Value - 4,600</span></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">Fractional Knife</div><span>Value - 0.025</span></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">Tier Item</div><span>Value - x1 T3 Godly</span></div>'
+    local parsedEntries = {}
+    local parsedCount, parsedTierCount = parseCategory("godlies", syntheticHtml, parsedEntries)
+    assert(parsedCount == 3 and parsedTierCount == 1, "synthetic Supreme card parsing failed")
+    assert(parsedEntries[1].v == 4600, "comma-separated card value was not preserved")
+    assert(parsedEntries[2].v == 0.025, "fractional card value was not preserved")
+    assert(parsedEntries[3].v == nil and parsedEntries[3].t ~= nil,
+        "tier card was treated as a numeric value")
+
+    local testDatabase = {
+        Item = {
+            TestGun = {
+                ItemName = "Test Gun",
+                ItemType = "Gun",
+                Rarity = "Godly",
+                Image = "rbxassetid://111111",
+                ItemID = "111111"
+            },
+            ChromaTestGun = {
+                ItemName = "Test Gun",
+                ItemType = "Gun",
+                Rarity = "Godly",
+                Image = "rbxassetid://222222",
+                Chroma = true
+            }
+        },
+        Pets = {}
+    }
+    local regularEntry = {
+        c = "godlies", n = "Test Gun", im = "Test Gun (Gun)",
+        v = 10, cl = "Godly"
+    }
+    local chromaEntry = {
+        c = "chromas", n = "Chroma Test Gun", im = "Chroma Test Gun (Gun)",
+        v = 100, cl = "Godly"
+    }
+
+    local function fakeTile(image, isChroma)
+        local icon = {Image = image}
+        local container = {
+            FindFirstChild = function(_, childName)
+                if childName == "Icon" then return icon end
+                return nil
+            end
+        }
+        local chromaTag = {Visible = isChroma}
+        local tags = {
+            FindFirstChild = function(_, childName)
+                if childName == "Chroma" then return chromaTag end
+                return nil
+            end
+        }
+        return {
+            FindFirstChild = function(_, childName)
+                if childName == "Container" then return container end
+                if childName == "Tags" then return tags end
+                return nil
+            end
+        }
+    end
+
+    local previousMapping = state.mapped
+    local mappingOk, mappingError = pcall(function()
+        local fullMapping = buildMapping({regularEntry, chromaEntry}, testDatabase)
+        state.mapped = fullMapping
+        local regularValue = valueOf(fakeTile("rbxassetid://111111", false), "Test Gun")
+        local chromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
+        assert(regularValue == 10, "regular icon mapping failed")
+        assert(chromaValue == 100, "Chroma icon mapping failed")
+
+        local regularOnlyMapping = buildMapping({regularEntry}, testDatabase)
+        state.mapped = regularOnlyMapping
+        local missingChromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
+        assert(missingChromaValue == nil,
+            "unmapped Chroma incorrectly inherited the regular item's value")
+    end)
+    state.mapped = previousMapping
+    if not mappingOk then error(mappingError) end
+
+    local duplicateTotal = 10 * 2 + 100 * 3
+    assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
+    local verdict, difference = getVerdict(200, duplicateTotal)
+    assert(verdict == "WIN" and difference == 120, "trade verdict calculation failed")
+    local fairVerdict = getVerdict(100, 101)
+    assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
+    return true
+end
+
 local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
     if not trade then return end
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
@@ -1774,6 +1882,7 @@ local function buildDiagnostic()
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
         "Status: " .. tostring(state.status),
+        "Core self-tests: " .. tostring(state.selfTestStatus),
         "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
         "Values source: " .. BASE,
         "Pages fetched: " .. tostring(state.pageCount) .. "/" .. tostring(#CATEGORIES),
@@ -1859,6 +1968,11 @@ end)
 
 task.spawn(function()
     task.wait(0.25)
+    local testsOk, testsError = pcall(runCoreSelfTests)
+    state.selfTestStatus = testsOk and "passed" or ("FAILED: " .. tostring(testsError))
+    if not testsOk then
+        warn("[Supreme Trade Checker] Core self-tests failed: " .. tostring(testsError))
+    end
     loadValues(true)
     local nextInventoryScan = 0
     while textGui.Parent and not stopped do
