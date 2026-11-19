@@ -272,13 +272,14 @@ end
 local function extractDisplayedValue(cardText)
     -- Accept the punctuation variants used by Supreme's rendered cards.
     -- Do not parse "Change in Value" as the item's current value.
+    local searchableText = cardText:gsub("[Cc]hange%s+in%s+[Vv]alue", "ChangeInAmount")
     local labels = {
         "[Vv]alue%s*%-%s*%$?([%d][%d,%.]*)",
         "[Vv]alue%s*:%s*%$?([%d][%d,%.]*)",
         "[Vv]alue%s+%$?([%d][%d,%.]*)"
     }
     for _, pattern in ipairs(labels) do
-        local raw = cardText:match(pattern)
+        local raw = searchableText:match(pattern)
         local value = parseNumber(raw)
         if value then return value end
     end
