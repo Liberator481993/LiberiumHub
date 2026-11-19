@@ -1418,7 +1418,7 @@ local function loadValues(force)
                             for _, entry in ipairs(pageEntries) do table.insert(entries, entry) end
                             entryCount = entryCount + count
                             tierEntryCount = tierEntryCount + (tierCount or 0)
-                            local minimum = MINIMUM[category] or 1
+                            local minimum = MINIMUM[category] or (LOW_VALUE_CATEGORIES[category] and 0 or 1)
                             if count < minimum then
                                 table.insert(failed, category .. ": only " .. tostring(count)
                                     .. " value cards parsed (expected at least " .. tostring(minimum) .. ")")
