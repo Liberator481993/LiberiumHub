@@ -448,15 +448,16 @@ mod tests {
         let mut entries = vec![
             entry("Cheap", "commons", "0.5"),
             entry("Valuable Common", "commons", "1"),
-            entry("Valuable Rare", "rares", "1.25"),
             SupremeEntry { c: "legendaries".into(), n: "Tier only".into(), im: String::new(),
                 y: String::new(), e: String::new(), o: String::new(), cl: String::new(),
                 v: None, t: "x2 T1 Common".into(), dm: String::new() },
         ];
         filter_low_value_entries("commons", &mut entries);
-        assert_eq!(entries.len(), 2);
-        assert!(entries.iter().any(|item| item.n == "Valuable Common"));
-        assert!(entries.iter().any(|item| item.n == "Valuable Rare"));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].n, "Valuable Common");
+        let mut rares = vec![entry("Valuable Rare", "rares", "1.25")];
+        filter_low_value_entries("rares", &mut rares);
+        assert_eq!(rares.len(), 1);
         let mut legendaries = vec![entry("Below threshold", "legendaries", "0.99"),
             entry("At threshold", "legendaries", "1")];
         filter_low_value_entries("legendaries", &mut legendaries);
