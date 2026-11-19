@@ -114,7 +114,16 @@ local function formatValue(value)
         :gsub("0+$", "")
         :gsub("%.$", "")
     if formatted == "-0" or formatted == "" then return "0" end
-    return formatted
+
+    local integer, fraction = formatted:match("^(%-?%d+)(%.%d+)$")
+    if not integer then integer = formatted end
+    local sign = ""
+    if integer:sub(1, 1) == "-" then
+        sign = "-"
+        integer = integer:sub(2)
+    end
+    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    return sign .. integer .. (fraction or "")
 end
 
 local function assetId(value)
@@ -183,6 +192,23 @@ end
 
 -- Supreme Values item cards expose numeric or tier-based values as visible text.
 -- Parse the displayed value first; data-value is only a numeric fallback.
+local function parseNumberText(raw)
+    if raw == nil then return nil end
+    local normalized = tostring(raw):gsub("[,%s]", "")
+    if normalized == "" or not normalized:match("^%d+%.?%d*$") then
+        return nil
+    end
+    return tonumber(normalized)
+end
+
+-- Supreme Values displays values with grouping commas (for example 4,600).
+-- Remove those separators before tonumber so a value can never be truncated
+-- to the first digit group.
+local function parseDisplayedValue(text)
+    local raw = tostring(text or ""):match("Value%s*%-%s*([%d][%d,%.%s]*)")
+    return parseNumberText(raw)
+end
+
 local function parseCategory(category, html, output)
     local count, tierCount, cursor, scanned = 0, 0, 1, 0
     while true do
@@ -195,22 +221,35 @@ local function parseCategory(category, html, output)
         if scanned % 60 == 0 then task.wait() end
 
         local cardText = decodeText(card)
-        -- Read the displayed value first: tier cards may carry data-value="0",
-        -- which is a placeholder and must never become a numeric price.
-        local amount = tonumber(cardText:match("Value%s*%-%s*([%d%.]+)"))
-        local tierText = cardText:match("Value%s*%-%s*([x×]%d+%s+T%d+%s+[%a]+)")
+        -- Tier values are labels, not numeric prices. Do not interpret their
+        -- tier multiplier as a normal value.
+        local tierText = cardText:match("Value%s*%-%s*([x×]%s*[%d,%.]+%s+T%d+%s+[%a]+)")
+        local amount = not tierText and parseDisplayedValue(cardText) or nil
         if not amount and not tierText then
-            local dataAmount = tonumber(card:match('data%-value="([%d%.]+)"') or "")
+            local dataValue = card:match('data%-value="([^"]+)"')
+                or card:match("data%-value='([^']+)'")
+            local dataAmount = parseNumberText(dataValue)
             if dataAmount and dataAmount > 0 then amount = dataAmount end
         end
-        local nameMarkup = card:match('<div class="itemhead">(.-)</div>')
-        local origin = decodeText(card:match('class="itemorigin">([^<]*)<') or "")
+
+        local nameMarkup = card:match('<div[^>]-class="[^"]*itemhead[^"]*"[^>]*>(.-)</div>')
+            or card:match("<div[^>]-class='[^']*itemhead[^']*'[^>]*>(.-)</div>")
+        local originMarkup = card:match('<[^>]-class="[^"]*itemorigin[^"]*"[^>]*>(.-)</[^>]+>')
+            or card:match("<[^>]-class='[^']*itemorigin[^']*'[^>]*>(.-)</[^>]+>")
+        local origin = decodeText(originMarkup or "")
         local imageAlt = card:match('<img[^>]-alt="([^"]*)"')
             or card:match("<img[^>]-alt='([^']*)'")
         imageAlt = decodeText(imageAlt or "")
         local pageEvent = card:match('data%-event="([^"]+)"')
+            or card:match("data%-event='([^']+)'")
+        local classMarkup = card:match("Class%s*%-%s*<b>(.-)</b>")
+            or card:match('data%-class="([^"]+)"')
+            or card:match("data%-class='([^']+)'")
+        local year = card:match('data%-year="(%d%d%d%d)')
+            or card:match("data%-year='(%d%d%d%d)")
+
         if (amount or tierText) and (not amount or amount < 500000)
-            and nameMarkup and not origin:find("Deletion", 1, true) then
+            and nameMarkup and not string.find(string.lower(origin), "deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
                 table.insert(output, {
@@ -219,11 +258,12 @@ local function parseCategory(category, html, output)
                     im = imageAlt,
                     v = amount,
                     t = tierText,
-                    y = card:match('data%-year="(%d%d%d%d)'),
+                    y = year,
                     e = pageEvent,
                     o = origin ~= "" and origin or nil,
-                    cl = card:match("Class %- <b>([^<]+)</b>"),
+                    cl = classMarkup and decodeText(classMarkup) or nil,
                     dm = card:match('data%-demand="(%d+)"')
+                        or card:match("data%-demand='(%d+)'")
                 })
                 count = count + 1
                 if tierText then tierCount = tierCount + 1 end
@@ -232,7 +272,6 @@ local function parseCategory(category, html, output)
     end
     return count, tierCount
 end
-
 -- Count every visible item card on a page, including reference-only cards
 -- that intentionally have no tradable value (Evos and Untradables).
 local function countItemCards(html)
@@ -540,7 +579,7 @@ local function buildMapping(entries, database)
         end
     end
 
-    local icon, iconCandidates, chromaOf, byName = {}, {}, {}, {}
+    local icon, iconCandidates, chromaOf, byName, isChromaKey = {}, {}, {}, {}, {}
     local function addIcon(item, idKey)
         local image = assetId(item.Image)
         if image then
@@ -581,11 +620,15 @@ local function buildMapping(entries, database)
     }) do
         local regular = {}
         for id, item in pairs(group.items) do
-            if type(item) == "table" and not item.Chroma then
-                local regularKey = normalize(item[group.field])
-                    .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
-                if not regular[regularKey] then
-                    regular[regularKey] = group.kind .. ":" .. tostring(id)
+            if type(item) == "table" then
+                local idKey = group.kind .. ":" .. tostring(id)
+                isChromaKey[idKey] = item.Chroma == true
+                if not item.Chroma then
+                    local regularKey = normalize(item[group.field])
+                        .. (group.kind == "i" and "|" .. tostring(item.ItemType) or "")
+                    if not regular[regularKey] then
+                        regular[regularKey] = idKey
+                    end
                 end
             end
         end
@@ -616,6 +659,7 @@ local function buildMapping(entries, database)
         dbByName = dbByName,
         dbByImage = dbByImage,
         byName = byName,
+        isChromaKey = isChromaKey,
         n = mappedCount,
         iconCount = iconCount,
         dbItems = (function() local n = 0; for _ in pairs(weapons) do n = n + 1 end; return n end)(),
@@ -638,7 +682,12 @@ local function valueOf(tile, name)
     local imageId = iconObject and assetId(iconObject.Image)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
-        if chroma then iconKey = mapped.chromaOf[iconKey] or iconKey end
+        -- Never fall back to the regular weapon's price when a Chroma tile
+        -- has no mapped Chroma counterpart.
+        if chroma and not mapped.isChromaKey[iconKey] then
+            iconKey = mapped.chromaOf[iconKey]
+            if not iconKey then return nil end
+        end
         local entry = mapped.byKey[iconKey]
         -- The icon identifies the exact MM2 record. Do not fall through to a
         -- different same-name item when Supreme has no value for this record.
@@ -929,6 +978,26 @@ local function makeLabel(parent, name, group)
     return label
 end
 
+local function stripDefaultLabelDecorations(label)
+    for _, child in ipairs(label:GetChildren()) do
+        if child.Name == "SupremeGradient" or child.Name == "SupremeStroke"
+            or child:IsA("UICorner") then
+            child:Destroy()
+        end
+    end
+end
+
+local function ensureTextGradient(label)
+    stripDefaultLabelDecorations(label)
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if not gradient then
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "SupremeTextGradient"
+        gradient.Parent = label
+    end
+    return gradient
+end
+
 local VALUE_TEXT_COLORS = {
     uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
     chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
@@ -968,31 +1037,25 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.Position = UDim2.new(1, -3, 0, 3)
     label.Size = UDim2.new(1, -6, 0, 18)
 
-    -- Keep the category accent, with the original white-to-accent value gradient.
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UICorner") or child:IsA("UIStroke")
-            or child:IsA("UIGradient") then
-            child:Destroy()
-        end
-    end
-
     if value ~= nil then
         local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
         if normalize(itemName) == "emberbow" then
             accent = Color3.fromRGB(255, 75, 75)
         end
-        local gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeTextGradient"
+        local gradient = ensureTextGradient(label)
         gradient.Rotation = 90
         gradient.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
             ColorSequenceKeypoint.new(0.45, accent:Lerp(Color3.new(1, 1, 1), 0.28)),
             ColorSequenceKeypoint.new(1, accent)
         })
-        gradient.Parent = label
         label.Text = formatValue(value)
+            .. (quantity > 1 and (" ×" .. tostring(quantity)) or "")
         label.TextColor3 = Color3.new(1, 1, 1)
     else
+        stripDefaultLabelDecorations(label)
+        local oldGradient = label:FindFirstChild("SupremeTextGradient")
+        if oldGradient then oldGradient:Destroy() end
         label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
         label.TextColor3 = Color3.fromRGB(255, 190, 75)
     end
@@ -1153,12 +1216,7 @@ end
 local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
     local label = makeLabel(parent, name, group)
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UIGradient") or child:IsA("UIStroke")
-            or child:IsA("UICorner") then
-            child:Destroy()
-        end
-    end
+    local gradient = ensureTextGradient(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
     label.Size = UDim2.fromOffset(210, 22)
@@ -1169,13 +1227,11 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.TextStrokeTransparency = 0.14
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    local gradient = Instance.new("UIGradient")
-    gradient.Name = "SupremeTextGradient"
+    gradient.Rotation = 90
     gradient.Color = ColorSequence.new(
         Color3.fromRGB(255, 255, 255),
         Color3.fromRGB(105, 190, 255)
     )
-    gradient.Parent = label
     label.Text = title .. " " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " +?" or "")
@@ -1196,12 +1252,9 @@ end
 local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
     if not trade then return end
     local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
-    for _, child in ipairs(label:GetChildren()) do
-        if child:IsA("UIGradient") or child:IsA("UIStroke")
-            or child:IsA("UICorner") then
-            child:Destroy()
-        end
-    end
+    stripDefaultLabelDecorations(label)
+    local oldGradient = label:FindFirstChild("SupremeTextGradient")
+    if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -35)
     label.Size = UDim2.fromOffset(190, 25)
@@ -1389,8 +1442,9 @@ local function scanModuleInventory()
                 -- Do not depend on ItemName text: PulseHub's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
-                if type(entry.Amount) == "number" and quantity <= 1 then
-                    quantity = math.max(1, math.floor(entry.Amount))
+                local storedAmount = tonumber(entry.Amount)
+                if storedAmount and quantity <= 1 then
+                    quantity = math.max(1, math.floor(storedAmount))
                 end
                 local resolvedValue, _, tierText, category = valueOf(tile, name)
                 if resolvedValue ~= nil then
@@ -1483,7 +1537,7 @@ local function scanInventory()
 
     -- Fallback for UI-only builds where InventoryModule does not expose frames.
     -- Keep the explicit MainGUI/MainMobile paths as a secondary option.
-    if visibleFrames == 0 then
+    if weaponCount == 0 then
         for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
             local screen = playerGui:FindFirstChild(guiName)
             if screen and screen:IsA("ScreenGui") and screen.Enabled then
@@ -1806,9 +1860,13 @@ end)
 task.spawn(function()
     task.wait(0.25)
     loadValues(true)
+    local nextInventoryScan = 0
     while textGui.Parent and not stopped do
         pcall(scanTrade)
-        pcall(scanInventory)
+        if os.clock() >= nextInventoryScan then
+            pcall(scanInventory)
+            nextInventoryScan = os.clock() + 1.25
+        end
         updateUi()
         if state.status == "fail" and not state.busy then
             task.wait(20)
