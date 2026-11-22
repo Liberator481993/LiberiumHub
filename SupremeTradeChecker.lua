@@ -811,6 +811,9 @@ local function valueOf(tile, name)
     return nil
 end
 
+-- Forward declaration: recordCoverage runs before the implementation below is assigned.
+local isTrackedValue
+
 local function recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
     local isTrade = group == "trade"
     local seen = isTrade and state.coverageSeenTrade or state.coverageSeenInventory
@@ -1135,7 +1138,7 @@ local VALUE_TEXT_COLORS = {
 
 local MIN_TRACKED_VALUE = 0.1
 
-local function isTrackedValue(value)
+isTrackedValue = function(value)
     local numeric = tonumber(value)
     return numeric ~= nil and numeric >= MIN_TRACKED_VALUE
 end
