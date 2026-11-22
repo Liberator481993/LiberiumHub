@@ -953,9 +953,9 @@ local function makeLabel(parent, name, group)
     if not label then
         label = Instance.new("TextLabel")
         label.Name = name
-        label.BackgroundColor3 = Color3.fromRGB(25, 30, 48)
-        label.BackgroundTransparency = 0.12
-        label.TextColor3 = Color3.fromRGB(248, 250, 255)
+        label.BackgroundColor3 = Color3.fromRGB(191, 235, 255)
+        label.BackgroundTransparency = 0.04
+        label.TextColor3 = Color3.fromRGB(19, 31, 55)
         label.TextStrokeTransparency = 1
         label.TextXAlignment = Enum.TextXAlignment.Center
         label.TextYAlignment = Enum.TextYAlignment.Center
@@ -970,13 +970,17 @@ local function makeLabel(parent, name, group)
         local stroke = Instance.new("UIStroke")
         stroke.Name = "SupremeStroke"
         stroke.Thickness = 1
-        stroke.Transparency = 0.2
-        stroke.Color = Color3.fromRGB(112, 145, 255)
+        stroke.Transparency = 0.12
+        stroke.Color = Color3.fromRGB(139, 226, 255)
         stroke.Parent = label
         local gradient = Instance.new("UIGradient")
         gradient.Name = "SupremeGradient"
-        gradient.Rotation = 90
-        gradient.Color = ColorSequence.new(Color3.fromRGB(48, 56, 88), Color3.fromRGB(20, 24, 40))
+        gradient.Rotation = 0
+        gradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(190, 244, 255)),
+            ColorSequenceKeypoint.new(0.52, Color3.fromRGB(205, 220, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(224, 196, 255))
+        })
         gradient.Parent = label
     end
     label:SetAttribute("SupremeOwner", group)
@@ -1033,37 +1037,38 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     end
 
     local label = makeLabel(container, "__SupremeItemValue", group)
-    label.BackgroundTransparency = 1
+    label.BackgroundTransparency = 0.04
+    label.BackgroundColor3 = Color3.fromRGB(191, 235, 255)
     label.BorderSizePixel = 0
-    label.Font = Enum.Font.GothamBlack
+    label.Font = Enum.Font.GothamBold
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextScaled = true
     label.TextYAlignment = Enum.TextYAlignment.Center
-    label.TextXAlignment = Enum.TextXAlignment.Right
-    label.TextSize = 13
-    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
-    label.TextStrokeTransparency = 0.12
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextSize = 11
+    label.TextStrokeTransparency = 1
     label.ZIndex = 100
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
-    label.Size = UDim2.new(1, -6, 0, 18)
+    label.Size = UDim2.new(0, 58, 0, 19)
 
     if value ~= nil then
-        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(245, 248, 255)
+        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(95, 185, 235)
         if normalize(itemName) == "emberbow" then
-            accent = Color3.fromRGB(255, 75, 75)
+            accent = Color3.fromRGB(255, 130, 145)
         end
-        local gradient = ensureTextGradient(label)
-        gradient.Rotation = 90
-        gradient.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(0.45, accent:Lerp(Color3.new(1, 1, 1), 0.28)),
-            ColorSequenceKeypoint.new(1, accent)
-        })
+        local backgroundGradient = label:FindFirstChild("SupremeGradient")
+        if backgroundGradient then
+            local pale = accent:Lerp(Color3.fromRGB(255, 255, 255), 0.64)
+            backgroundGradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, pale:Lerp(Color3.fromRGB(191, 244, 255), 0.45)),
+                ColorSequenceKeypoint.new(1, pale:Lerp(Color3.fromRGB(226, 205, 255), 0.38))
+            })
+        end
         label.Text = formatValue(value)
             .. (quantity > 1 and (" ×" .. tostring(quantity)) or "")
-        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextColor3 = Color3.fromRGB(20, 32, 55)
     else
         stripDefaultLabelDecorations(label)
         local oldGradient = label:FindFirstChild("SupremeTextGradient")
@@ -1883,8 +1888,8 @@ panel.Name = "SupremePanel"
 panel.Size = UDim2.fromOffset(290, 225)
 panel.Position = UDim2.new(1, -12, 0, 88)
 panel.AnchorPoint = Vector2.new(1, 0)
-panel.BackgroundColor3 = Color3.fromRGB(12, 16, 29)
-panel.BackgroundTransparency = 0.06
+panel.BackgroundColor3 = Color3.fromRGB(39, 53, 82)
+panel.BackgroundTransparency = 0.045
 panel.BorderSizePixel = 0
 panel.ZIndex = 200
 panel.Parent = textGui
@@ -1895,22 +1900,22 @@ panelCorner.Parent = panel
 local panelGradient = Instance.new("UIGradient")
 panelGradient.Rotation = 135
 panelGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(23, 31, 53)),
-    ColorSequenceKeypoint.new(0.55, Color3.fromRGB(12, 16, 29)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(27, 17, 47))
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(69, 94, 139)),
+    ColorSequenceKeypoint.new(0.52, Color3.fromRGB(40, 58, 91)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(91, 62, 130))
 })
 panelGradient.Parent = panel
 local panelStroke = Instance.new("UIStroke")
-panelStroke.Thickness = 1.25
-panelStroke.Transparency = 0.18
-panelStroke.Color = Color3.fromRGB(91, 157, 255)
+panelStroke.Thickness = 1.35
+panelStroke.Transparency = 0.06
+panelStroke.Color = Color3.fromRGB(129, 221, 255)
 panelStroke.Parent = panel
 
 local headerLine = Instance.new("Frame")
 headerLine.Size = UDim2.new(1, -22, 0, 1)
 headerLine.Position = UDim2.fromOffset(11, 37)
-headerLine.BackgroundColor3 = Color3.fromRGB(83, 111, 160)
-headerLine.BackgroundTransparency = 0.55
+headerLine.BackgroundColor3 = Color3.fromRGB(172, 218, 255)
+headerLine.BackgroundTransparency = 0.24
 headerLine.BorderSizePixel = 0
 headerLine.ZIndex = 201
 headerLine.Parent = panel
@@ -1921,7 +1926,7 @@ title.Position = UDim2.fromOffset(10, 0)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
-title.TextColor3 = Color3.fromRGB(172, 213, 255)
+title.TextColor3 = Color3.fromRGB(242, 249, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Text = "✦  SUPREME CHECKER"
 title.Active = true
@@ -1931,7 +1936,7 @@ title.Parent = panel
 local toggle = Instance.new("TextButton")
 toggle.Size = UDim2.fromOffset(34, 30)
 toggle.Position = UDim2.new(1, -38, 0, 2)
-toggle.BackgroundColor3 = Color3.fromRGB(41, 74, 119)
+toggle.BackgroundColor3 = Color3.fromRGB(89, 129, 190)
 toggle.BorderSizePixel = 0
 toggle.Font = Enum.Font.GothamBold
 toggle.TextSize = 16
@@ -1947,8 +1952,8 @@ local output = Instance.new("TextBox")
 output.Name = "DiagnosticText"
 output.Size = UDim2.new(1, -20, 1, -164)
 output.Position = UDim2.fromOffset(10, 78)
-output.BackgroundColor3 = Color3.fromRGB(7, 10, 19)
-output.BackgroundTransparency = 0.12
+output.BackgroundColor3 = Color3.fromRGB(25, 39, 63)
+output.BackgroundTransparency = 0.08
 output.BorderSizePixel = 0
 output.ClearTextOnFocus = false
 output.MultiLine = true
@@ -1958,7 +1963,7 @@ output.TextXAlignment = Enum.TextXAlignment.Left
 output.TextYAlignment = Enum.TextYAlignment.Top
 output.Font = Enum.Font.Code
 output.TextSize = 10
-output.TextColor3 = Color3.fromRGB(225, 231, 242)
+output.TextColor3 = Color3.fromRGB(241, 247, 255)
 output.Text = "Connecting to Supreme Values..."
 output.ZIndex = 201
 output.Parent = panel
@@ -1966,8 +1971,8 @@ local outputCorner = Instance.new("UICorner")
 outputCorner.CornerRadius = UDim.new(0, 9)
 outputCorner.Parent = output
 local outputStroke = Instance.new("UIStroke")
-outputStroke.Color = Color3.fromRGB(63, 91, 139)
-outputStroke.Transparency = 0.55
+outputStroke.Color = Color3.fromRGB(133, 195, 239)
+outputStroke.Transparency = 0.3
 outputStroke.Parent = output
 
 local hopButton = Instance.new("TextButton")
@@ -1989,13 +1994,13 @@ hopCorner.Parent = hopButton
 local hopGradient = Instance.new("UIGradient")
 hopGradient.Rotation = 0
 hopGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(62, 132, 245)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(133, 82, 235))
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(70, 190, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(165, 111, 255))
 })
 hopGradient.Parent = hopButton
 local hopStroke = Instance.new("UIStroke")
-hopStroke.Color = Color3.fromRGB(159, 194, 255)
-hopStroke.Transparency = 0.68
+hopStroke.Color = Color3.fromRGB(211, 239, 255)
+hopStroke.Transparency = 0.32
 hopStroke.Thickness = 1
 hopStroke.Parent = hopButton
 
@@ -2003,7 +2008,7 @@ local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
 copyButton.Size = UDim2.new(1, -20, 0, 32)
 copyButton.Position = UDim2.new(0, 10, 1, -39)
-copyButton.BackgroundColor3 = Color3.fromRGB(24, 42, 63)
+copyButton.BackgroundColor3 = Color3.fromRGB(55, 79, 119)
 copyButton.BorderSizePixel = 0
 copyButton.AutoButtonColor = false
 copyButton.Font = Enum.Font.GothamBold
@@ -2016,8 +2021,8 @@ local copyCorner = Instance.new("UICorner")
 copyCorner.CornerRadius = UDim.new(0, 9)
 copyCorner.Parent = copyButton
 local copyStroke = Instance.new("UIStroke")
-copyStroke.Color = Color3.fromRGB(88, 133, 175)
-copyStroke.Transparency = 0.65
+copyStroke.Color = Color3.fromRGB(157, 206, 246)
+copyStroke.Transparency = 0.38
 copyStroke.Parent = copyButton
 
 local collapsed = true
