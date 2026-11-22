@@ -1233,9 +1233,9 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     local gradient = ensureTextGradient(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(210, 22)
+    label.Size = UDim2.fromOffset(250, 24)
     label.BackgroundTransparency = 1
-    label.TextSize = 14
+    label.TextSize = 13
     label.Font = Enum.Font.GothamBlack
     label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
     label.TextStrokeTransparency = 0.14
@@ -1246,9 +1246,9 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
         Color3.fromRGB(255, 255, 255),
         Color3.fromRGB(105, 190, 255)
     )
-    label.Text = title .. " " .. formatValue(total)
-        .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
-        .. (known < count and " +?" or "")
+    label.Text = title .. ": " .. formatValue(total)
+        .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
+        .. (known < count and " + ?" or "")
     label.Visible = count > 0
 end
 
@@ -1377,12 +1377,12 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local oldGradient = label:FindFirstChild("SupremeTextGradient")
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -35)
-    label.Size = UDim2.fromOffset(190, 25)
+    label.Position = UDim2.new(0.5, 0, 1, -34)
+    label.Size = UDim2.fromOffset(230, 26)
     label.BackgroundTransparency = 1
     label.ZIndex = 150
     label.Font = Enum.Font.GothamBlack
-    label.TextSize = 16
+    label.TextSize = 15
     label.TextScaled = true
     label.TextWrapped = false
     label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
@@ -1392,24 +1392,87 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
-        caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
+        caption, color = "ОЖИДАНИЕ ПРЕДМЕТОВ", Color3.fromRGB(225, 232, 245)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
+        caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+        caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
-        local sign = difference > 0 and "+" or ""
-        caption = verdict .. "  " .. sign .. formatValue(difference)
-        color = verdict == "WIN" and Color3.fromRGB(45, 255, 135)
-            or verdict == "LOSE" and Color3.fromRGB(255, 65, 85)
-            or Color3.fromRGB(75, 195, 255)
+        if verdict == "WIN" then
+            caption = "ПЛЮС  +" .. formatValue(difference)
+            color = Color3.fromRGB(45, 255, 135)
+        elseif verdict == "LOSE" then
+            caption = "МИНУС  " .. formatValue(difference)
+            color = Color3.fromRGB(255, 65, 85)
+        else
+            caption = "РОВНЫЙ ОБМЕН  " .. formatValue(difference)
+            color = Color3.fromRGB(75, 195, 255)
+        end
     end
 
-    local gradient = label:FindFirstChild("SupremeTextGradient")
-    if gradient then gradient:Destroy() end
     label.TextColor3 = color
     label.Text = caption
+    label.Visible = true
+end
+
+local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
+    if not trade then return end
+    local label = makeLabel(trade, "__SupremeTradeAdvice", "trade")
+    stripDefaultLabelDecorations(label)
+    local gradient = label:FindFirstChild("SupremeTextGradient")
+    if gradient then gradient:Destroy() end
+    label.AnchorPoint = Vector2.new(0.5, 1)
+    label.Position = UDim2.new(0.5, 0, 1, -8)
+    label.Size = UDim2.fromOffset(290, 20)
+    label.BackgroundTransparency = 1
+    label.ZIndex = 150
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 11
+    label.TextScaled = true
+    label.TextWrapped = false
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
+    label.TextStrokeTransparency = 0.2
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextYAlignment = Enum.TextYAlignment.Center
+
+    local advice, color
+    if yourCount == 0 or theirCount == 0 then
+        advice, color = "Добавь предметы с обеих сторон для сравнения", Color3.fromRGB(205, 215, 230)
+    elseif yourTierCount > 0 or theirTierCount > 0 then
+        advice, color = "Tier-предметы: числовой совет отключён", Color3.fromRGB(255, 190, 65)
+    elseif yourKnown < yourCount or theirKnown < theirCount then
+        advice, color = "Сначала проверь предметы без точной оценки", Color3.fromRGB(255, 190, 65)
+    else
+        local verdict, difference = getVerdict(yourTotal, theirTotal)
+        if verdict == "LOSE" then
+            local bestItem, bestGap = nil, math.abs(difference)
+            for _, item in ipairs(yourItems or {}) do
+                local itemValue = tonumber(item.value)
+                if itemValue and itemValue > 0 then
+                    local nextGap = math.abs((yourTotal - itemValue) - theirTotal)
+                    if nextGap + 0.000001 < bestGap then
+                        bestItem, bestGap = item, nextGap
+                    end
+                end
+            end
+            if bestItem then
+                advice = "УБРАТЬ/ЗАМЕНИТЬ: " .. tostring(bestItem.name)
+                    .. (bestItem.quantity > 1 and " (1 шт.)" or "")
+                color = Color3.fromRGB(255, 190, 105)
+            else
+                advice = "ПОПРОСИ ДОПЛАТУ: +" .. formatValue(math.abs(difference))
+                color = Color3.fromRGB(255, 190, 105)
+            end
+        elseif verdict == "WIN" then
+            advice, color = "Ты в плюсе — не добавляй предметы без необходимости", Color3.fromRGB(90, 235, 165)
+        else
+            advice, color = "Баланс ровный — менять предметы не требуется", Color3.fromRGB(105, 195, 255)
+        end
+    end
+    label.TextColor3 = color
+    label.Text = advice
     label.Visible = true
 end
 
@@ -1432,27 +1495,29 @@ local function scanTrade()
     setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
     setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
         yourCount, theirCount, yourTierCount, theirTierCount)
+    setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown, theirKnown,
+        yourCount, theirCount, yourTierCount, theirTierCount)
 
     local lines = {
-        "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
-            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " recognized, "
+        "ОТДАЁШЬ: " .. formatValue(yourTotal)
+            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " оценено, "
             .. tostring(yourTierCount) .. " tier)",
-        "THEIR OFFER NUMERIC: " .. formatValue(theirTotal)
-            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " recognized, "
+        "ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
+            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " оценено, "
             .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
+            table.insert(lines, "РЕЗУЛЬТАТ: TIER-ПРЕДМЕТЫ — числовое сравнение отключено")
         elseif yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+            table.insert(lines, "РЕЗУЛЬТАТ: НЕПОЛНЫЕ ОЦЕНКИ — проверь неизвестные предметы")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
-            table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
+            table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
                 .. (difference > 0 and "+" or "") .. formatValue(difference))
         end
     else
-        table.insert(lines, "RESULT: Waiting for both sides of the trade.")
+        table.insert(lines, "РЕЗУЛЬТАТ: ожидаются предметы с обеих сторон.")
     end
     state.latestTrade = table.concat(lines, "\n")
     return {
