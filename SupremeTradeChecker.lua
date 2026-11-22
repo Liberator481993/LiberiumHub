@@ -1249,8 +1249,8 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
         Color3.fromRGB(105, 190, 255)
     )
     label.Text = title .. " " .. formatValue(total)
-        .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
-        .. (known < count and " +?" or "")
+        .. ((tierCount or 0) > 0 and " + " .. tostring(tierCount) .. " Tier" or "")
+        .. (known < count and " + ?" or "")
     label.Visible = count > 0
 end
 
@@ -1426,11 +1426,11 @@ end
 
 local function removalPlanText(plan)
     if not plan or plan.status == "waiting" then
-        return "RECOMMENDATION: waiting for both sides of the trade"
+        return "РЕКОМЕНДАЦИЯ: ожидаю предметы с обеих сторон трейда"
     end
     if plan.status == "already" then
-        return "RECOMMENDATION: already +" .. formatValue(plan.finalDifference)
-            .. " Value — no item needs to be removed"
+        return "РЕКОМЕНДАЦИЯ: уже выгодно на +" .. formatValue(plan.finalDifference)
+            .. " Value — ничего убирать не нужно"
     elseif plan.status == "ready" then
         local names = {}
         for _, item in ipairs(plan.items) do
@@ -1438,16 +1438,16 @@ local function removalPlanText(plan)
                 .. ((tonumber(item.quantity) or 1) > 1
                     and (" x" .. tostring(item.quantity)) or ""))
         end
-        return "RECOMMENDATION: REMOVE " .. table.concat(names, " + ")
-            .. " | after removal: +" .. formatValue(plan.finalDifference)
-            .. " Value (removed " .. formatValue(plan.removedValue) .. ")"
+        return "РЕКОМЕНДАЦИЯ: УБЕРИ " .. table.concat(names, " + ")
+            .. " | после этого твой плюс будет +" .. formatValue(plan.finalDifference)
+            .. " Value (убираем " .. formatValue(plan.removedValue) .. ")"
     elseif plan.status == "blocked" then
-        return "RECOMMENDATION: paused — " .. tostring(plan.message)
+        return "РЕКОМЕНДАЦИЯ ПРИОСТАНОВЛЕНА: " .. tostring(plan.message)
     elseif plan.status == "too_many" then
-        return "RECOMMENDATION: paused — " .. tostring(plan.message)
+        return "РЕКОМЕНДАЦИЯ ПРИОСТАНОВЛЕНА: " .. tostring(plan.message)
     end
-    return "RECOMMENDATION: no safe removal combination — "
-        .. tostring(plan.message or "ask the other player to add value")
+    return "РЕКОМЕНДАЦИЯ: безопасную комбинацию не нашёл — "
+        .. tostring(plan.message or "попроси второго игрока добавить Value")
 end
 
 local function setRemovalAdvice(trade, plan)
@@ -1456,14 +1456,14 @@ local function setRemovalAdvice(trade, plan)
     stripDefaultLabelDecorations(label)
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -62)
-    label.Size = UDim2.new(1, -18, 0, 23)
+    label.Size = UDim2.new(1, -18, 0, 34)
     label.BackgroundTransparency = 0.12
     label.BorderSizePixel = 0
     label.Font = Enum.Font.GothamBlack
-    label.TextSize = 10
+    label.TextSize = 11
     label.TextScaled = true
-    label.TextWrapped = false
-    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.TextWrapped = true
+    label.TextTruncate = Enum.TextTruncate.None
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.ZIndex = 151
@@ -1479,16 +1479,16 @@ local function setRemovalAdvice(trade, plan)
         for _, item in ipairs(plan.items) do
             table.insert(shortNames, tostring(item.name))
         end
-        label.Text = "REMOVE: " .. table.concat(shortNames, " + ")
-            .. "  →  +" .. formatValue(plan.finalDifference)
+        label.Text = "УБЕРИ: " .. table.concat(shortNames, " + ")
+            .. "  →  твой плюс +" .. formatValue(plan.finalDifference)
     elseif plan.status == "already" then
         label.BackgroundColor3 = Color3.fromRGB(20, 65, 55)
         label.TextColor3 = Color3.fromRGB(135, 255, 190)
-        label.Text = "SAFE: ALREADY +" .. formatValue(plan.finalDifference) .. " VALUE"
+        label.Text = "УЖЕ ВЫГОДНО: +" .. formatValue(plan.finalDifference) .. " VALUE"
     else
         label.BackgroundColor3 = Color3.fromRGB(105, 67, 20)
         label.TextColor3 = Color3.fromRGB(255, 215, 130)
-        label.Text = "ADVICE PAUSED: " .. tostring(plan.message or "check item values")
+        label.Text = "СОВЕТ ПРИОСТАНОВЛЕН: " .. tostring(plan.message or "проверь цены предметов")
     end
     label.Visible = true
 end
@@ -1627,7 +1627,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -35)
-    label.Size = UDim2.fromOffset(190, 25)
+    label.Size = UDim2.new(1, -24, 0, 28)
     label.BackgroundTransparency = 1
     label.ZIndex = 150
     label.Font = Enum.Font.GothamBlack
@@ -1641,17 +1641,19 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
-        caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
+        caption, color = "ЖДЁМ ОБЕ СТОРОНЫ", Color3.fromRGB(225, 232, 245)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
+        caption, color = "НУЖНЫ ТОЧНЫЕ ЦЕНЫ", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+        caption, color = "ЕСТЬ НЕРАСПОЗНАННЫЕ ПРЕДМЕТЫ", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
-        caption = verdict .. "  " .. sign .. formatValue(difference)
+        caption = (verdict == "WIN" and "ТЫ В ПЛЮСЕ  +"
+                or verdict == "LOSE" and "ТЫ В МИНУСЕ  "
+                or "ПОЧТИ В РОВНУЮ  ") .. formatValue(difference)
         color = verdict == "WIN" and Color3.fromRGB(45, 255, 135)
-            or verdict == "LOSE" and Color3.fromRGB(255, 65, 85)
+            or verdict == "LOSE" and Color3.fromRGB(255, 95, 105)
             or Color3.fromRGB(75, 195, 255)
     end
 
@@ -1687,7 +1689,8 @@ local function scanTrade()
         if yourTierCount > 0 or theirTierCount > 0 then
             removalPlan = {
                 status = "blocked",
-                message = "Tier items need a reliable numeric value before advising"
+                message = "Tier-оценка у " .. tostring(yourTierCount + theirTierCount)
+                    .. " предметов. Это не ноль Value: для честного сравнения нужна точная числовая цена."
             }
         elseif yourKnown < yourCount or theirKnown < theirCount then
             removalPlan = {
@@ -1704,28 +1707,28 @@ local function scanTrade()
     setRemovalAdvice(trade, removalPlan)
 
     local lines = {
-        "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
-            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " recognized, "
-            .. tostring(yourTierCount) .. " tier)",
-        "THEIR OFFER NUMERIC: " .. formatValue(theirTotal)
-            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " recognized, "
-            .. tostring(theirTierCount) .. " tier)"
+        "ТЫ ОТДАЁШЬ: " .. formatValue(yourTotal)
+            .. " Value (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " распознано, Tier: "
+            .. tostring(yourTierCount) .. ")",
+        "ТЫ ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
+            .. " Value (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " распознано, Tier: "
+            .. tostring(theirTierCount) .. ")"
     }
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
+            table.insert(lines, "ИТОГ: есть Tier-предметы — точный плюс/минус пока не рассчитан")
         elseif yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+            table.insert(lines, "ИТОГ: не все предметы распознаны — проверь неизвестные")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
-            table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
-                .. (difference > 0 and "+" or "") .. formatValue(difference))
+            table.insert(lines, "ИТОГ: " .. (difference > 0 and "ТЫ В ПЛЮСЕ +" or difference < 0 and "ТЫ В МИНУСЕ " or "РАВНО ")
+                .. formatValue(difference) .. " Value")
         end
     else
-        table.insert(lines, "RESULT: Waiting for both sides of the trade.")
+        table.insert(lines, "ИТОГ: ожидаю, пока обе стороны добавят предметы.")
     end
     table.insert(lines, removalPlanText(removalPlan))
-    table.insert(lines, "ADVISOR BUILD: 2026-11-22 / supreme-trade-advisor")
+    table.insert(lines, "ВЕРСИЯ СОВЕТНИКА: 2026-11-22 / supreme-trade-advisor")
     state.latestTrade = table.concat(lines, "\n")
     return {
         yourTotal = yourTotal,
