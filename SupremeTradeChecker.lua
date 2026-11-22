@@ -80,7 +80,9 @@ local state = {
     unmatchedInventory = {},
     unmatchedTrade = {},
     coverageInventory = {},
-    coverageTrade = {}
+    coverageTrade = {},
+    coverageSeenInventory = {},
+    coverageSeenTrade = {}
 }
 local stopped = false
 local coreTestsPassed = false
@@ -731,7 +733,11 @@ local function valueOf(tile, name)
 end
 
 local function recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
-    local target = group == "trade" and state.coverageTrade or state.coverageInventory
+    local isTrade = group == "trade"
+    local seen = isTrade and state.coverageSeenTrade or state.coverageSeenInventory
+    if tile and seen[tile] then return end
+    if tile then seen[tile] = true end
+    local target = isTrade and state.coverageTrade or state.coverageInventory
     local displayName = clean(resolvedName or name)
     if displayName == "" then displayName = "UNKNOWN ITEM" end
     local container = tile and tile:FindFirstChild("Container")
@@ -1562,6 +1568,7 @@ end
 local function scanTrade()
     state.unmatchedTrade = {}
     state.coverageTrade = {}
+    state.coverageSeenTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
         state.latestTrade = "No active trade detected."
@@ -1855,6 +1862,7 @@ end
 local function scanInventory()
     state.unmatchedInventory = {}
     state.coverageInventory = {}
+    state.coverageSeenInventory = {}
     state.inventoryMissingFrames = 0
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
     local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
