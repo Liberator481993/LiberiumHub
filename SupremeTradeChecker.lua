@@ -1235,7 +1235,7 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     local gradient = ensureTextGradient(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(210, 22)
+    label.Size = UDim2.fromOffset(250, 22)
     label.BackgroundTransparency = 1
     label.TextSize = 14
     label.Font = Enum.Font.GothamBlack
@@ -1679,8 +1679,8 @@ local function scanTrade()
 
     local yourItems, yourTotal, yourKnown, yourCount, yourTierCount = scanOffer(yours, "trade")
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
-    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
-    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
+    setSummary(yours, "__SupremeOfferTotal", "ОТДАЁШЬ", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
+    setSummary(theirs, "__SupremeOfferTotal", "ПОЛУЧАЕШЬ", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
     setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
         yourCount, theirCount, yourTierCount, theirTierCount)
 
