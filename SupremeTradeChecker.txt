@@ -1660,7 +1660,33 @@ local function scanModuleInventory()
     scanCollection(data.Weapons, "Weapons")
     scanCollection(data.Pets, "Pets")
 
+    -- InventoryModule.GUI.MyInventory can be a Lua table on mobile,
+    -- while its Data entries still hold the real, parented item-card Frames.
+    -- Recover the visible GUI root from one of those Frames instead of treating
+    -- the table as an Instance (which previously produced GUI cards = 0).
     local guiInstance = typeof(gui) == "Instance" and gui or nil
+    if not guiInstance then
+        for _, subgroup in pairs(data.Weapons) do
+            if type(subgroup) == "table" then
+                for _, entry in pairs(subgroup) do
+                    local frame = type(entry) == "table" and entry.Frame or nil
+                    if typeof(frame) == "Instance" and frame:IsA("GuiObject") and frame.Parent then
+                        local current = frame
+                        while current and current ~= playerGui do
+                            if current:IsA("GuiObject") and current.Name == "Main" then
+                                guiInstance = current
+                                break
+                            end
+                            current = current.Parent
+                        end
+                        if guiInstance then break end
+                    end
+                end
+            end
+            if guiInstance then break end
+        end
+    end
+
     if guiInstance then
         local guiTiles = getTiles(guiInstance)
         local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
@@ -1681,6 +1707,7 @@ local function scanModuleInventory()
             end
         end
         state.inventoryGuiStructure = "Type=" .. guiInstance.ClassName
+            .. " | InferredFromFrame=" .. tostring(typeof(gui) ~= "Instance")
             .. " | Descendants=" .. tostring(#descendants)
             .. " | Classes=" .. HttpService:JSONEncode(classCounts)
             .. " | Samples=" .. table.concat(samples, "; ")
@@ -1688,7 +1715,7 @@ local function scanModuleInventory()
         state.inventoryGuiFrames = 0
         state.inventoryGuiValued = 0
         state.inventoryGuiItems = 0
-        state.inventoryGuiStructure = "GUI reference type=" .. typeof(gui)
+        state.inventoryGuiStructure = "GUI reference type=" .. typeof(gui) .. " | Frame root not found"
     end
     state.inventoryFrameParents = "parented=" .. tostring(parentedFrames)
         .. ", detached=" .. tostring(detachedFrames)
