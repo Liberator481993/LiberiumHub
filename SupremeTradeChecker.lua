@@ -1207,7 +1207,9 @@ local function scanOffer(offer, group)
                     name = resolvedName or name or "Unknown item",
                     value = value,
                     tier = tierText,
-                    quantity = quantity
+                    quantity = quantity,
+                    category = category,
+                    tile = tile
                 })
                 count = count + quantity
                 if value ~= nil then
@@ -1233,7 +1235,7 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     local gradient = ensureTextGradient(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(210, 22)
+    label.Size = UDim2.fromOffset(250, 22)
     label.BackgroundTransparency = 1
     label.TextSize = 14
     label.Font = Enum.Font.GothamBlack
@@ -1247,8 +1249,8 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
         Color3.fromRGB(105, 190, 255)
     )
     label.Text = title .. " " .. formatValue(total)
-        .. ((tierCount or 0) > 0 and " +TIER(" .. tostring(tierCount) .. ")" or "")
-        .. (known < count and " +?" or "")
+        .. ((tierCount or 0) > 0 and " + " .. tostring(tierCount) .. " Tier" or "")
+        .. (known < count and " + ?" or "")
     label.Visible = count > 0
 end
 
@@ -1261,6 +1263,234 @@ local function getVerdict(giveValue, receiveValue)
         return "FAIR", difference
     end
     return difference > 0 and "WIN" or "LOSE", difference
+end
+
+local function findRemovalPlan(yourItems, yourTotal, theirTotal)
+    local currentDifference = (tonumber(theirTotal) or 0) - (tonumber(yourTotal) or 0)
+    if currentDifference >= 1 - 0.000001 then
+        return {
+            status = "already",
+            currentDifference = currentDifference,
+            finalDifference = currentDifference
+        }
+    end
+
+    local candidates = {}
+    for _, item in ipairs(yourItems or {}) do
+        local value = tonumber(item.value)
+        local quantity = math.max(1, math.floor(tonumber(item.quantity) or 1))
+        if not value or item.tier then
+            return {status = "blocked", message = "An item has no exact numeric value"}
+        end
+        local amount = value * quantity
+        if amount > 0 then
+            table.insert(candidates, {
+                item = item,
+                amount = amount
+            })
+        end
+    end
+
+    if #candidates == 0 then
+        return {status = "impossible", message = "No removable item has a numeric value"}
+    end
+    -- Real MM2 trade windows have few slots. Refuse an unbounded search rather
+    -- than present a possibly non-optimal recommendation if the UI is unusual.
+    if #candidates > 18 then
+        return {status = "too_many", message = "Too many offer slots to search safely"}
+    end
+
+    local required = 1 - currentDifference
+    table.sort(candidates, function(a, b)
+        if a.amount ~= b.amount then return a.amount < b.amount end
+        return tostring(a.item.name) < tostring(b.item.name)
+    end)
+
+    local suffix = {}
+    suffix[#candidates + 1] = 0
+    for index = #candidates, 1, -1 do
+        suffix[index] = suffix[index + 1] + candidates[index].amount
+    end
+
+    local best, selected = nil, {}
+    local function search(index, removedValue)
+        if removedValue >= required - 0.000001 then
+            if not best
+                or removedValue < best.removedValue - 0.000001
+                or (math.abs(removedValue - best.removedValue) <= 0.000001
+                    and #selected < #best.items) then
+                local chosen = {}
+                for _, candidate in ipairs(selected) do
+                    table.insert(chosen, candidate.item)
+                end
+                best = {
+                    items = chosen,
+                    removedValue = removedValue
+                }
+            end
+            return
+        end
+
+        if index > #candidates then return end
+        if removedValue + suffix[index] < required - 0.000001 then return end
+
+        selected[#selected + 1] = candidates[index]
+        search(index + 1, removedValue + candidates[index].amount)
+        selected[#selected] = nil
+        search(index + 1, removedValue)
+    end
+    search(1, 0)
+
+    if not best then
+        return {
+            status = "impossible",
+            message = "Removing every offered item still cannot reach +1 Value"
+        }
+    end
+
+    best.status = "ready"
+    best.currentDifference = currentDifference
+    best.finalDifference = currentDifference + best.removedValue
+    return best
+end
+
+local function clearRemovalHint(tile)
+    if not tile then return end
+    local stroke = tile:FindFirstChild("__SupremeRemoveStroke")
+    if stroke then stroke:Destroy() end
+    local badge = tile:FindFirstChild("__SupremeRemoveBadge")
+    if badge then badge:Destroy() end
+end
+
+local function updateRemovalHints(yourOffer, theirOffer, plan)
+    local selected = {}
+    if plan and plan.status == "ready" then
+        for index, item in ipairs(plan.items) do
+            if item.tile then selected[item.tile] = index end
+        end
+    end
+
+    local function updateOffer(offer)
+        local container = offer and offer:FindFirstChild("Container")
+        if not container then return end
+        for _, tile in ipairs(container:GetChildren()) do
+            if not tile:IsA("GuiObject") then continue end
+            local index = selected[tile]
+            if not index then
+                clearRemovalHint(tile)
+                continue
+            end
+
+            local stroke = tile:FindFirstChild("__SupremeRemoveStroke")
+            if not stroke or not stroke:IsA("UIStroke") then
+                if stroke then stroke:Destroy() end
+                stroke = Instance.new("UIStroke")
+                stroke.Name = "__SupremeRemoveStroke"
+                stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                stroke.Parent = tile
+            end
+            stroke.Color = Color3.fromRGB(75, 255, 155)
+            stroke.Thickness = 3
+            stroke.Transparency = 0
+            stroke.Enabled = true
+
+            local badge = tile:FindFirstChild("__SupremeRemoveBadge")
+            if not badge or not badge:IsA("TextLabel") then
+                if badge then badge:Destroy() end
+                badge = Instance.new("TextLabel")
+                badge.Name = "__SupremeRemoveBadge"
+                badge.BackgroundColor3 = Color3.fromRGB(20, 170, 100)
+                badge.BorderSizePixel = 0
+                badge.Font = Enum.Font.GothamBlack
+                badge.TextColor3 = Color3.new(1, 1, 1)
+                badge.TextSize = 9
+                badge.TextStrokeTransparency = 1
+                badge.TextXAlignment = Enum.TextXAlignment.Center
+                badge.TextYAlignment = Enum.TextYAlignment.Center
+                badge.Size = UDim2.fromOffset(57, 16)
+                badge.Position = UDim2.fromOffset(3, 3)
+                badge.ZIndex = (tile.ZIndex or 1) + 25
+                badge.Parent = tile
+                local corner = Instance.new("UICorner")
+                corner.CornerRadius = UDim.new(0, 5)
+                corner.Parent = badge
+            end
+            badge.Text = "УБРАТЬ " .. tostring(index)
+            badge.Visible = true
+        end
+    end
+
+    updateOffer(yourOffer)
+    updateOffer(theirOffer)
+end
+
+local function removalPlanText(plan)
+    if not plan or plan.status == "waiting" then
+        return "РЕКОМЕНДАЦИЯ: ожидаю предметы с обеих сторон трейда"
+    end
+    if plan.status == "already" then
+        return "РЕКОМЕНДАЦИЯ: уже выгодно на +" .. formatValue(plan.finalDifference)
+            .. " Value — ничего убирать не нужно"
+    elseif plan.status == "ready" then
+        local names = {}
+        for _, item in ipairs(plan.items) do
+            table.insert(names, tostring(item.name)
+                .. ((tonumber(item.quantity) or 1) > 1
+                    and (" x" .. tostring(item.quantity)) or ""))
+        end
+        return "РЕКОМЕНДАЦИЯ: УБЕРИ " .. table.concat(names, " + ")
+            .. " | после этого твой плюс будет +" .. formatValue(plan.finalDifference)
+            .. " Value (убираем " .. formatValue(plan.removedValue) .. ")"
+    elseif plan.status == "blocked" then
+        return "РЕКОМЕНДАЦИЯ ПРИОСТАНОВЛЕНА: " .. tostring(plan.message)
+    elseif plan.status == "too_many" then
+        return "РЕКОМЕНДАЦИЯ ПРИОСТАНОВЛЕНА: " .. tostring(plan.message)
+    end
+    return "РЕКОМЕНДАЦИЯ: безопасную комбинацию не нашёл — "
+        .. tostring(plan.message or "попроси второго игрока добавить Value")
+end
+
+local function setRemovalAdvice(trade, plan)
+    if not trade then return end
+    local label = makeLabel(trade, "__SupremeTradeAdvice", "trade")
+    stripDefaultLabelDecorations(label)
+    label.AnchorPoint = Vector2.new(0.5, 1)
+    label.Position = UDim2.new(0.5, 0, 1, -62)
+    label.Size = UDim2.new(1, -18, 0, 34)
+    label.BackgroundTransparency = 0.12
+    label.BorderSizePixel = 0
+    label.Font = Enum.Font.GothamBlack
+    label.TextSize = 11
+    label.TextScaled = true
+    label.TextWrapped = true
+    label.TextTruncate = Enum.TextTruncate.None
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.ZIndex = 151
+
+    if not plan or plan.status == "waiting" then
+        label.Visible = false
+        return
+    end
+    if plan.status == "ready" then
+        label.BackgroundColor3 = Color3.fromRGB(15, 90, 58)
+        label.TextColor3 = Color3.fromRGB(135, 255, 190)
+        local shortNames = {}
+        for _, item in ipairs(plan.items) do
+            table.insert(shortNames, tostring(item.name))
+        end
+        label.Text = "УБЕРИ: " .. table.concat(shortNames, " + ")
+            .. "  →  твой плюс +" .. formatValue(plan.finalDifference)
+    elseif plan.status == "already" then
+        label.BackgroundColor3 = Color3.fromRGB(20, 65, 55)
+        label.TextColor3 = Color3.fromRGB(135, 255, 190)
+        label.Text = "УЖЕ ВЫГОДНО: +" .. formatValue(plan.finalDifference) .. " VALUE"
+    else
+        label.BackgroundColor3 = Color3.fromRGB(105, 67, 20)
+        label.TextColor3 = Color3.fromRGB(255, 215, 130)
+        label.Text = "СОВЕТ ПРИОСТАНОВЛЕН: " .. tostring(plan.message or "проверь цены предметов")
+    end
+    label.Visible = true
 end
 
 local function runCoreSelfTests()
@@ -1367,6 +1597,25 @@ local function runCoreSelfTests()
     assert(verdict == "WIN" and difference == 120, "trade verdict calculation failed")
     local fairVerdict = getVerdict(100, 101)
     assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
+
+    local multiSlotPlan = findRemovalPlan({
+        {name = "Small A", value = 100, quantity = 1},
+        {name = "Small B", value = 51, quantity = 1},
+        {name = "Overshoot", value = 160, quantity = 1}
+    }, 1250, 1100)
+    assert(multiSlotPlan.status == "ready"
+        and #multiSlotPlan.items == 2
+        and math.abs(multiSlotPlan.removedValue - 151) < 0.000001
+        and math.abs(multiSlotPlan.finalDifference - 1) < 0.000001,
+        "multi-item removal recommendation failed")
+
+    local duplicatePlan = findRemovalPlan({
+        {name = "Duplicate stack", value = 75.5, quantity = 2}
+    }, 1250, 1100)
+    assert(duplicatePlan.status == "ready"
+        and #duplicatePlan.items == 1
+        and math.abs(duplicatePlan.removedValue - 151) < 0.000001,
+        "duplicate quantity removal recommendation failed")
     return true
 end
 
@@ -1378,7 +1627,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -35)
-    label.Size = UDim2.fromOffset(190, 25)
+    label.Size = UDim2.new(1, -24, 0, 28)
     label.BackgroundTransparency = 1
     label.ZIndex = 150
     label.Font = Enum.Font.GothamBlack
@@ -1392,17 +1641,19 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
-        caption, color = "WAITING", Color3.fromRGB(225, 232, 245)
+        caption, color = "ЖДЁМ ОБЕ СТОРОНЫ", Color3.fromRGB(225, 232, 245)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER ITEMS", Color3.fromRGB(255, 190, 65)
+        caption, color = "НУЖНЫ ТОЧНЫЕ ЦЕНЫ", Color3.fromRGB(255, 190, 65)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "CHECK UNKNOWN", Color3.fromRGB(255, 190, 65)
+        caption, color = "ЕСТЬ НЕРАСПОЗНАННЫЕ ПРЕДМЕТЫ", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local sign = difference > 0 and "+" or ""
-        caption = verdict .. "  " .. sign .. formatValue(difference)
+        caption = (verdict == "WIN" and "ТЫ В ПЛЮСЕ  +"
+                or verdict == "LOSE" and "ТЫ В МИНУСЕ  "
+                or "ПОЧТИ В РОВНУЮ  ") .. formatValue(difference)
         color = verdict == "WIN" and Color3.fromRGB(45, 255, 135)
-            or verdict == "LOSE" and Color3.fromRGB(255, 65, 85)
+            or verdict == "LOSE" and Color3.fromRGB(255, 95, 105)
             or Color3.fromRGB(75, 195, 255)
     end
 
@@ -1428,32 +1679,56 @@ local function scanTrade()
 
     local yourItems, yourTotal, yourKnown, yourCount, yourTierCount = scanOffer(yours, "trade")
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
-    setSummary(yours, "__SupremeOfferTotal", "YOU", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
-    setSummary(theirs, "__SupremeOfferTotal", "THEM", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
+    setSummary(yours, "__SupremeOfferTotal", "ОТДАЁШЬ", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
+    setSummary(theirs, "__SupremeOfferTotal", "ПОЛУЧАЕШЬ", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
     setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
         yourCount, theirCount, yourTierCount, theirTierCount)
 
+    local removalPlan
+    if yourCount > 0 and theirCount > 0 then
+        if yourTierCount > 0 or theirTierCount > 0 then
+            removalPlan = {
+                status = "blocked",
+                message = "Tier-оценка у " .. tostring(yourTierCount + theirTierCount)
+                    .. " предметов. Это не ноль Value: для честного сравнения нужна точная числовая цена."
+            }
+        elseif yourKnown < yourCount or theirKnown < theirCount then
+            removalPlan = {
+                status = "blocked",
+                message = "An offered item is not mapped to an exact Supreme value"
+            }
+        else
+            removalPlan = findRemovalPlan(yourItems, yourTotal, theirTotal)
+        end
+    else
+        removalPlan = {status = "waiting"}
+    end
+    updateRemovalHints(yours, theirs, removalPlan)
+    setRemovalAdvice(trade, removalPlan)
+
     local lines = {
-        "YOUR OFFER NUMERIC: " .. formatValue(yourTotal)
-            .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " recognized, "
-            .. tostring(yourTierCount) .. " tier)",
-        "THEIR OFFER NUMERIC: " .. formatValue(theirTotal)
-            .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " recognized, "
-            .. tostring(theirTierCount) .. " tier)"
+        "ТЫ ОТДАЁШЬ: " .. formatValue(yourTotal)
+            .. " Value (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " распознано, Tier: "
+            .. tostring(yourTierCount) .. ")",
+        "ТЫ ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
+            .. " Value (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " распознано, Tier: "
+            .. tostring(theirTierCount) .. ")"
     }
     if yourCount > 0 and theirCount > 0 then
         if yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "RESULT: TIER VALUES PRESENT — numeric WIN/LOSE disabled")
+            table.insert(lines, "ИТОГ: есть Tier-предметы — точный плюс/минус пока не рассчитан")
         elseif yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "RESULT: PARTIAL VALUES — check unknown items")
+            table.insert(lines, "ИТОГ: не все предметы распознаны — проверь неизвестные")
         else
             local verdict, difference = getVerdict(yourTotal, theirTotal)
-            table.insert(lines, "RESULT: " .. verdict .. " | Difference: "
-                .. (difference > 0 and "+" or "") .. formatValue(difference))
+            table.insert(lines, "ИТОГ: " .. (difference > 0 and "ТЫ В ПЛЮСЕ +" or difference < 0 and "ТЫ В МИНУСЕ " or "РАВНО ")
+                .. formatValue(difference) .. " Value")
         end
     else
-        table.insert(lines, "RESULT: Waiting for both sides of the trade.")
+        table.insert(lines, "ИТОГ: ожидаю, пока обе стороны добавят предметы.")
     end
+    table.insert(lines, removalPlanText(removalPlan))
+    table.insert(lines, "ВЕРСИЯ СОВЕТНИКА: 2026-11-22 / RU-BALANCE-2")
     state.latestTrade = table.concat(lines, "\n")
     return {
         yourTotal = yourTotal,
@@ -1542,12 +1817,37 @@ local function scanModuleInventory()
                 dataEntries = dataEntries + 1
                 local storedAmount = tonumber(entry.Amount)
                 local entryQuantity = storedAmount and math.max(1, math.floor(storedAmount)) or 1
-                local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
+                local frameRef = entry.Frame
+                if typeof(frameRef) ~= "Instance" or not frameRef:IsA("GuiObject") then
                     count = count + entryQuantity
                     missingFrameEntries = missingFrameEntries + 1
                     continue
                 end
+
+                -- PulseHub stores entry.Frame as the inner NewItem widget in
+                -- some layouts, not the outer item card. Resolve the real card
+                -- by walking upward until Container.Icon is found.
+                local tile
+                local current = frameRef
+                while current and current:IsA("GuiObject") do
+                    local cardContainer = current:FindFirstChild("Container")
+                    local cardIcon = cardContainer and cardContainer:FindFirstChild("Icon")
+                    if cardIcon and (cardIcon:IsA("ImageLabel") or cardIcon:IsA("ImageButton")) then
+                        tile = current
+                        break
+                    end
+                    current = current.Parent
+                end
+                if not tile then
+                    count = count + entryQuantity
+                    missingFrameEntries = missingFrameEntries + 1
+                    if #frameSamples < 8 then
+                        table.insert(frameSamples, tostring(itemKey) .. "=>NO_CARD_ANCESTOR:"
+                            .. instancePath(frameRef, playerGui))
+                    end
+                    continue
+                end
+
                 if seen[tile] then continue end
                 seen[tile] = true
                 frameCount = frameCount + 1
@@ -1556,7 +1856,8 @@ local function scanModuleInventory()
                     missingFrameEntries = missingFrameEntries + 1
                     count = count + entryQuantity
                     if #frameSamples < 8 then
-                        table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
+                        table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:"
+                            .. instancePath(frameRef, playerGui))
                     end
                     continue
                 end
@@ -1565,12 +1866,13 @@ local function scanModuleInventory()
                 if tileIsVisible then
                     visibleFrames = visibleFrames + 1
                 elseif #frameSamples < 8 then
-                    table.insert(frameSamples, tostring(itemKey) .. "=>" .. instancePath(tile, playerGui)
-                        .. "{Visible=" .. tostring(tile.Visible) .. "}")
+                    table.insert(frameSamples, tostring(itemKey) .. "=>CARD:"
+                        .. instancePath(tile, playerGui) .. "{Visible=" .. tostring(tile.Visible)
+                        .. "} REF:" .. instancePath(frameRef, playerGui))
                 end
 
-                -- Do not depend on ItemName text: PulseHub's inventory tiles
-                -- are reliably identified by Container.Icon -> MM2 database.
+                -- Resolve values from the outer card, where Container.Icon and
+                -- Amount live, rather than the hidden NewItem child reference.
                 local name, quantity = itemData(tile)
                 if storedAmount and quantity <= 1 then
                     quantity = entryQuantity
@@ -1587,7 +1889,7 @@ local function scanModuleInventory()
                 if resolvedValue == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category, name)
             end
         end
     end
