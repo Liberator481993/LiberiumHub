@@ -1425,7 +1425,9 @@ local function updateRemovalHints(yourOffer, theirOffer, plan)
 end
 
 local function removalPlanText(plan)
-    if not plan then return "RECOMMENDATION: waiting for trade items" end
+    if not plan or plan.status == "waiting" then
+        return "RECOMMENDATION: waiting for both sides of the trade"
+    end
     if plan.status == "already" then
         return "RECOMMENDATION: already +" .. formatValue(plan.finalDifference)
             .. " Value — no item needs to be removed"
