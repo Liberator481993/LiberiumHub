@@ -1382,7 +1382,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     elseif yourTierCount > 0 or theirTierCount > 0 then
         caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(198, 164, 108)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(255, 190, 65)
+        caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(198, 164, 108)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         if verdict == "WIN" then
@@ -1424,11 +1424,11 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
 
     local advice, color
     if yourCount == 0 or theirCount == 0 then
-        advice, color = "Добавь предметы с обеих сторон для сравнения", Color3.fromRGB(205, 215, 230)
+        advice, color = "Добавь предметы с обеих сторон для сравнения", Color3.fromRGB(196, 201, 211)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        advice, color = "Tier-предметы: числовой совет отключён", Color3.fromRGB(255, 190, 65)
+        advice, color = "Tier-предметы: числовой совет отключён", Color3.fromRGB(198, 164, 108)
     elseif yourKnown < yourCount or theirKnown < theirCount then
-        advice, color = "Сначала проверь предметы без точной оценки", Color3.fromRGB(255, 190, 65)
+        advice, color = "Сначала проверь предметы без точной оценки", Color3.fromRGB(198, 164, 108)
     else
         local verdict, difference = getVerdict(yourTotal, theirTotal)
         if verdict == "LOSE" then
@@ -1448,7 +1448,7 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
                 color = Color3.fromRGB(194, 151, 105)
             else
                 advice = "ПОПРОСИ ДОПЛАТУ: +" .. formatValue(math.abs(difference))
-                color = Color3.fromRGB(255, 190, 105)
+                color = Color3.fromRGB(194, 151, 105)
             end
         elseif verdict == "WIN" then
             advice, color = "Ты в плюсе — не добавляй предметы без необходимости", Color3.fromRGB(102, 183, 143)
