@@ -2525,10 +2525,20 @@ if not __ok then
     __bootFailure(__err)
     warn("[Supreme Trade Checker BOOT ERROR] " .. tostring(__err))
 else
-    __bootStage("MAIN SCRIPT STARTED", "If the Supreme panel is missing, send this screen/report.")
     task.delay(8, function()
         pcall(function()
-            if __bootGui and __bootGui.Parent then __bootGui:Destroy() end
+            local parent = __bootGui and __bootGui.Parent
+            local mainGui = parent and parent:FindFirstChild("SupremeTradeText")
+            if mainGui then
+                if __bootGui and __bootGui.Parent then __bootGui:Destroy() end
+            else
+                if __bootFrame then
+                    __bootFrame.Size = UDim2.new(0, 310, 0, 170)
+                    __bootFrame.Position = UDim2.new(0.5, -155, 0.5, -85)
+                end
+                __bootStage("BOOT WARNING — MAIN UI NOT FOUND",
+                    "Lua finished without a runtime error, but SupremeTradeText is missing. Send this screen.")
+            end
         end)
     end)
 end
