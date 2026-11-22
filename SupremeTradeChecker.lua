@@ -78,7 +78,9 @@ local state = {
     latestTrade = "No active trade detected.",
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
-    unmatchedTrade = {}
+    unmatchedTrade = {},
+    coverageInventory = {},
+    coverageTrade = {}
 }
 local stopped = false
 local coreTestsPassed = false
@@ -728,6 +730,37 @@ local function valueOf(tile, name)
     return nil
 end
 
+local function recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
+    local target = group == "trade" and state.coverageTrade or state.coverageInventory
+    local displayName = clean(resolvedName or name)
+    if displayName == "" then displayName = "UNKNOWN ITEM" end
+    local container = tile and tile:FindFirstChild("Container")
+    local iconObject = container and container:FindFirstChild("Icon")
+    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local tags = tile and tile:FindFirstChild("Tags")
+    local chromaTag = tags and tags:FindFirstChild("Chroma")
+    local chroma = chromaTag ~= nil and chromaTag.Visible == true
+    local status, detail
+    if isTrackedValue(value) then
+        status, detail = "VALUED", formatValue(value)
+    elseif tierText and tostring(tierText) ~= "" then
+        status, detail = "TIER", tostring(tierText)
+    elseif tonumber(value) then
+        status, detail = "BELOW_MIN", formatValue(value)
+    else
+        status, detail = "NO_VALUE", "not mapped"
+    end
+    local key = normalize(displayName) .. "|" .. tostring(imageId) .. "|"
+        .. tostring(chroma) .. "|" .. status .. "|" .. tostring(detail)
+    local entry = target[key]
+    if not entry then
+        entry = {name = displayName, image = tostring(imageId), chroma = chroma,
+            status = status, detail = detail, count = 0}
+        target[key] = entry
+    end
+    entry.count = entry.count + math.max(1, tonumber(quantity) or 1)
+end
+
 local function loadValues(force)
     if state.busy then return end
     if not force and state.status == "ok" and os.clock() - state.updated < 900 then return end
@@ -1084,7 +1117,8 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
-        local value, _, tierText, category = valueOf(tile, name)
+        local value, resolvedName, tierText, category = valueOf(tile, name)
+        recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
         if not isTrackedValue(value) then
             updateTileBadge(tile, nil, quantity, group, nil, category, name)
             recordUnmatched(tile, name, quantity,
@@ -1141,7 +1175,8 @@ local function scanImageCards(root, group)
         if not cardVisible(card) then continue end
 
         local name, quantity = itemData(card)
-        local value, _, tierText, category = valueOf(card, name)
+        local value, resolvedName, tierText, category = valueOf(card, name)
+        recordCoverage(card, name, quantity, group, value, tierText, resolvedName)
         if not isTrackedValue(value) then
             updateTileBadge(card, nil, quantity, group, nil, category, name)
             recordUnmatched(card, name, quantity,
@@ -1204,6 +1239,7 @@ local function scanOffer(offer, group)
             local value, resolvedName, tierText, category = valueOf(tile, name)
             -- Some mobile trade slots briefly have no ItemName node.
             -- A real item asset still counts as an item, even while unmatched.
+            recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
             if isTrackedValue(value) then
                 value = tonumber(value)
                 table.insert(items, {
@@ -1525,6 +1561,7 @@ end
 
 local function scanTrade()
     state.unmatchedTrade = {}
+    state.coverageTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
         state.latestTrade = "No active trade detected."
@@ -1686,7 +1723,8 @@ local function scanModuleInventory()
                 if storedAmount and quantity <= 1 then
                     quantity = entryQuantity
                 end
-                local resolvedValue, _, tierText, category = valueOf(tile, name)
+                local resolvedValue, resolvedName, tierText, category = valueOf(tile, name)
+                recordCoverage(tile, name, quantity, "inventory", resolvedValue, tierText, resolvedName)
                 if isTrackedValue(resolvedValue) then
                     resolvedValue = tonumber(resolvedValue)
                     total = total + resolvedValue * quantity
@@ -1816,6 +1854,7 @@ end
 
 local function scanInventory()
     state.unmatchedInventory = {}
+    state.coverageInventory = {}
     state.inventoryMissingFrames = 0
     local weaponTotal, weaponKnown, weaponCount, visibleFrames = 0, 0, 0, 0
     local moduleTotal, moduleKnown, moduleCount, moduleVisible, _, moduleTierCount = scanModuleInventory()
@@ -2228,6 +2267,36 @@ local function formatUnmatchedItems(items)
     return #output > 0 and table.concat(output, " | ") or "none"
 end
 
+local function formatCoverageItems(items)
+    local rows = {}
+    local totals = {VALUED = 0, NO_VALUE = 0, TIER = 0, BELOW_MIN = 0}
+    for _, entry in pairs(items or {}) do
+        table.insert(rows, entry)
+        totals[entry.status] = (totals[entry.status] or 0) + entry.count
+    end
+    table.sort(rows, function(a, b)
+        local order = {NO_VALUE = 1, BELOW_MIN = 2, TIER = 3, VALUED = 4}
+        if order[a.status] ~= order[b.status] then
+            return order[a.status] < order[b.status]
+        end
+        return a.name < b.name
+    end)
+    local output = {}
+    for _, entry in ipairs(rows) do
+        table.insert(output, entry.name .. " [x" .. tostring(entry.count) .. "]="
+            .. entry.status .. (entry.status == "VALUED" and " " or " ")
+            .. tostring(entry.detail)
+            .. (entry.chroma and " | CHROMA" or "")
+            .. " | icon=" .. tostring(entry.image))
+    end
+    local summary = "VALUED=" .. tostring(totals.VALUED)
+        .. ", NO_VALUE=" .. tostring(totals.NO_VALUE)
+        .. ", TIER_ONLY=" .. tostring(totals.TIER)
+        .. ", BELOW_0.1=" .. tostring(totals.BELOW_MIN)
+        .. ", UNIQUE=" .. tostring(#rows)
+    return summary .. (#output > 0 and "\n" .. table.concat(output, "\n") or "\nnone")
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
@@ -2261,6 +2330,10 @@ local function buildDiagnostic()
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
+        "INVENTORY VALUE COVERAGE (all visible item types):",
+        formatCoverageItems(state.coverageInventory),
+        "TRADE VALUE COVERAGE (all visible offered items):",
+        formatCoverageItems(state.coverageTrade),
         "UNMATCHED INVENTORY (top 25): " .. formatUnmatchedItems(state.unmatchedInventory),
         "UNMATCHED TRADE (top 25): " .. formatUnmatchedItems(state.unmatchedTrade)
     }
