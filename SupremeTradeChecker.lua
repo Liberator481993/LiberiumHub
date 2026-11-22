@@ -1604,7 +1604,7 @@ local function scanModuleInventory()
                 local entryQuantity = storedAmount and math.max(1, math.floor(storedAmount)) or 1
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
-                    count = count + entryQuantity
+                    -- No tile means no reliable Supreme value lookup; exclude it.
                     missingFrameEntries = missingFrameEntries + 1
                     continue
                 end
@@ -1614,7 +1614,6 @@ local function scanModuleInventory()
                 if not tile.Parent then
                     detachedFrames = detachedFrames + 1
                     missingFrameEntries = missingFrameEntries + 1
-                    count = count + entryQuantity
                     if #frameSamples < 8 then
                         table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
                     end
