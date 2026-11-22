@@ -158,7 +158,10 @@ local state = {
     coverageInventory = {},
     coverageTrade = {},
     coverageSeenInventory = {},
-    coverageSeenTrade = {}
+    coverageSeenTrade = {},
+    inventoryScanStatus = "not started",
+    inventoryScanError = "none",
+    inventoryScanCount = 0
 }
 local stopped = false
 local coreTestsPassed = false
@@ -2416,6 +2419,9 @@ local function buildDiagnostic()
         "",
         "CURRENT INVENTORY:",
         tostring(state.latestInventory),
+        "Inventory scan attempts: " .. tostring(state.inventoryScanCount),
+        "Inventory scan status: " .. tostring(state.inventoryScanStatus),
+        "Inventory scan error: " .. tostring(state.inventoryScanError),
         "INVENTORY VALUE COVERAGE (all visible item types):",
         formatCoverageItems(state.coverageInventory),
         "TRADE VALUE COVERAGE (all visible offered items):",
@@ -2495,7 +2501,16 @@ task.spawn(function()
     while textGui.Parent and not stopped do
         pcall(scanTrade)
         if os.clock() >= nextInventoryScan then
-            pcall(scanInventory)
+            state.inventoryScanCount = (state.inventoryScanCount or 0) + 1
+            local scanOk, scanError = xpcall(scanInventory, function(err)
+                local trace = tostring(err)
+                pcall(function()
+                    if debug and debug.traceback then trace = debug.traceback(trace, 2) end
+                end)
+                return trace
+            end)
+            state.inventoryScanStatus = scanOk and "completed" or "FAILED"
+            state.inventoryScanError = scanOk and "none" or tostring(scanError):sub(1, 1800)
             nextInventoryScan = os.clock() + 1.25
         end
         updateUi()
