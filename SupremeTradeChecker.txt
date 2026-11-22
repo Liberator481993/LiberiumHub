@@ -1945,7 +1945,7 @@ toggleCorner.Parent = toggle
 
 local output = Instance.new("TextBox")
 output.Name = "DiagnosticText"
-output.Size = UDim2.new(1, -20, 1, -82)
+output.Size = UDim2.new(1, -20, 1, -164)
 output.Position = UDim2.fromOffset(10, 78)
 output.BackgroundColor3 = Color3.fromRGB(7, 10, 19)
 output.BackgroundTransparency = 0.12
@@ -2202,6 +2202,8 @@ local function buildDiagnostic()
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
         "Last error: " .. tostring(state.lastError or "none"),
         "",
+        "Hop server: " .. tostring(hopStatus),
+        "",
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "",
@@ -2259,9 +2261,6 @@ local function updateUi()
         title.Text = collapsed and "SUPREME" or "SUPREME — " .. string.upper(state.status)
     end
     output.Text = buildDiagnostic()
-    if hopButton and hopButton.Parent and not hopBusy then
-        hopButton.Text = "↗   HOP SERVER"
-    end
 end
 
 textGui.Destroying:Connect(function()
