@@ -1822,7 +1822,7 @@ local function scanModuleInventory()
                 -- PulseHub stores entry.Frame as the inner NewItem widget in
                 -- some layouts, not the outer item card. Resolve the real card
                 -- by walking upward until Container.Icon is found.
-                local tile = frameRef
+                local tile
                 local current = frameRef
                 while current and current:IsA("GuiObject") do
                     local cardContainer = current:FindFirstChild("Container")
@@ -1832,6 +1832,15 @@ local function scanModuleInventory()
                         break
                     end
                     current = current.Parent
+                end
+                if not tile then
+                    count = count + entryQuantity
+                    missingFrameEntries = missingFrameEntries + 1
+                    if #frameSamples < 8 then
+                        table.insert(frameSamples, tostring(itemKey) .. "=>NO_CARD_ANCESTOR:"
+                            .. instancePath(frameRef, playerGui))
+                    end
+                    continue
                 end
 
                 if seen[tile] then continue end
