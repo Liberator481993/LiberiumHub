@@ -1,0 +1,39 @@
+name: v93 UI bundle validation
+
+on:
+  push:
+    branches:
+      - v93/pulsehub-visual-only
+    paths:
+      - "Keyless"
+      - "src/legacy/**"
+      - "src/core/**"
+      - "src/ui/**"
+      - "tools/build_ui_keyless.py"
+      - ".github/workflows/v93-ui-build.yml"
+  pull_request:
+    paths:
+      - "Keyless"
+      - "src/legacy/**"
+      - "src/core/**"
+      - "src/ui/**"
+      - "tools/build_ui_keyless.py"
+      - ".github/workflows/v93-ui-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reproducible-ui-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate builder syntax
+        run: python -m py_compile tools/build_ui_keyless.py
+      - name: Rebuild executor-ready Keyless
+        run: python tools/build_ui_keyless.py
+      - name: Verify committed bundle is reproducible
+        run: git diff --exit-code -- Keyless
