@@ -477,6 +477,13 @@ local function buildMapping(entries, database)
         end
 
         local aliases = {name}
+        -- Supreme titles can split the weapon suffix from the base name:
+        -- "Swirly Gun" becomes name="Swirly", kind="Gun". Database.Sync may
+        -- store ItemName with or without that suffix, so test both exact forms.
+        if kind then
+            table.insert(aliases, name .. " " .. kind)
+            table.insert(aliases, name .. " (" .. kind .. ")")
+        end
         local wrapping = name:match("^(%a+) Papers$")
         if wrapping then table.insert(aliases, "Box of " .. wrapping .. " Wrapping Paper") end
         if name == "Ultra Wrap" then table.insert(aliases, "Box of Ultra Wrapping Paper") end
@@ -1211,6 +1218,7 @@ local function scanOffer(offer, group)
                 updateTileBadge(tile, value, quantity, group, nil, category, name)
             else
                 updateTileBadge(tile, nil, quantity, group, nil, category, name)
+                recordUnmatched(tile, name, quantity, state.unmatchedTrade)
             end
         end
     end
@@ -1223,13 +1231,17 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     stripDefaultLabelDecorations(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.fromOffset(250, 24)
-    label.BackgroundTransparency = 1
-    label.TextSize = 13
+    label.Size = UDim2.new(1, -12, 0, 32)
+    label.BackgroundTransparency = 0.04
+    label.BackgroundColor3 = title == "ОТДАЁШЬ"
+        and Color3.fromRGB(43, 34, 31) or Color3.fromRGB(29, 40, 43)
+    label.TextSize = 17
+    label.TextScaled = false
     label.Font = Enum.Font.Roboto
     label.TextStrokeTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextColor3 = Color3.fromRGB(236, 238, 243)
+    label.TextColor3 = title == "ОТДАЁШЬ"
+        and Color3.fromRGB(226, 164, 119) or Color3.fromRGB(119, 196, 190)
     label.Text = title .. ": " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " + ?" or "")
@@ -1379,12 +1391,13 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -34)
-    label.Size = UDim2.fromOffset(230, 26)
-    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(0.86, 0, 0, 34)
+    label.BackgroundTransparency = 0.05
+    label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
     label.ZIndex = 150
     label.Font = Enum.Font.Roboto
-    label.TextSize = 14
-    label.TextScaled = true
+    label.TextSize = 18
+    label.TextScaled = false
     label.TextWrapped = false
     label.TextStrokeTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Center
@@ -1413,6 +1426,15 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     label.TextColor3 = color
     label.Text = caption
+    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = label
+    local stroke = label:FindFirstChild("SupremeStroke") or Instance.new("UIStroke")
+    stroke.Name = "SupremeStroke"
+    stroke.Color = color
+    stroke.Transparency = 0.4
+    stroke.Thickness = 1.1
+    stroke.Parent = label
     label.Visible = true
 end
 
@@ -1424,12 +1446,13 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     if gradient then gradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
     label.Position = UDim2.new(0.5, 0, 1, -8)
-    label.Size = UDim2.fromOffset(290, 20)
-    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(0.94, 0, 0, 24)
+    label.BackgroundTransparency = 0.10
+    label.BackgroundColor3 = Color3.fromRGB(24, 27, 33)
     label.ZIndex = 150
     label.Font = Enum.Font.Roboto
-    label.TextSize = 11
-    label.TextScaled = true
+    label.TextSize = 13
+    label.TextScaled = false
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextStrokeTransparency = 1
@@ -1649,7 +1672,8 @@ local function scanModuleInventory()
                     count = count + quantity
                     updateTileBadge(tile, resolvedValue, quantity, "inventory", nil, category)
                 else
-                    updateTileBadge(tile, nil, quantity, "inventory", nil, category)
+                    updateTileBadge(tile, nil, quantity, "inventory", nil, category, name)
+                    recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
             end
         end
@@ -2072,7 +2096,8 @@ local function findHopServer()
     local sortOrders = {"Asc", "Desc"}
     for _, sortOrder in ipairs(sortOrders) do
         local cursor = nil
-        for page = 1, 2 do
+        -- Sample more of both ends; never stop after a few low-population servers.
+        for page = 1, 8 do
             local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
                 .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100&excludeFullGames=true"
             if cursor and cursor ~= "" then
@@ -2096,8 +2121,16 @@ local function findHopServer()
     if #candidates == 0 then
         error("No available public servers found")
     end
-    return candidates[math.random(1, #candidates)]
+    local rng = Random.new()
+    return candidates[rng:NextInteger(1, #candidates)]
 end
+
+TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
+    if failedPlayer ~= player then return end
+    hopStatus = "Teleport failed: " .. tostring(teleportResult) .. " / " .. tostring(errorMessage)
+    hopButton.Text = "↻   TRY AGAIN"
+    hopBusy = false
+end)
 
 hopButton.Activated:Connect(function()
     if hopBusy then return end
