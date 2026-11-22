@@ -1363,6 +1363,28 @@ local function runCoreSelfTests()
         local missingChromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
         assert(missingChromaValue == nil,
             "unmapped Chroma incorrectly inherited the regular item's value")
+
+        -- Regression: Supreme parses "Swirly Gun" into base name "Swirly"
+        -- plus kind "Gun", while some MM2 DB builds store ItemName as "Swirly Gun".
+        local swirlyDatabase = {
+            Item = {
+                SwirlyGun = {
+                    ItemName = "Swirly Gun",
+                    ItemType = "Gun",
+                    Rarity = "Godly",
+                    Image = "rbxassetid://333333"
+                }
+            },
+            Pets = {}
+        }
+        local swirlyEntry = {
+            c = "godlies", n = "Swirly Gun", im = "Swirly Gun (Gun)",
+            v = 55, cl = "Godly"
+        }
+        local swirlyMapping = buildMapping({swirlyEntry}, swirlyDatabase)
+        state.mapped = swirlyMapping
+        local swirlyValue = valueOf(fakeTile("rbxassetid://333333", false), "Swirly Gun")
+        assert(swirlyValue == 55, "weapon name/type suffix alias mapping failed")
     end)
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
