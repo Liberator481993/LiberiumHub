@@ -44,7 +44,10 @@ def build() -> str:
     ]
     result = base[:start] + "\n".join(embedded) + base[end:]
     result = re.sub(r"^-- LIBERIUM HUB \| .*?$", "-- LIBERIUM HUB | v93 | NOVA UI + PULSEHUB VISUAL PORT", result, count=1, flags=re.MULTILINE)
-    result = result.replace("v91.70", "v93")
+    # Update only user-facing version labels; keep the underlying feature code untouched.
+    result = result.replace("MM2  /  NEON GLASS  /  v91.70", "MM2  /  PULSEHUB UI  /  v93")
+    result = result.replace("LIBERIUM HUB  /  v91.70", "LIBERIUM HUB  /  v93")
+    result = result.replace("Liberium Hub v91.70 ready", "Liberium Hub v93 ready")
     if "require(script.Parent" in result:
         raise RuntimeError("generated Keyless still contains a ModuleScript require()")
     if start_marker in result:
