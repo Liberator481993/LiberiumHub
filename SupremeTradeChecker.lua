@@ -2528,7 +2528,11 @@ else
     task.delay(8, function()
         pcall(function()
             local parent = __bootGui and __bootGui.Parent
-            local mainGui = parent and parent:FindFirstChild("SupremeTradeText")
+            local players = game:GetService("Players")
+            local localPlayer = players and players.LocalPlayer
+            local playerGui = localPlayer and localPlayer:FindFirstChildOfClass("PlayerGui")
+            local mainGui = (parent and parent:FindFirstChild("SupremeTradeText"))
+                or (playerGui and playerGui:FindFirstChild("SupremeTradeText"))
             if mainGui then
                 if __bootGui and __bootGui.Parent then __bootGui:Destroy() end
             else
