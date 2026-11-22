@@ -1723,6 +1723,7 @@ local function scanTrade()
         table.insert(lines, "RESULT: Waiting for both sides of the trade.")
     end
     table.insert(lines, removalPlanText(removalPlan))
+    table.insert(lines, "ADVISOR BUILD: 2026-11-22 / supreme-trade-advisor")
     state.latestTrade = table.concat(lines, "\n")
     return {
         yourTotal = yourTotal,
@@ -1811,12 +1812,28 @@ local function scanModuleInventory()
                 dataEntries = dataEntries + 1
                 local storedAmount = tonumber(entry.Amount)
                 local entryQuantity = storedAmount and math.max(1, math.floor(storedAmount)) or 1
-                local tile = entry.Frame
-                if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
+                local frameRef = entry.Frame
+                if typeof(frameRef) ~= "Instance" or not frameRef:IsA("GuiObject") then
                     count = count + entryQuantity
                     missingFrameEntries = missingFrameEntries + 1
                     continue
                 end
+
+                -- PulseHub stores entry.Frame as the inner NewItem widget in
+                -- some layouts, not the outer item card. Resolve the real card
+                -- by walking upward until Container.Icon is found.
+                local tile = frameRef
+                local current = frameRef
+                while current and current:IsA("GuiObject") do
+                    local cardContainer = current:FindFirstChild("Container")
+                    local cardIcon = cardContainer and cardContainer:FindFirstChild("Icon")
+                    if cardIcon and (cardIcon:IsA("ImageLabel") or cardIcon:IsA("ImageButton")) then
+                        tile = current
+                        break
+                    end
+                    current = current.Parent
+                end
+
                 if seen[tile] then continue end
                 seen[tile] = true
                 frameCount = frameCount + 1
@@ -1825,7 +1842,8 @@ local function scanModuleInventory()
                     missingFrameEntries = missingFrameEntries + 1
                     count = count + entryQuantity
                     if #frameSamples < 8 then
-                        table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
+                        table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:"
+                            .. instancePath(frameRef, playerGui))
                     end
                     continue
                 end
@@ -1834,12 +1852,13 @@ local function scanModuleInventory()
                 if tileIsVisible then
                     visibleFrames = visibleFrames + 1
                 elseif #frameSamples < 8 then
-                    table.insert(frameSamples, tostring(itemKey) .. "=>" .. instancePath(tile, playerGui)
-                        .. "{Visible=" .. tostring(tile.Visible) .. "}")
+                    table.insert(frameSamples, tostring(itemKey) .. "=>CARD:"
+                        .. instancePath(tile, playerGui) .. "{Visible=" .. tostring(tile.Visible)
+                        .. "} REF:" .. instancePath(frameRef, playerGui))
                 end
 
-                -- Do not depend on ItemName text: PulseHub's inventory tiles
-                -- are reliably identified by Container.Icon -> MM2 database.
+                -- Resolve values from the outer card, where Container.Icon and
+                -- Amount live, rather than the hidden NewItem child reference.
                 local name, quantity = itemData(tile)
                 if storedAmount and quantity <= 1 then
                     quantity = entryQuantity
@@ -1856,7 +1875,7 @@ local function scanModuleInventory()
                 if resolvedValue == nil and not tierText then
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
                 end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
+                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category, name)
             end
         end
     end
