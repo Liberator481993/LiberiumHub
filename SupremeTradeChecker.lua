@@ -1080,6 +1080,8 @@ local function scanRoot(root, group)
         local value, _, tierText, category = valueOf(tile, name)
         if not isTrackedValue(value) then
             updateTileBadge(tile, nil, quantity, group, nil, category, name)
+            recordUnmatched(tile, name, quantity,
+                group == "trade" and state.unmatchedTrade or state.unmatchedInventory)
             continue
         end
         total = total + tonumber(value) * quantity
@@ -1135,6 +1137,8 @@ local function scanImageCards(root, group)
         local value, _, tierText, category = valueOf(card, name)
         if not isTrackedValue(value) then
             updateTileBadge(card, nil, quantity, group, nil, category, name)
+            recordUnmatched(card, name, quantity,
+                group == "trade" and state.unmatchedTrade or state.unmatchedInventory)
             continue
         end
         total = total + tonumber(value) * quantity
@@ -1229,6 +1233,16 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.Text = title .. ": " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " + ?" or "")
+    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 9)
+    corner.Parent = label
+    local stroke = label:FindFirstChild("SupremeStroke") or Instance.new("UIStroke")
+    stroke.Name = "SupremeStroke"
+    stroke.Color = title == "ОТДАЁШЬ"
+        and Color3.fromRGB(151, 105, 78) or Color3.fromRGB(77, 139, 137)
+    stroke.Transparency = 0.35
+    stroke.Thickness = 1
+    stroke.Parent = label
     label.Visible = count > 0
 end
 
@@ -1458,6 +1472,9 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     end
     label.TextColor3 = color
     label.Text = advice
+    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = label
     label.Visible = true
 end
 
