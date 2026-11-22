@@ -1011,13 +1011,20 @@ local VALUE_TEXT_COLORS = {
     misc = Color3.fromRGB(190, 190, 205)
 }
 
+local MIN_TRACKED_VALUE = 0.1
+
+local function isTrackedValue(value)
+    local numeric = tonumber(value)
+    return numeric ~= nil and numeric >= MIN_TRACKED_VALUE
+end
+
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
     local container = tile and tile:FindFirstChild("Container")
     if not container then return end
 
     local existing = container:FindFirstChild("__SupremeItemValue")
-    local hasTier = type(tierText) == "string" and tierText ~= ""
-    if value == nil and not hasTier then
+    local hasTier = false
+    if not isTrackedValue(value) then
         -- Don't clutter the inventory with "N/A" or fake zero values.
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
@@ -1073,18 +1080,14 @@ local function scanRoot(root, group)
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
         local value, _, tierText, category = valueOf(tile, name)
-        if value ~= nil then
-            total = total + value * quantity
-            known = known + quantity
-        elseif tierText then
-            known = known + quantity
-            tierCount = tierCount + quantity
+        if not isTrackedValue(value) then
+            updateTileBadge(tile, nil, quantity, group, nil, category, name)
+            continue
         end
+        total = total + tonumber(value) * quantity
+        known = known + quantity
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
-            recordUnmatched(tile, name, quantity, state.unmatchedInventory)
-        end
-        updateTileBadge(tile, value, quantity, group, tierText, category, name)
+        updateTileBadge(tile, value, quantity, group, nil, category, name)
     end
     return total, known, count, tierCount
 end
@@ -1132,24 +1135,14 @@ local function scanImageCards(root, group)
 
         local name, quantity = itemData(card)
         local value, _, tierText, category = valueOf(card, name)
-        if value == nil and not tierText then
-            local amountNode = card:FindFirstChild("Container")
-                and card.Container:FindFirstChild("Amount")
-            local rawAmount = amountNode and tonumber(tostring(amountNode.Text):match("%d+"))
-            quantity = rawAmount or quantity
+        if not isTrackedValue(value) then
+            updateTileBadge(card, nil, quantity, group, nil, category, name)
+            continue
         end
-        if value ~= nil then
-            total = total + value * quantity
-            known = known + quantity
-        elseif tierText then
-            known = known + quantity
-            tierCount = tierCount + quantity
-        end
+        total = total + tonumber(value) * quantity
+        known = known + quantity
         count = count + quantity
-        if value == nil and not tierText and group == "inventory" then
-            recordUnmatched(card, name, quantity, state.unmatchedInventory)
-        end
-        updateTileBadge(card, value, quantity, group, tierText, category, name)
+        updateTileBadge(card, value, quantity, group, nil, category, name)
     end
     return total, known, count, tierCount
 end
@@ -1202,25 +1195,20 @@ local function scanOffer(offer, group)
             local value, resolvedName, tierText, category = valueOf(tile, name)
             -- Some mobile trade slots briefly have no ItemName node.
             -- A real item asset still counts as an item, even while unmatched.
-            if name or value ~= nil or tierText or hasItemIcon(tile) then
+            if isTrackedValue(value) then
+                value = tonumber(value)
                 table.insert(items, {
                     name = resolvedName or name or "Unknown item",
                     value = value,
-                    tier = tierText,
+                    tier = nil,
                     quantity = quantity
                 })
                 count = count + quantity
-                if value ~= nil then
-                    total = total + value * quantity
-                    known = known + quantity
-                elseif tierText then
-                    known = known + quantity
-                    tierCount = tierCount + quantity
-                end
-                if value == nil and not tierText then
-                    recordUnmatched(tile, name, quantity, state.unmatchedTrade)
-                end
-                updateTileBadge(tile, value, quantity, group, tierText, category, name)
+                total = total + value * quantity
+                known = known + quantity
+                updateTileBadge(tile, value, quantity, group, nil, category, name)
+            else
+                updateTileBadge(tile, nil, quantity, group, nil, category, name)
             end
         end
     end
@@ -1361,6 +1349,13 @@ local function runCoreSelfTests()
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
 
+    assert(isTrackedValue(0.1), "minimum 0.1 value should be included")
+    assert(isTrackedValue(0.5), "fractional value should be included")
+    assert(isTrackedValue(1), "integer value should be included")
+    assert(not isTrackedValue(0), "zero value should be excluded")
+    assert(not isTrackedValue(0.099), "values below 0.1 should be excluded")
+    assert(not isTrackedValue(nil), "unvalued items should be excluded")
+
     local duplicateTotal = 10 * 2 + 100 * 3
     assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
     local verdict, difference = getVerdict(200, duplicateTotal)
@@ -1450,7 +1445,7 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
             local bestItem, bestGap = nil, math.abs(difference)
             for _, item in ipairs(yourItems or {}) do
                 local itemValue = tonumber(item.value)
-                if itemValue and itemValue > 0 then
+                if isTrackedValue(itemValue) then
                     local nextGap = math.abs((yourTotal - itemValue) - theirTotal)
                     if nextGap + 0.000001 < bestGap then
                         bestItem, bestGap = item, nextGap
@@ -1641,18 +1636,15 @@ local function scanModuleInventory()
                     quantity = entryQuantity
                 end
                 local resolvedValue, _, tierText, category = valueOf(tile, name)
-                if resolvedValue ~= nil then
+                if isTrackedValue(resolvedValue) then
+                    resolvedValue = tonumber(resolvedValue)
                     total = total + resolvedValue * quantity
                     known = known + quantity
-                elseif tierText then
-                    known = known + quantity
-                    tierCount = tierCount + quantity
+                    count = count + quantity
+                    updateTileBadge(tile, resolvedValue, quantity, "inventory", nil, category)
+                else
+                    updateTileBadge(tile, nil, quantity, "inventory", nil, category)
                 end
-                count = count + quantity
-                if resolvedValue == nil and not tierText then
-                    recordUnmatched(tile, name, quantity, state.unmatchedInventory)
-                end
-                updateTileBadge(tile, resolvedValue, quantity, "inventory", tierText, category)
             end
         end
     end
@@ -1866,6 +1858,7 @@ local function scanInventory()
         .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
         .. " | Frame refs: " .. tostring(state.inventoryFrameParents)
         .. " | GUI structure: " .. tostring(state.inventoryGuiStructure)
+        .. " | Min value: 0.1+"
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
