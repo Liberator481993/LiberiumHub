@@ -1,3 +1,76 @@
+-- BOOT DIAGNOSTICS: independent of the main checker UI.
+local __bootGui, __bootFrame, __bootText
+local function __bootStage(message, detail)
+    pcall(function()
+        if not __bootText then return end
+        __bootText.Text = tostring(message or "Starting...") .. (detail and ("\n\n" .. tostring(detail)) or "")
+    end)
+end
+local function __bootFailure(err)
+    pcall(function()
+        if not __bootGui then return end
+        __bootGui.Enabled = true
+        if __bootFrame then
+            __bootFrame.Size = UDim2.new(0, 310, 0, 210)
+            __bootFrame.Position = UDim2.new(0.5, -155, 0.5, -105)
+        end
+        __bootStage("BOOT FAILED — SEND THIS REPORT", tostring(err):sub(1, 1800))
+    end)
+end
+pcall(function()
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "SupremeBootDiagnostics"
+    sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 100000
+    local parent
+    pcall(function() parent = game:GetService("CoreGui") end)
+    if parent then
+        local ok = pcall(function() sg.Parent = parent end)
+        if not ok then parent = nil end
+    end
+    if not parent then
+        local p = game:GetService("Players").LocalPlayer
+        parent = p and p:FindFirstChildOfClass("PlayerGui")
+        if not parent and p then
+            pcall(function() parent = p:WaitForChild("PlayerGui", 5) end)
+        end
+    end
+    if not parent then error("Cannot access CoreGui or PlayerGui") end
+    sg.Parent = parent
+    __bootGui = sg
+    local frame = Instance.new("Frame")
+    frame.Name = "BootPanel"
+    frame.Size = UDim2.new(0, 270, 0, 92)
+    frame.Position = UDim2.new(0.5, -135, 0.5, -46)
+    frame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+    frame.BorderSizePixel = 0
+    frame.Parent = sg
+    __bootFrame = frame
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = frame
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(115, 74, 91)
+    stroke.Transparency = 0.15
+    stroke.Parent = frame
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -22, 1, -18)
+    label.Position = UDim2.fromOffset(11, 9)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.RobotoMono
+    label.TextSize = 12
+    label.TextColor3 = Color3.fromRGB(235, 237, 243)
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.Text = "SUPREME CHECKER\\nBOOT 00/06 — INITIALIZING"
+    label.Parent = frame
+    __bootText = label
+end)
+
+local function __runSupremeChecker()
+__bootStage("BOOT 01/06 — LUA STARTED", "Loading Roblox services...")
 -- MM2 Supreme Trade Checker
 -- Inventory and trade value overlay adapted from the proven PulseHub MM2 reader.
 -- Informational only: never accepts, declines, sends, or modifies trades.
@@ -11,7 +84,10 @@ local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+__bootStage("BOOT 02/06 — PLAYER FOUND", "Waiting for PlayerGui...")
+local playerGui = player:WaitForChild("PlayerGui", 15)
+if not playerGui then error("PlayerGui did not appear within 15 seconds") end
+__bootStage("BOOT 03/06 — PLAYERGUI READY", "Preparing values and UI modules...")
 
 -- Every category linked from the current Supreme Values MM2 menu.
 -- Only VALUE_CATEGORIES are individual tradable-item value sources.
@@ -1964,6 +2040,7 @@ local function scanInventory()
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
 
+__bootStage("BOOT 04/06 — BUILDING MAIN UI", "Creating the Supreme panel...")
 -- PulseHub-inspired compact panel: Midnight surfaces, restrained Crimson accent, Roboto typography.
 local oldGui = playerGui:FindFirstChild("SupremeTradeText")
 if oldGui then pcall(function() oldGui:Destroy() end) end
@@ -2103,6 +2180,7 @@ copyStroke.Color = Color3.fromRGB(62, 66, 77)
 copyStroke.Transparency = 0.34
 copyStroke.Parent = copyButton
 
+__bootStage("BOOT 05/06 — MAIN UI CREATED", "Starting buttons and inventory/trade scanners...")
 local collapsed = true
 local expandedSize = UDim2.fromOffset(290, 274)
 local collapsedSize = UDim2.fromOffset(176, 38)
@@ -2400,6 +2478,7 @@ textGui.Destroying:Connect(function()
     stopped = true
 end)
 
+__bootStage("BOOT 06/06 — SCRIPT RUNNING", "Main panel created. Running self-tests...")
 task.spawn(function()
     task.wait(0.25)
     local testsOk, testsError = pcall(runCoreSelfTests)
@@ -2432,3 +2511,24 @@ task.spawn(function()
 end)
 
 print("[Supreme Trade Checker] PulseHub-style item mapping loaded.")
+
+end
+
+local __ok, __err = xpcall(__runSupremeChecker, function(err)
+    local trace = tostring(err)
+    pcall(function()
+        if debug and debug.traceback then trace = debug.traceback(trace, 2) end
+    end)
+    return trace
+end)
+if not __ok then
+    __bootFailure(__err)
+    warn("[Supreme Trade Checker BOOT ERROR] " .. tostring(__err))
+else
+    __bootStage("MAIN SCRIPT STARTED", "If the Supreme panel is missing, send this screen/report.")
+    task.delay(8, function()
+        pcall(function()
+            if __bootGui and __bootGui.Parent then __bootGui:Destroy() end
+        end)
+    end)
+end
