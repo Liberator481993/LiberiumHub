@@ -953,13 +953,13 @@ local function makeLabel(parent, name, group)
     if not label then
         label = Instance.new("TextLabel")
         label.Name = name
-        label.BackgroundColor3 = Color3.fromRGB(191, 235, 255)
-        label.BackgroundTransparency = 0.04
-        label.TextColor3 = Color3.fromRGB(19, 31, 55)
+        label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
+        label.BackgroundTransparency = 0.06
+        label.TextColor3 = Color3.fromRGB(236, 238, 243)
         label.TextStrokeTransparency = 1
         label.TextXAlignment = Enum.TextXAlignment.Center
         label.TextYAlignment = Enum.TextYAlignment.Center
-        label.Font = Enum.Font.GothamBold
+        label.Font = Enum.Font.Roboto
         label.TextSize = 11
         label.BorderSizePixel = 0
         label.ZIndex = 90
@@ -969,19 +969,10 @@ local function makeLabel(parent, name, group)
         corner.Parent = label
         local stroke = Instance.new("UIStroke")
         stroke.Name = "SupremeStroke"
-        stroke.Thickness = 1
-        stroke.Transparency = 0.12
-        stroke.Color = Color3.fromRGB(139, 226, 255)
+        stroke.Thickness = 0.8
+        stroke.Transparency = 0.28
+        stroke.Color = Color3.fromRGB(62, 66, 77)
         stroke.Parent = label
-        local gradient = Instance.new("UIGradient")
-        gradient.Name = "SupremeGradient"
-        gradient.Rotation = 0
-        gradient.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(190, 244, 255)),
-            ColorSequenceKeypoint.new(0.52, Color3.fromRGB(205, 220, 255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(224, 196, 255))
-        })
-        gradient.Parent = label
     end
     label:SetAttribute("SupremeOwner", group)
     return label
@@ -1007,14 +998,14 @@ local function ensureTextGradient(label)
     return gradient
 end
 
+-- Restrained category tints, matching PulseHub's dark surfaces and muted accents.
 local VALUE_TEXT_COLORS = {
-    uniques = Color3.fromRGB(255, 196, 92), godlies = Color3.fromRGB(194, 125, 255),
-    chromas = Color3.fromRGB(255, 105, 205), ancients = Color3.fromRGB(255, 105, 125),
-    vintages = Color3.fromRGB(255, 174, 105), legendaries = Color3.fromRGB(255, 151, 88),
-    -- Swap the two low-tier accents to match the in-game item color mapping.
-    rares = Color3.fromRGB(94, 220, 171), uncommons = Color3.fromRGB(104, 174, 255),
-    commons = Color3.fromRGB(228, 235, 248), pets = Color3.fromRGB(116, 225, 210),
-    misc = Color3.fromRGB(190, 190, 205)
+    uniques = Color3.fromRGB(198, 164, 108), godlies = Color3.fromRGB(177, 151, 204),
+    chromas = Color3.fromRGB(190, 139, 170), ancients = Color3.fromRGB(194, 132, 142),
+    vintages = Color3.fromRGB(190, 151, 119), legendaries = Color3.fromRGB(190, 139, 108),
+    rares = Color3.fromRGB(119, 177, 150), uncommons = Color3.fromRGB(130, 155, 187),
+    commons = Color3.fromRGB(196, 201, 211), pets = Color3.fromRGB(126, 174, 166),
+    misc = Color3.fromRGB(165, 166, 178)
 }
 
 local MIN_TRACKED_VALUE = 0.1
@@ -1037,10 +1028,10 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     end
 
     local label = makeLabel(container, "__SupremeItemValue", group)
-    label.BackgroundTransparency = 0.04
-    label.BackgroundColor3 = Color3.fromRGB(191, 235, 255)
+    label.BackgroundTransparency = 0.06
+    label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
     label.BorderSizePixel = 0
-    label.Font = Enum.Font.GothamBold
+    label.Font = Enum.Font.Roboto
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextScaled = true
@@ -1054,27 +1045,27 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.Size = UDim2.new(0, 58, 0, 19)
 
     if value ~= nil then
-        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(95, 185, 235)
+        local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(190, 196, 207)
         if normalize(itemName) == "emberbow" then
-            accent = Color3.fromRGB(255, 130, 145)
+            accent = Color3.fromRGB(194, 132, 142)
         end
-        local backgroundGradient = label:FindFirstChild("SupremeGradient")
-        if backgroundGradient then
-            local pale = accent:Lerp(Color3.fromRGB(255, 255, 255), 0.64)
-            backgroundGradient.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, pale:Lerp(Color3.fromRGB(191, 244, 255), 0.45)),
-                ColorSequenceKeypoint.new(1, pale:Lerp(Color3.fromRGB(226, 205, 255), 0.38))
-            })
+        local oldGradient = label:FindFirstChild("SupremeGradient")
+        if oldGradient then oldGradient:Destroy() end
+        local stroke = label:FindFirstChild("SupremeStroke")
+        if stroke and stroke:IsA("UIStroke") then
+            stroke.Color = Color3.fromRGB(62, 66, 77)
+            stroke.Transparency = 0.28
+            stroke.Thickness = 0.8
         end
         label.Text = formatValue(value)
             .. (quantity > 1 and (" ×" .. tostring(quantity)) or "")
-        label.TextColor3 = Color3.fromRGB(20, 32, 55)
+        label.TextColor3 = accent
     else
         stripDefaultLabelDecorations(label)
         local oldGradient = label:FindFirstChild("SupremeTextGradient")
         if oldGradient then oldGradient:Destroy() end
         label.Text = tostring(tierText):match("[Tt]%d+") or "TIER"
-        label.TextColor3 = Color3.fromRGB(255, 190, 75)
+        label.TextColor3 = Color3.fromRGB(198, 164, 108)
     end
     label.Visible = true
 end
@@ -1225,22 +1216,16 @@ end
 local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
     local label = makeLabel(parent, name, group)
-    local gradient = ensureTextGradient(label)
+    stripDefaultLabelDecorations(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
     label.Position = UDim2.new(0.5, 0, 0, 5)
     label.Size = UDim2.fromOffset(250, 24)
     label.BackgroundTransparency = 1
     label.TextSize = 13
-    label.Font = Enum.Font.GothamBlack
-    label.TextStrokeColor3 = Color3.fromRGB(5, 7, 12)
-    label.TextStrokeTransparency = 0.14
+    label.Font = Enum.Font.Roboto
+    label.TextStrokeTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Center
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    gradient.Rotation = 90
-    gradient.Color = ColorSequence.new(
-        Color3.fromRGB(255, 255, 255),
-        Color3.fromRGB(105, 190, 255)
-    )
+    label.TextColor3 = Color3.fromRGB(236, 238, 243)
     label.Text = title .. ": " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
         .. (known < count and " + ?" or "")
@@ -1383,33 +1368,32 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     label.Size = UDim2.fromOffset(230, 26)
     label.BackgroundTransparency = 1
     label.ZIndex = 150
-    label.Font = Enum.Font.GothamBlack
-    label.TextSize = 15
+    label.Font = Enum.Font.Roboto
+    label.TextSize = 14
     label.TextScaled = true
     label.TextWrapped = false
-    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
-    label.TextStrokeTransparency = 0.12
+    label.TextStrokeTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
-        caption, color = "ОЖИДАНИЕ ПРЕДМЕТОВ", Color3.fromRGB(225, 232, 245)
+        caption, color = "ОЖИДАНИЕ ПРЕДМЕТОВ", Color3.fromRGB(196, 201, 211)
     elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(255, 190, 65)
+        caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(198, 164, 108)
     elseif yourKnown < yourCount or theirKnown < theirCount then
         caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(255, 190, 65)
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         if verdict == "WIN" then
             caption = "ПЛЮС  +" .. formatValue(difference)
-            color = Color3.fromRGB(45, 255, 135)
+            color = Color3.fromRGB(102, 183, 143)
         elseif verdict == "LOSE" then
             caption = "МИНУС  " .. formatValue(difference)
-            color = Color3.fromRGB(255, 65, 85)
+            color = Color3.fromRGB(201, 111, 124)
         else
             caption = "РОВНЫЙ ОБМЕН  " .. formatValue(difference)
-            color = Color3.fromRGB(75, 195, 255)
+            color = Color3.fromRGB(130, 166, 190)
         end
     end
 
@@ -1429,13 +1413,12 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     label.Size = UDim2.fromOffset(290, 20)
     label.BackgroundTransparency = 1
     label.ZIndex = 150
-    label.Font = Enum.Font.GothamBold
+    label.Font = Enum.Font.Roboto
     label.TextSize = 11
     label.TextScaled = true
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
-    label.TextStrokeColor3 = Color3.fromRGB(4, 6, 10)
-    label.TextStrokeTransparency = 0.2
+    label.TextStrokeTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -1462,13 +1445,13 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
             if bestItem then
                 advice = "УБРАТЬ/ЗАМЕНИТЬ: " .. tostring(bestItem.name)
                     .. (bestItem.quantity > 1 and " (1 шт.)" or "")
-                color = Color3.fromRGB(255, 190, 105)
+                color = Color3.fromRGB(194, 151, 105)
             else
                 advice = "ПОПРОСИ ДОПЛАТУ: +" .. formatValue(math.abs(difference))
                 color = Color3.fromRGB(255, 190, 105)
             end
         elseif verdict == "WIN" then
-            advice, color = "Ты в плюсе — не добавляй предметы без необходимости", Color3.fromRGB(90, 235, 165)
+            advice, color = "Ты в плюсе — не добавляй предметы без необходимости", Color3.fromRGB(102, 183, 143)
         else
             advice, color = "Баланс ровный — менять предметы не требуется", Color3.fromRGB(105, 195, 255)
         end
@@ -1871,7 +1854,7 @@ local function scanInventory()
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
 
--- Premium compact glass panel: native Roblox UI + TweenService keeps it executor-friendly.
+-- PulseHub-inspired compact panel: Midnight surfaces, restrained Crimson accent, Roboto typography.
 local oldGui = playerGui:FindFirstChild("SupremeTradeText")
 if oldGui then pcall(function() oldGui:Destroy() end) end
 
@@ -1888,8 +1871,8 @@ panel.Name = "SupremePanel"
 panel.Size = UDim2.fromOffset(290, 225)
 panel.Position = UDim2.new(1, -12, 0, 88)
 panel.AnchorPoint = Vector2.new(1, 0)
-panel.BackgroundColor3 = Color3.fromRGB(39, 53, 82)
-panel.BackgroundTransparency = 0.045
+panel.BackgroundColor3 = Color3.fromRGB(20, 22, 27)
+panel.BackgroundTransparency = 0.06
 panel.BorderSizePixel = 0
 panel.ZIndex = 200
 panel.Parent = textGui
@@ -1897,25 +1880,17 @@ panel.Parent = textGui
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 15)
 panelCorner.Parent = panel
-local panelGradient = Instance.new("UIGradient")
-panelGradient.Rotation = 135
-panelGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(69, 94, 139)),
-    ColorSequenceKeypoint.new(0.52, Color3.fromRGB(40, 58, 91)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(91, 62, 130))
-})
-panelGradient.Parent = panel
 local panelStroke = Instance.new("UIStroke")
-panelStroke.Thickness = 1.35
-panelStroke.Transparency = 0.06
-panelStroke.Color = Color3.fromRGB(129, 221, 255)
+panelStroke.Thickness = 1
+panelStroke.Transparency = 0.16
+panelStroke.Color = Color3.fromRGB(45, 48, 56)
 panelStroke.Parent = panel
 
 local headerLine = Instance.new("Frame")
 headerLine.Size = UDim2.new(1, -22, 0, 1)
 headerLine.Position = UDim2.fromOffset(11, 37)
-headerLine.BackgroundColor3 = Color3.fromRGB(172, 218, 255)
-headerLine.BackgroundTransparency = 0.24
+headerLine.BackgroundColor3 = Color3.fromRGB(48, 51, 59)
+headerLine.BackgroundTransparency = 0.18
 headerLine.BorderSizePixel = 0
 headerLine.ZIndex = 201
 headerLine.Parent = panel
@@ -1924,11 +1899,11 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -48, 0, 34)
 title.Position = UDim2.fromOffset(10, 0)
 title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBold
-title.TextSize = 12
-title.TextColor3 = Color3.fromRGB(242, 249, 255)
+title.Font = Enum.Font.Roboto
+title.TextSize = 13
+title.TextColor3 = Color3.fromRGB(236, 238, 243)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "✦  SUPREME CHECKER"
+title.Text = "SUPREME CHECKER"
 title.Active = true
 title.ZIndex = 201
 title.Parent = panel
@@ -1936,11 +1911,11 @@ title.Parent = panel
 local toggle = Instance.new("TextButton")
 toggle.Size = UDim2.fromOffset(34, 30)
 toggle.Position = UDim2.new(1, -38, 0, 2)
-toggle.BackgroundColor3 = Color3.fromRGB(89, 129, 190)
+toggle.BackgroundColor3 = Color3.fromRGB(34, 37, 45)
 toggle.BorderSizePixel = 0
-toggle.Font = Enum.Font.GothamBold
+toggle.Font = Enum.Font.Roboto
 toggle.TextSize = 16
-toggle.TextColor3 = Color3.new(1, 1, 1)
+toggle.TextColor3 = Color3.fromRGB(196, 201, 211)
 toggle.Text = "+"
 toggle.ZIndex = 202
 toggle.Parent = panel
@@ -1952,8 +1927,8 @@ local output = Instance.new("TextBox")
 output.Name = "DiagnosticText"
 output.Size = UDim2.new(1, -20, 1, -164)
 output.Position = UDim2.fromOffset(10, 78)
-output.BackgroundColor3 = Color3.fromRGB(25, 39, 63)
-output.BackgroundTransparency = 0.08
+output.BackgroundColor3 = Color3.fromRGB(15, 16, 20)
+output.BackgroundTransparency = 0.04
 output.BorderSizePixel = 0
 output.ClearTextOnFocus = false
 output.MultiLine = true
@@ -1961,9 +1936,9 @@ output.TextEditable = true
 output.TextWrapped = false
 output.TextXAlignment = Enum.TextXAlignment.Left
 output.TextYAlignment = Enum.TextYAlignment.Top
-output.Font = Enum.Font.Code
+output.Font = Enum.Font.RobotoMono
 output.TextSize = 10
-output.TextColor3 = Color3.fromRGB(241, 247, 255)
+output.TextColor3 = Color3.fromRGB(196, 201, 211)
 output.Text = "Connecting to Supreme Values..."
 output.ZIndex = 201
 output.Parent = panel
@@ -1971,19 +1946,19 @@ local outputCorner = Instance.new("UICorner")
 outputCorner.CornerRadius = UDim.new(0, 9)
 outputCorner.Parent = output
 local outputStroke = Instance.new("UIStroke")
-outputStroke.Color = Color3.fromRGB(133, 195, 239)
-outputStroke.Transparency = 0.3
+outputStroke.Color = Color3.fromRGB(45, 48, 56)
+outputStroke.Transparency = 0.24
 outputStroke.Parent = output
 
 local hopButton = Instance.new("TextButton")
 hopButton.Name = "SupremeHopServer"
 hopButton.Size = UDim2.new(1, -20, 0, 34)
 hopButton.Position = UDim2.new(0, 10, 1, -79)
-hopButton.BackgroundColor3 = Color3.fromRGB(57, 104, 204)
+hopButton.BackgroundColor3 = Color3.fromRGB(112, 48, 61)
 hopButton.BorderSizePixel = 0
-hopButton.Font = Enum.Font.GothamBold
+hopButton.Font = Enum.Font.Roboto
 hopButton.TextSize = 12
-hopButton.TextColor3 = Color3.fromRGB(248, 251, 255)
+hopButton.TextColor3 = Color3.fromRGB(244, 238, 240)
 hopButton.Text = "↗   HOP SERVER"
 hopButton.AutoButtonColor = false
 hopButton.ZIndex = 205
@@ -1991,16 +1966,9 @@ hopButton.Parent = panel
 local hopCorner = Instance.new("UICorner")
 hopCorner.CornerRadius = UDim.new(0, 9)
 hopCorner.Parent = hopButton
-local hopGradient = Instance.new("UIGradient")
-hopGradient.Rotation = 0
-hopGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(70, 190, 255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(165, 111, 255))
-})
-hopGradient.Parent = hopButton
 local hopStroke = Instance.new("UIStroke")
-hopStroke.Color = Color3.fromRGB(211, 239, 255)
-hopStroke.Transparency = 0.32
+hopStroke.Color = Color3.fromRGB(150, 83, 96)
+hopStroke.Transparency = 0.42
 hopStroke.Thickness = 1
 hopStroke.Parent = hopButton
 
@@ -2008,12 +1976,12 @@ local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
 copyButton.Size = UDim2.new(1, -20, 0, 32)
 copyButton.Position = UDim2.new(0, 10, 1, -39)
-copyButton.BackgroundColor3 = Color3.fromRGB(55, 79, 119)
+copyButton.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
 copyButton.BorderSizePixel = 0
 copyButton.AutoButtonColor = false
-copyButton.Font = Enum.Font.GothamBold
+copyButton.Font = Enum.Font.Roboto
 copyButton.TextSize = 12
-copyButton.TextColor3 = Color3.new(1, 1, 1)
+copyButton.TextColor3 = Color3.fromRGB(210, 213, 220)
 copyButton.Text = "COPY FULL DIAGNOSTIC"
 copyButton.ZIndex = 205
 copyButton.Parent = panel
@@ -2021,8 +1989,8 @@ local copyCorner = Instance.new("UICorner")
 copyCorner.CornerRadius = UDim.new(0, 9)
 copyCorner.Parent = copyButton
 local copyStroke = Instance.new("UIStroke")
-copyStroke.Color = Color3.fromRGB(157, 206, 246)
-copyStroke.Transparency = 0.38
+copyStroke.Color = Color3.fromRGB(62, 66, 77)
+copyStroke.Transparency = 0.34
 copyStroke.Parent = copyButton
 
 local collapsed = true
@@ -2039,7 +2007,7 @@ local function setCollapsed(value)
     copyButton.Visible = not collapsed
     headerLine.Visible = not collapsed
     toggle.Text = collapsed and "+" or "−"
-    title.Text = collapsed and "✦  SUPREME" or (state.status == "ok" and "✦  SUPREME CHECKER  •  READY" or "✦  SUPREME CHECKER  •  " .. string.upper(state.status))
+    title.Text = collapsed and "SUPREME" or (state.status == "ok" and "SUPREME CHECKER  /  READY" or "SUPREME CHECKER  /  " .. string.upper(state.status))
 end
 toggle.Activated:Connect(function()
     setCollapsed(not collapsed)
@@ -2111,7 +2079,7 @@ hopButton.Activated:Connect(function()
     if hopBusy then return end
     hopBusy = true
     hopButton.Text = "◌   SEARCHING SERVERS..."
-    hopButton.BackgroundColor3 = Color3.fromRGB(51, 76, 130)
+    hopButton.BackgroundColor3 = Color3.fromRGB(82, 43, 53)
     hopStatus = "Searching public servers..."
     task.spawn(function()
         local ok, result = pcall(function()
@@ -2261,9 +2229,9 @@ end)
 
 local function updateUi()
     if state.status == "ok" then
-        title.Text = collapsed and "SUPREME" or "SUPREME — READY"
+        title.Text = collapsed and "SUPREME" or "SUPREME  /  READY"
     else
-        title.Text = collapsed and "SUPREME" or "SUPREME — " .. string.upper(state.status)
+        title.Text = collapsed and "SUPREME" or "SUPREME  /  " .. string.upper(state.status)
     end
     output.Text = buildDiagnostic()
 end
