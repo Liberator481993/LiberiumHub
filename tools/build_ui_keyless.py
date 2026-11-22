@@ -15,7 +15,7 @@ def read_text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 def wrap_module(name: str, source: str) -> str:
-    return f"local {name} = (function()\\n{source.rstrip()}\\nend)()\\n"
+    return f"local {name} = (function()\n{source.rstrip()}\nend)()\n"
 
 def build() -> str:
     base = read_text("src/legacy/Keyless.base.lua")
@@ -23,7 +23,7 @@ def build() -> str:
     theme = read_text("src/ui/Theme.lua")
     window = read_text("src/ui/Window.lua")
     adapter = read_text("src/ui/LegacyAdapter.lua")
-    start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\\n"
+    start_marker = "local Win, Tab, Sub, Sec = {}, {}, {}, {}\n"
     end_marker = "local Config = ConfigManager.new()"
     start = base.find(start_marker)
     end = base.find(end_marker, start)
@@ -34,16 +34,16 @@ def build() -> str:
     adapter = adapter.replace("local Window = require(script.Parent.Window)", "local Window = EmbeddedWindow", 1)
     adapter = adapter.replace("v92 • NOVA", "v93 • NOVA")
     embedded = [
-        "-- v93 Nova UI modules embedded for executor compatibility.",
+        "-- v93 Nova UI modules are embedded for executor compatibility.",
         wrap_module("EmbeddedMaid", maid),
         wrap_module("EmbeddedTheme", theme),
         wrap_module("EmbeddedWindow", window),
         wrap_module("EmbeddedAdapter", adapter),
-        "local Lib = EmbeddedAdapter.create(EmbeddedWindow)\\n",
+        "local Lib = EmbeddedAdapter.create(EmbeddedWindow)\n",
         "",
     ]
-    result = base[:start] + "\\n".join(embedded) + base[end:]
-    result = re.sub(r"^-- LIBERIUM HUB \\| .*?$", "-- LIBERIUM HUB | v93 | NOVA UI + PULSEHUB VISUAL PORT", result, count=1, flags=re.MULTILINE)
+    result = base[:start] + "\n".join(embedded) + base[end:]
+    result = re.sub(r"^-- LIBERIUM HUB \| .*?$", "-- LIBERIUM HUB | v93 | NOVA UI + PULSEHUB VISUAL PORT", result, count=1, flags=re.MULTILINE)
     result = result.replace("v91.70", "v93")
     if "require(script.Parent" in result:
         raise RuntimeError("generated Keyless still contains a ModuleScript require()")
@@ -55,7 +55,7 @@ def main() -> int:
     output = ROOT / "Keyless"
     try:
         result = build()
-        output.write_text(result, encoding="utf-8", newline="\\n")
+        output.write_text(result, encoding="utf-8", newline="\n")
         print(f"Built Keyless ({len(result):,} characters)")
         return 0
     except Exception as error:
