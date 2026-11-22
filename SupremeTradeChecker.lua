@@ -7,6 +7,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -1864,7 +1866,7 @@ local function scanInventory()
         .. " | PlayerGui: " .. tostring(state.inventoryScreenList)
 end
 
--- Minimal diagnostics panel.
+-- Premium compact glass panel: native Roblox UI + TweenService keeps it executor-friendly.
 local oldGui = playerGui:FindFirstChild("SupremeTradeText")
 if oldGui then pcall(function() oldGui:Destroy() end) end
 
@@ -1881,11 +1883,37 @@ panel.Name = "SupremePanel"
 panel.Size = UDim2.fromOffset(290, 225)
 panel.Position = UDim2.new(1, -12, 0, 88)
 panel.AnchorPoint = Vector2.new(1, 0)
-panel.BackgroundColor3 = Color3.fromRGB(16, 19, 29)
-panel.BackgroundTransparency = 0.08
+panel.BackgroundColor3 = Color3.fromRGB(12, 16, 29)
+panel.BackgroundTransparency = 0.06
 panel.BorderSizePixel = 0
 panel.ZIndex = 200
 panel.Parent = textGui
+
+local panelCorner = Instance.new("UICorner")
+panelCorner.CornerRadius = UDim.new(0, 15)
+panelCorner.Parent = panel
+local panelGradient = Instance.new("UIGradient")
+panelGradient.Rotation = 135
+panelGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(23, 31, 53)),
+    ColorSequenceKeypoint.new(0.55, Color3.fromRGB(12, 16, 29)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(27, 17, 47))
+})
+panelGradient.Parent = panel
+local panelStroke = Instance.new("UIStroke")
+panelStroke.Thickness = 1.25
+panelStroke.Transparency = 0.18
+panelStroke.Color = Color3.fromRGB(91, 157, 255)
+panelStroke.Parent = panel
+
+local headerLine = Instance.new("Frame")
+headerLine.Size = UDim2.new(1, -22, 0, 1)
+headerLine.Position = UDim2.fromOffset(11, 37)
+headerLine.BackgroundColor3 = Color3.fromRGB(83, 111, 160)
+headerLine.BackgroundTransparency = 0.55
+headerLine.BorderSizePixel = 0
+headerLine.ZIndex = 201
+headerLine.Parent = panel
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -48, 0, 34)
@@ -1893,9 +1921,9 @@ title.Position = UDim2.fromOffset(10, 0)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
-title.TextColor3 = Color3.fromRGB(120, 220, 255)
+title.TextColor3 = Color3.fromRGB(172, 213, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "SUPREME — LOADING"
+title.Text = "✦  SUPREME CHECKER"
 title.Active = true
 title.ZIndex = 201
 title.Parent = panel
@@ -1903,7 +1931,7 @@ title.Parent = panel
 local toggle = Instance.new("TextButton")
 toggle.Size = UDim2.fromOffset(34, 30)
 toggle.Position = UDim2.new(1, -38, 0, 2)
-toggle.BackgroundColor3 = Color3.fromRGB(35, 95, 125)
+toggle.BackgroundColor3 = Color3.fromRGB(41, 74, 119)
 toggle.BorderSizePixel = 0
 toggle.Font = Enum.Font.GothamBold
 toggle.TextSize = 16
@@ -1911,13 +1939,16 @@ toggle.TextColor3 = Color3.new(1, 1, 1)
 toggle.Text = "+"
 toggle.ZIndex = 202
 toggle.Parent = panel
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 9)
+toggleCorner.Parent = toggle
 
 local output = Instance.new("TextBox")
 output.Name = "DiagnosticText"
 output.Size = UDim2.new(1, -20, 1, -82)
 output.Position = UDim2.fromOffset(10, 78)
-output.BackgroundColor3 = Color3.fromRGB(9, 11, 18)
-output.BackgroundTransparency = 0.1
+output.BackgroundColor3 = Color3.fromRGB(7, 10, 19)
+output.BackgroundTransparency = 0.12
 output.BorderSizePixel = 0
 output.ClearTextOnFocus = false
 output.MultiLine = true
@@ -1931,35 +1962,175 @@ output.TextColor3 = Color3.fromRGB(225, 231, 242)
 output.Text = "Connecting to Supreme Values..."
 output.ZIndex = 201
 output.Parent = panel
+local outputCorner = Instance.new("UICorner")
+outputCorner.CornerRadius = UDim.new(0, 9)
+outputCorner.Parent = output
+local outputStroke = Instance.new("UIStroke")
+outputStroke.Color = Color3.fromRGB(63, 91, 139)
+outputStroke.Transparency = 0.55
+outputStroke.Parent = output
+
+local hopButton = Instance.new("TextButton")
+hopButton.Name = "SupremeHopServer"
+hopButton.Size = UDim2.new(1, -20, 0, 34)
+hopButton.Position = UDim2.new(0, 10, 1, -79)
+hopButton.BackgroundColor3 = Color3.fromRGB(57, 104, 204)
+hopButton.BorderSizePixel = 0
+hopButton.Font = Enum.Font.GothamBold
+hopButton.TextSize = 12
+hopButton.TextColor3 = Color3.fromRGB(248, 251, 255)
+hopButton.Text = "↗   HOP SERVER"
+hopButton.AutoButtonColor = false
+hopButton.ZIndex = 205
+hopButton.Parent = panel
+local hopCorner = Instance.new("UICorner")
+hopCorner.CornerRadius = UDim.new(0, 9)
+hopCorner.Parent = hopButton
+local hopGradient = Instance.new("UIGradient")
+hopGradient.Rotation = 0
+hopGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(62, 132, 245)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(133, 82, 235))
+})
+hopGradient.Parent = hopButton
+local hopStroke = Instance.new("UIStroke")
+hopStroke.Color = Color3.fromRGB(159, 194, 255)
+hopStroke.Transparency = 0.68
+hopStroke.Thickness = 1
+hopStroke.Parent = hopButton
 
 local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
 copyButton.Size = UDim2.new(1, -20, 0, 32)
 copyButton.Position = UDim2.new(0, 10, 1, -39)
-copyButton.BackgroundColor3 = Color3.fromRGB(35, 125, 145)
+copyButton.BackgroundColor3 = Color3.fromRGB(24, 42, 63)
 copyButton.BorderSizePixel = 0
+copyButton.AutoButtonColor = false
 copyButton.Font = Enum.Font.GothamBold
 copyButton.TextSize = 12
 copyButton.TextColor3 = Color3.new(1, 1, 1)
 copyButton.Text = "COPY FULL DIAGNOSTIC"
 copyButton.ZIndex = 205
 copyButton.Parent = panel
+local copyCorner = Instance.new("UICorner")
+copyCorner.CornerRadius = UDim.new(0, 9)
+copyCorner.Parent = copyButton
+local copyStroke = Instance.new("UIStroke")
+copyStroke.Color = Color3.fromRGB(88, 133, 175)
+copyStroke.Transparency = 0.65
+copyStroke.Parent = copyButton
 
 local collapsed = true
-local expandedSize = UDim2.fromOffset(290, 225)
-local collapsedSize = UDim2.fromOffset(150, 34)
+local expandedSize = UDim2.fromOffset(290, 274)
+local collapsedSize = UDim2.fromOffset(176, 38)
 local function setCollapsed(value)
     collapsed = value
-    panel.Size = collapsed and collapsedSize or expandedSize
+    local targetSize = collapsed and collapsedSize or expandedSize
+    TweenService:Create(panel, TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+        Size = targetSize
+    }):Play()
     output.Visible = not collapsed
+    hopButton.Visible = not collapsed
     copyButton.Visible = not collapsed
+    headerLine.Visible = not collapsed
     toggle.Text = collapsed and "+" or "−"
-    title.Text = collapsed and "SUPREME" or (state.status == "ok" and "SUPREME — READY" or "SUPREME — " .. string.upper(state.status))
+    title.Text = collapsed and "✦  SUPREME" or (state.status == "ok" and "✦  SUPREME CHECKER  •  READY" or "✦  SUPREME CHECKER  •  " .. string.upper(state.status))
 end
 toggle.Activated:Connect(function()
     setCollapsed(not collapsed)
 end)
 setCollapsed(true)
+
+local hopBusy = false
+local hopStatus = "Ready to find a new public server"
+
+local function httpGetJson(url)
+    local body
+    local requestFn
+    if type(request) == "function" then
+        requestFn = request
+    elseif type(http_request) == "function" then
+        requestFn = http_request
+    elseif type(syn) == "table" and type(syn.request) == "function" then
+        requestFn = syn.request
+    end
+
+    if requestFn then
+        local ok, response = pcall(requestFn, {Url = url, Method = "GET"})
+        if ok and type(response) == "table" then
+            local statusCode = tonumber(response.StatusCode or response.Status or 200)
+            if statusCode and statusCode >= 200 and statusCode < 300 then
+                body = response.Body or response.body
+            end
+        end
+    end
+    if type(body) ~= "string" or body == "" then
+        local ok, response = pcall(function() return game:HttpGet(url) end)
+        if ok and type(response) == "string" then body = response end
+    end
+    if type(body) ~= "string" or body == "" then
+        error("HTTP request unavailable in this executor")
+    end
+    return HttpService:JSONDecode(body)
+end
+
+local function findHopServer()
+    local cursor = nil
+    local candidates = {}
+    for page = 1, 4 do
+        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+            .. "/servers/Public?sortOrder=Asc&limit=100&excludeFullGames=true"
+        if cursor and cursor ~= "" then
+            url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+        end
+        local payload = httpGetJson(url)
+        for _, server in ipairs(payload.data or {}) do
+            local serverId = tostring(server.id or "")
+            local playing = tonumber(server.playing) or 0
+            local maximum = tonumber(server.maxPlayers) or 0
+            if serverId ~= "" and serverId ~= game.JobId
+                and playing < maximum and maximum > 0 then
+                table.insert(candidates, server)
+            end
+        end
+        cursor = payload.nextPageCursor
+        if #candidates >= 12 or not cursor then break end
+    end
+    if #candidates == 0 then
+        error("No available public servers found")
+    end
+    return candidates[math.random(1, #candidates)]
+end
+
+hopButton.Activated:Connect(function()
+    if hopBusy then return end
+    hopBusy = true
+    hopButton.Text = "◌   SEARCHING SERVERS..."
+    hopButton.BackgroundColor3 = Color3.fromRGB(51, 76, 130)
+    hopStatus = "Searching public servers..."
+    task.spawn(function()
+        local ok, result = pcall(function()
+            local server = findHopServer()
+            hopStatus = "Found server • " .. tostring(server.playing) .. "/" .. tostring(server.maxPlayers)
+            hopButton.Text = "↗   TELEPORTING..."
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
+            return server.id
+        end)
+        if not ok then
+            hopStatus = "Hop failed: " .. tostring(result)
+            hopButton.Text = "↻   TRY AGAIN"
+            hopBusy = false
+            warn("[Supreme Trade Checker] Hop server failed: " .. tostring(result))
+        end
+    end)
+end)
+
+hopButton.MouseButton1Down:Connect(function()
+    TweenService:Create(hopButton, TweenInfo.new(0.09), {Size = UDim2.new(1, -24, 0, 32)}):Play()
+end)
+hopButton.MouseButton1Up:Connect(function()
+    TweenService:Create(hopButton, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Size = UDim2.new(1, -20, 0, 34)}):Play()
+end)
 
 local function copyText(text)
     local methods = {
@@ -2088,6 +2259,9 @@ local function updateUi()
         title.Text = collapsed and "SUPREME" or "SUPREME — " .. string.upper(state.status)
     end
     output.Text = buildDiagnostic()
+    if hopButton and hopButton.Parent and not hopBusy then
+        hopButton.Text = "↗   HOP SERVER"
+    end
 end
 
 textGui.Destroying:Connect(function()
