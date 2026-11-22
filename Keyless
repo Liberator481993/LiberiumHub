@@ -4576,4 +4576,4 @@ if CFG.AntiFling then Stabilizer.Start() end
 -- Status is client-side only; a disappeared GunDrop is not proof the server granted the weapon.
 
 -- v91.69: bounded startup readiness checks prevent nil LocalPlayer access and indefinite PlayerGui waits on early Delta execution.
--- v93: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- Static source validation only; in-game execution still requires an on-device Delta test.
+-- v91.70: brand refresh updates the visible product title, status pill, footer and startup notice;\n-- existing feature code and UI control API are intentionally preserved.\n-- Static source validation only; in-game execution still requires an on-device Delta test.
