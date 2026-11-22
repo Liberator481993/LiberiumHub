@@ -1366,7 +1366,7 @@ function SV:_addPlayer(player) if self._destroyed or player == Players.LocalPlay
     end
 end function SV:SetColor(color) if self._destroyed or typeof(color) ~= "Color3" then return end self._color = color local sequence = ColorSequence.new(color) for _, state in pairs(self._players) do for _, beam in ipairs(state.beams) do beam.Color = sequence end end end function SV:Destroy() if self._destroyed then return end self._destroyed = true for _, conn in ipairs(self._connections) do pcall(function() conn:Disconnect() end) end table.clear(self._connections) local players = {} for player in pairs(self._players) do table.insert(players, player) end for _, player in ipairs(players) do self:_removePlayer(player) end end return SV end)()
 
--- v93 Nova UI modules embedded for executor compatibility.
+-- v93 Nova UI modules are embedded for executor compatibility.
 local EmbeddedMaid = (function()
 -- Liberium Hub | Resource lifetime manager
 -- Shared cleanup primitive for UI pages, controls, input bindings and feature sessions.
