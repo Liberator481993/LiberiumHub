@@ -1728,7 +1728,7 @@ local function scanTrade()
         table.insert(lines, "ИТОГ: ожидаю, пока обе стороны добавят предметы.")
     end
     table.insert(lines, removalPlanText(removalPlan))
-    table.insert(lines, "ВЕРСИЯ СОВЕТНИКА: 2026-11-22 / supreme-trade-advisor")
+    table.insert(lines, "ВЕРСИЯ СОВЕТНИКА: 2026-11-22 / RU-BALANCE-2")
     state.latestTrade = table.concat(lines, "\n")
     return {
         yourTotal = yourTotal,
