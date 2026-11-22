@@ -1688,12 +1688,31 @@ local function scanModuleInventory()
     end
 
     if guiInstance then
-        local guiTiles = getTiles(guiInstance)
-        local _, guiKnown, guiCount = scanRoot(guiInstance, "inventoryOverlay")
-        scanImageCards(guiInstance, "inventoryOverlay")
+        -- Only scan actual inventory item grids. Scanning the whole Main frame
+        -- also catches Craft/Recycle/action previews and inflates GUI totals.
+        local main = guiInstance:FindFirstChild("Main")
+        local weapons = main and main:FindFirstChild("Weapons")
+        local pets = main and main:FindFirstChild("Pets")
+        local weaponRoot = weapons and weapons:FindFirstChild("Items")
+        local petRoot = pets and pets:FindFirstChild("Items")
+        local guiTiles = {}
+        local guiKnown, guiCount = 0, 0
+        for _, root in ipairs({weaponRoot, petRoot}) do
+            if root and root:IsA("GuiObject") then
+                for _, tile in ipairs(getTiles(root)) do
+                    table.insert(guiTiles, tile)
+                end
+                local _, known, count = scanRoot(root, "inventoryOverlay")
+                guiKnown = guiKnown + (known or 0)
+                guiCount = guiCount + (count or 0)
+                scanImageCards(root, "inventoryOverlay")
+            end
+        end
         state.inventoryGuiFrames = #guiTiles
-        state.inventoryGuiValued = guiKnown or 0
-        state.inventoryGuiItems = guiCount or 0
+        state.inventoryGuiValued = guiKnown
+        state.inventoryGuiItems = guiCount
+        state.inventoryGuiPath = "InventoryModule.GUI.MyInventory.Main.Weapons.Items"
+            .. (petRoot and " + Pets.Items" or "")
 
         local classCounts, samples = {}, {}
         local descendants = guiInstance:GetDescendants()
@@ -1724,7 +1743,6 @@ local function scanModuleInventory()
 
     -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
     -- Put the running total on the visible inventory page when available.
-    local guiInstance = typeof(gui) == "Instance" and gui or nil
     local main = guiInstance and guiInstance:FindFirstChild("Main")
     local totalParent = main or guiInstance
     if totalParent and totalParent:IsA("GuiObject") then
