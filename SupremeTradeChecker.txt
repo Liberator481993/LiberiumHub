@@ -2048,26 +2048,33 @@ local function httpGetJson(url)
 end
 
 local function findHopServer()
-    local cursor = nil
+    -- Roblox's public-server endpoint only sorts by player count (Asc/Desc).
+    -- Sample both ends of the list, deduplicate, then choose uniformly at random.
     local candidates = {}
-    for page = 1, 4 do
-        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
-            .. "/servers/Public?sortOrder=Asc&limit=100&excludeFullGames=true"
-        if cursor and cursor ~= "" then
-            url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
-        end
-        local payload = httpGetJson(url)
-        for _, server in ipairs(payload.data or {}) do
-            local serverId = tostring(server.id or "")
-            local playing = tonumber(server.playing) or 0
-            local maximum = tonumber(server.maxPlayers) or 0
-            if serverId ~= "" and serverId ~= game.JobId
-                and playing < maximum and maximum > 0 then
-                table.insert(candidates, server)
+    local seen = {}
+    local sortOrders = {"Asc", "Desc"}
+    for _, sortOrder in ipairs(sortOrders) do
+        local cursor = nil
+        for page = 1, 2 do
+            local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+                .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100&excludeFullGames=true"
+            if cursor and cursor ~= "" then
+                url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
             end
+            local payload = httpGetJson(url)
+            for _, server in ipairs(payload.data or {}) do
+                local serverId = tostring(server.id or "")
+                local playing = tonumber(server.playing) or 0
+                local maximum = tonumber(server.maxPlayers) or 0
+                if serverId ~= "" and serverId ~= game.JobId
+                    and not seen[serverId] and playing < maximum and maximum > 0 then
+                    seen[serverId] = true
+                    table.insert(candidates, server)
+                end
+            end
+            cursor = payload.nextPageCursor
+            if not cursor or cursor == "" then break end
         end
-        cursor = payload.nextPageCursor
-        if #candidates >= 12 or not cursor then break end
     end
     if #candidates == 0 then
         error("No available public servers found")
