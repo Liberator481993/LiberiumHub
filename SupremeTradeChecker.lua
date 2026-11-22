@@ -1415,7 +1415,7 @@ local function updateRemovalHints(yourOffer, theirOffer, plan)
                 corner.CornerRadius = UDim.new(0, 5)
                 corner.Parent = badge
             end
-            badge.Text = "REMOVE " .. tostring(index)
+            badge.Text = "УБРАТЬ " .. tostring(index)
             badge.Visible = true
         end
     end
