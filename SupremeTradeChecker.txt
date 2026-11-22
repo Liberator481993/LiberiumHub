@@ -1762,8 +1762,10 @@ local function scanModuleInventory()
     state.inventoryDataEntries = dataEntries
     state.inventoryMissingFrames = missingFrameEntries
     state.inventoryGroups = groupCount
-    state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory"
-        or "InventoryModule.GUI.MyInventory unavailable"
+    if state.inventoryGuiPath == "unknown" then
+        state.inventoryGuiPath = gui and "InventoryModule.GUI.MyInventory (root unresolved)"
+            or "InventoryModule.GUI.MyInventory unavailable"
+    end
 
     return total, known, count, visibleFrames, myInventory, tierCount
 end
