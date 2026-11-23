@@ -1214,10 +1214,12 @@ end
 
 local function scanRoot(root, group)
     local total, known, count, tierCount = 0, 0, 0, 0
-    if not root then return total, known, count, tierCount end
+    local seen = {}
+    if not root then return total, known, count, tierCount, seen end
 
     for _, tile in ipairs(getTiles(root)) do
-        if not tile.Parent or tile.Visible == false then continue end
+        if not tile.Parent or tile.Visible == false or seen[tile] then continue end
+        seen[tile] = true
         local name, quantity = itemData(tile)
         if not name and not hasItemIcon(tile) then continue end
         local value, resolvedName, tierText, category = valueOf(tile, name)
@@ -1237,14 +1239,14 @@ local function scanRoot(root, group)
                 group == "trade" and state.unmatchedTrade or state.unmatchedInventory)
         end
     end
-    return total, known, count, tierCount
+    return total, known, count, tierCount, seen
 end
 
 -- Some mobile MM2 builds omit ItemName nodes from the inventory list and expose
 -- only an image card. Resolve the nearest card from its Container.Icon instead.
-local function scanImageCards(root, group)
+local function scanImageCards(root, group, seenTiles)
     if not root then return 0, 0, 0, 0 end
-    local seen = {}
+    local seen = seenTiles or {}
     local total, known, count, tierCount = 0, 0, 0, 0
 
     -- This helper is local here because the shared visible() helper is declared
@@ -1299,6 +1301,17 @@ local function scanImageCards(root, group)
         end
     end
     return total, known, count, tierCount
+end
+
+-- Scan named tiles first, then supplement with image-only cards that were not
+-- already processed. This keeps mobile layouts complete without double-counting.
+local function scanRootWithImageFallback(root, group)
+    local total, known, count, tierCount, seen = scanRoot(root, group)
+    if not root then return total, known, count, tierCount, seen end
+    local imageTotal, imageKnown, imageCount, imageTierCount =
+        scanImageCards(root, group, seen)
+    return total + imageTotal, known + imageKnown, count + imageCount,
+        tierCount + imageTierCount, seen
 end
 
 local function visible(object)
@@ -1904,47 +1917,61 @@ local function scanModuleInventory()
     -- Recover the visible GUI root from one of those Frames instead of treating
     -- the table as an Instance (which previously produced GUI cards = 0).
     local guiInstance = typeof(gui) == "Instance" and gui or nil
-    if not guiInstance then
-        for _, subgroup in pairs(data.Weapons) do
-            if type(subgroup) == "table" then
-                for _, entry in pairs(subgroup) do
-                    local frame = type(entry) == "table" and entry.Frame or nil
-                    if typeof(frame) == "Instance" and frame:IsA("GuiObject") and frame.Parent then
-                        local current = frame
-                        while current and current ~= playerGui do
-                            if current:IsA("GuiObject") and current.Name == "Main" then
-                                guiInstance = current
-                                break
+    local mainInstance = guiInstance and (
+        guiInstance.Name == "Main" and guiInstance or guiInstance:FindFirstChild("Main")
+    ) or nil
+    if not mainInstance then
+        -- Some mobile InventoryModule versions expose GUI.MyInventory as a Lua
+        -- table. Search both weapon and pet entries for their actual Main frame.
+        local collections = {data.Weapons}
+        if type(data.Pets) == "table" then table.insert(collections, data.Pets) end
+        for _, collection in ipairs(collections) do
+            for _, subgroup in pairs(collection) do
+                if type(subgroup) == "table" then
+                    for _, entry in pairs(subgroup) do
+                        local frame = type(entry) == "table" and entry.Frame or nil
+                        if typeof(frame) == "Instance" and frame:IsA("GuiObject") and frame.Parent then
+                            local current = frame
+                            while current and current ~= playerGui do
+                                if current:IsA("GuiObject") and current.Name == "Main" then
+                                    mainInstance = current
+                                    guiInstance = current.Parent or current
+                                    break
+                                end
+                                current = current.Parent
                             end
-                            current = current.Parent
+                            if mainInstance then break end
                         end
-                        if guiInstance then break end
                     end
                 end
+                if mainInstance then break end
             end
-            if guiInstance then break end
+            if mainInstance then break end
         end
     end
 
     if guiInstance then
         -- Only scan actual inventory item grids. Scanning the whole Main frame
         -- also catches Craft/Recycle/action previews and inflates GUI totals.
-        local main = guiInstance:FindFirstChild("Main")
+        local main = mainInstance or guiInstance:FindFirstChild("Main")
         local weapons = main and main:FindFirstChild("Weapons")
         local pets = main and main:FindFirstChild("Pets")
         local weaponRoot = weapons and weapons:FindFirstChild("Items")
         local petRoot = pets and pets:FindFirstChild("Items")
-        local guiTiles = {}
+        local guiTiles, guiTileSet = {}, {}
         local guiKnown, guiCount = 0, 0
-        for _, root in ipairs({weaponRoot, petRoot}) do
-            if root and root:IsA("GuiObject") then
-                for _, tile in ipairs(getTiles(root)) do
+        local roots = {}
+        if weaponRoot and weaponRoot:IsA("GuiObject") then table.insert(roots, weaponRoot) end
+        if petRoot and petRoot:IsA("GuiObject") then table.insert(roots, petRoot) end
+        for _, root in ipairs(roots) do
+            local _, known, count, _, scannedTiles = scanRootWithImageFallback(root, "inventoryOverlay")
+            guiKnown = guiKnown + (known or 0)
+            guiCount = guiCount + (count or 0)
+            for tile in pairs(scannedTiles or {}) do
+                if not guiTileSet[tile] then
+                    guiTileSet[tile] = true
                     table.insert(guiTiles, tile)
                 end
-                local _, known, count = scanRoot(root, "inventoryOverlay")
-                guiKnown = guiKnown + (known or 0)
-                guiCount = guiCount + (count or 0)
-                scanImageCards(root, "inventoryOverlay")
             end
         end
         state.inventoryGuiFrames = #guiTiles
@@ -1982,7 +2009,7 @@ local function scanModuleInventory()
 
     -- PulseHub's GUI reference is gui.MyInventory.Main.Weapons.Items.
     -- Put the running total on the visible inventory page when available.
-    local main = guiInstance and guiInstance:FindFirstChild("Main")
+    local main = mainInstance or (guiInstance and guiInstance:FindFirstChild("Main"))
     local totalParent = main or guiInstance
     if totalParent and totalParent:IsA("GuiObject") then
         local label = makeLabel(totalParent, "__SupremeInventoryTotal", "inventory")
@@ -2033,8 +2060,8 @@ local function scanInventory()
                     local pets = main and main:FindFirstChild("Pets")
                     local weaponRoot = weapons and weapons:FindFirstChild("Items")
                     local petRoot = pets and pets:FindFirstChild("Items")
-                    local a,b,c,at = scanRoot(weaponRoot, "inventory")
-                    local d,e,f,dt = scanRoot(petRoot, "inventory")
+                    local a,b,c,at = scanRootWithImageFallback(weaponRoot, "inventory")
+                    local d,e,f,dt = scanRootWithImageFallback(petRoot, "inventory")
                     weaponTotal, weaponKnown, weaponCount = a+d, b+e, c+f
                     weaponTierCount = (at or 0) + (dt or 0)
                     local label = makeLabel(inventory, "__SupremeInventoryTotal", "inventory")
@@ -2065,8 +2092,8 @@ local function scanInventory()
         if main and visible(main) then
             local extraWeapons = main:FindFirstChild("Weapons")
             local extraPets = main:FindFirstChild("Pets")
-            scanRoot(extraWeapons and extraWeapons:FindFirstChild("Items"), "tradeInventory")
-            scanRoot(extraPets and extraPets:FindFirstChild("Items"), "tradeInventory")
+            scanRootWithImageFallback(extraWeapons and extraWeapons:FindFirstChild("Items"), "tradeInventory")
+            scanRootWithImageFallback(extraPets and extraPets:FindFirstChild("Items"), "tradeInventory")
         end
 
         local itemRoot = items and items:FindFirstChild("_mO", true)
@@ -2074,13 +2101,7 @@ local function scanInventory()
             for _, category in ipairs({"Weapons", "Pets"}) do
                 local list = itemRoot:FindFirstChild(category)
                 if list and list:IsA("GuiObject") and visible(list) then
-                    local _, _, namedCount = scanRoot(list, "tradeInventory")
-                    if namedCount == 0 then
-                        scanImageCards(list, "tradeInventory")
-                    else
-                        -- Supplement text-based cards with image-only cards.
-                        scanImageCards(list, "tradeInventory")
-                    end
+                    scanRootWithImageFallback(list, "tradeInventory")
                 end
             end
         end
