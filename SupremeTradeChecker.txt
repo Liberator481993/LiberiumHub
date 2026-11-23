@@ -1473,34 +1473,77 @@ local function scanOffer(offer, group)
     if not container then return {}, 0, 0, 0, 0 end
 
     local items, total, known, count, tierCount = {}, 0, 0, 0, 0
-    local seen = {}
-    for _, tile in ipairs(container:GetChildren()) do
-        if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
-            seen[tile] = true
-            local name, quantity = itemData(tile)
-            if not name and not hasItemIcon(tile) then continue end
+    local seen, tiles = {}, {}
 
-            local value, resolvedName, tierText, category = valueOf(tile, name)
-            recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
-            count = count + quantity
+    -- Standard MM2 offers put item cards directly under Container. Some mobile
+    -- layouts wrap those cards in extra frames, so collect direct cards first
+    -- and then discover nested cards from their actual Container.Icon nodes.
+    local function addTile(tile)
+        if not tile or tile == container or seen[tile] or not tile:IsA("GuiObject") then
+            return
+        end
+        local cardContainer = tile:FindFirstChild("Container")
+        local icon = cardContainer and cardContainer:FindFirstChild("Icon")
+        if not icon or not (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+            return
+        end
+        seen[tile] = true
+        table.insert(tiles, tile)
+    end
 
-            if isTrackedValue(value) then
-                value = tonumber(value)
-                table.insert(items, {
-                    name = resolvedName or name or "Unknown item",
-                    value = value,
-                    tier = nil,
-                    quantity = quantity
-                })
-                total, known = addNumericValue(total, known, value, quantity)
-                updateTileBadge(tile, value, quantity, group, nil, category, name)
-            elseif hasTierValue(tierText) then
-                tierCount = tierCount + quantity
-                updateTileBadge(tile, nil, quantity, group, tierText, category, name)
-            else
-                updateTileBadge(tile, nil, quantity, group, nil, category, name)
-                recordUnmatched(tile, name, quantity, state.unmatchedTrade)
+    for _, child in ipairs(container:GetChildren()) do
+        addTile(child)
+    end
+    for _, node in ipairs(container:GetDescendants()) do
+        if not (node:IsA("ImageLabel") or node:IsA("ImageButton")) then continue end
+        local current = node
+        while current and current ~= container do
+            if current:IsA("GuiObject") then
+                local cardContainer = current:FindFirstChild("Container")
+                local icon = cardContainer and cardContainer:FindFirstChild("Icon")
+                if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+                    addTile(current)
+                    break
+                end
             end
+            current = current.Parent
+        end
+    end
+
+    local function cardVisible(tile)
+        local current = tile
+        while current and current ~= offer do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            current = current.Parent
+        end
+        return current == offer or current == container or current ~= nil
+    end
+
+    for _, tile in ipairs(tiles) do
+        if not tile.Parent or not cardVisible(tile) then continue end
+        local name, quantity = itemData(tile)
+        if not name and not hasItemIcon(tile) then continue end
+
+        local value, resolvedName, tierText, category = valueOf(tile, name)
+        recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
+        count = count + quantity
+
+        if isTrackedValue(value) then
+            value = tonumber(value)
+            table.insert(items, {
+                name = resolvedName or name or "Unknown item",
+                value = value,
+                tier = nil,
+                quantity = quantity
+            })
+            total, known = addNumericValue(total, known, value, quantity)
+            updateTileBadge(tile, value, quantity, group, nil, category, name)
+        elseif hasTierValue(tierText) then
+            tierCount = tierCount + quantity
+            updateTileBadge(tile, nil, quantity, group, tierText, category, name)
+        else
+            updateTileBadge(tile, nil, quantity, group, nil, category, name)
+            recordUnmatched(tile, name, quantity, state.unmatchedTrade)
         end
     end
     return items, total, known, count, tierCount
