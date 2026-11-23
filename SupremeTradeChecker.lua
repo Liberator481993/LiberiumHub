@@ -563,6 +563,12 @@ local function buildMapping(entries, database)
         if entryIndex % 150 == 0 then task.wait() end
         local category, amount = value.c, tonumber(value.v)
         local tierText = clean(value.t)
+        -- Reject inconsistent Supreme class/category rows before alias matching.
+        local expectedRarity = RARITIES[category]
+        if expectedRarity and clean(value.cl) ~= ""
+            and normalize(value.cl) ~= normalize(expectedRarity) then
+            continue
+        end
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
         local numericSourceKey
         if VALUE_CATEGORIES[category] and amount and amount >= 1 then
