@@ -834,7 +834,7 @@ local function recordCoverage(tile, name, quantity, group, value, tierText, reso
     elseif tierText and tostring(tierText) ~= "" then
         status, detail = "TIER", tostring(tierText)
     elseif tonumber(value) then
-        status, detail = "BELOW_MIN", formatValue(value)
+        status, detail = "ZERO_VALUE", formatValue(value)
     else
         status, detail = "NO_VALUE", "not mapped"
     end
@@ -1149,11 +1149,11 @@ local VALUE_TEXT_COLORS = {
     misc = Color3.fromRGB(165, 166, 178)
 }
 
-local MIN_TRACKED_VALUE = 0.1
-
+-- Every positive numeric Supreme Value counts, including fractional values below 0.1.
+-- Zero is treated as no tradable numeric value; tier labels remain a separate case.
 isTrackedValue = function(value)
     local numeric = tonumber(value)
-    return numeric ~= nil and numeric >= MIN_TRACKED_VALUE
+    return numeric ~= nil and numeric > 0
 end
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
@@ -1415,6 +1415,11 @@ local function tradeNeedsManualReview(known, count, tierCount)
         or (tonumber(known) or 0) < (tonumber(count) or 0)
 end
 
+local function tradeHasNumericValues(yourKnown, theirKnown)
+    return (tonumber(yourKnown) or 0) > 0
+        or (tonumber(theirKnown) or 0) > 0
+end
+
 local function runCoreSelfTests()
     local numericCases = {
         {"Value - 4,600", 4600},
@@ -1535,11 +1540,12 @@ local function runCoreSelfTests()
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
 
-    assert(isTrackedValue(0.1), "minimum 0.1 value should be included")
+    assert(isTrackedValue(0.1), "0.1 value should be included")
+    assert(isTrackedValue(0.099), "fractional values below 0.1 should be included")
+    assert(isTrackedValue(0.00001), "very small positive numeric values should be included")
     assert(isTrackedValue(0.5), "fractional value should be included")
     assert(isTrackedValue(1), "integer value should be included")
     assert(not isTrackedValue(0), "zero value should be excluded")
-    assert(not isTrackedValue(0.099), "values below 0.1 should be excluded")
     assert(not isTrackedValue(nil), "unvalued items should be excluded")
     assert(hasTierValue("x1 T3 Godly"), "tier-only value should be recognized")
     assert(not hasTierValue(nil), "missing tier should not be recognized")
@@ -1551,6 +1557,8 @@ local function runCoreSelfTests()
         "tier-only quantity should be flagged as not included")
     assert(not tradeNeedsManualReview(3, 3, 0),
         "fully valued trade should not be flagged")
+    assert(tradeHasNumericValues(1, 0), "one valued side should still produce a comparison")
+    assert(not tradeHasNumericValues(0, 0), "two sides without numeric values cannot be compared")
 
     local duplicateTotal = 10 * 2 + 100 * 3
     assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
@@ -1586,12 +1594,14 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
         caption, color = "ОЖИДАНИЕ ПРЕДМЕТОВ", Color3.fromRGB(196, 201, 211)
+    elseif not tradeHasNumericValues(yourKnown, theirKnown) then
+        caption, color = "НЕТ ЧИСЛОВЫХ VALUE", Color3.fromRGB(198, 164, 108)
     else
         -- Always calculate the result from numeric Supreme Values.
         -- Tier-only and unknown items stay excluded from the sum, but never hide the verdict.
         verdict, difference = getVerdict(yourTotal, theirTotal)
-        local incomplete = yourKnown < yourCount or theirKnown < theirCount
-            or (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0
+        local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
+            or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
         local marker = incomplete and "ПО VALUE • " or ""
         if verdict == "WIN" then
             caption = marker .. "ПЛЮС  +" .. formatValue(difference)
@@ -1641,10 +1651,12 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     label.TextYAlignment = Enum.TextYAlignment.Center
 
     local advice, color
-    local incomplete = yourKnown < yourCount or theirKnown < theirCount
-        or (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0
+    local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
+        or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
     if yourCount == 0 or theirCount == 0 then
         advice, color = "Добавь предметы с обеих сторон для сравнения", Color3.fromRGB(196, 201, 211)
+    elseif not tradeHasNumericValues(yourKnown, theirKnown) then
+        advice, color = "Числовых Value нет — проверь предметы вручную", Color3.fromRGB(198, 164, 108)
     elseif incomplete then
         advice, color = "Итог рассчитан по Value • предметы без Value/Tier не учтены", Color3.fromRGB(198, 164, 108)
     else
@@ -1715,12 +1727,16 @@ local function scanTrade()
             .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
-        local verdict, difference = getVerdict(yourTotal, theirTotal)
-        local incomplete = yourKnown < yourCount or theirKnown < theirCount
-            or yourTierCount > 0 or theirTierCount > 0
-        table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
-            .. (difference > 0 and "+" or "") .. formatValue(difference)
-            .. (incomplete and " | только по предметам с числовым Value; без Value/Tier не учтены" or ""))
+        if not tradeHasNumericValues(yourKnown, theirKnown) then
+            table.insert(lines, "РЕЗУЛЬТАТ: НЕТ ЧИСЛОВЫХ VALUE — сравнение невозможно")
+        else
+            local verdict, difference = getVerdict(yourTotal, theirTotal)
+            local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
+                or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
+            table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
+                .. (difference > 0 and "+" or "") .. formatValue(difference)
+                .. (incomplete and " | только по предметам с числовым Value; без Value/Tier не учтены" or ""))
+        end
     else
         table.insert(lines, "РЕЗУЛЬТАТ: ожидаются предметы с обеих сторон.")
     end
@@ -2074,7 +2090,7 @@ local function scanInventory()
         .. " | Data path: MyInventory.Data.Weapons[group][itemId].Frame"
         .. " | Frame refs: " .. tostring(state.inventoryFrameParents)
         .. " | GUI structure: " .. tostring(state.inventoryGuiStructure)
-        .. " | Min value: 0.1+"
+        .. " | Numeric threshold: > 0"
         .. " | Numeric total: " .. formatValue(weaponTotal)
         .. " | Tier items: " .. tostring(weaponTierCount)
         .. " | Valued: " .. tostring(weaponKnown) .. "/" .. tostring(weaponCount)
@@ -2396,13 +2412,13 @@ end
 
 local function formatCoverageItems(items)
     local rows = {}
-    local totals = {VALUED = 0, NO_VALUE = 0, TIER = 0, BELOW_MIN = 0}
+    local totals = {VALUED = 0, NO_VALUE = 0, TIER = 0, ZERO_VALUE = 0}
     for _, entry in pairs(items or {}) do
         table.insert(rows, entry)
         totals[entry.status] = (totals[entry.status] or 0) + entry.count
     end
     table.sort(rows, function(a, b)
-        local order = {NO_VALUE = 1, BELOW_MIN = 2, TIER = 3, VALUED = 4}
+        local order = {NO_VALUE = 1, ZERO_VALUE = 2, TIER = 3, VALUED = 4}
         if order[a.status] ~= order[b.status] then
             return order[a.status] < order[b.status]
         end
@@ -2419,7 +2435,7 @@ local function formatCoverageItems(items)
     local summary = "VALUED=" .. tostring(totals.VALUED)
         .. ", NO_VALUE=" .. tostring(totals.NO_VALUE)
         .. ", TIER_ONLY=" .. tostring(totals.TIER)
-        .. ", BELOW_0.1=" .. tostring(totals.BELOW_MIN)
+        .. ", ZERO_VALUE=" .. tostring(totals.ZERO_VALUE)
         .. ", UNIQUE=" .. tostring(#rows)
     return summary .. (#output > 0 and "\n" .. table.concat(output, "\n") or "\nnone")
 end
