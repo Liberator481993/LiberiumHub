@@ -1616,6 +1616,50 @@ local function findTrade()
     return nil
 end
 
+-- Report the trade UI lifecycle independently from whether a trade partner exists.
+-- This never creates or modifies trade GUI objects.
+local function getTradeGuiStatus()
+    local foundGui, enabledGui, visibleTrade, yourOffer, theirOffer = false, false, false, false, false
+    local details = {}
+    for _, guiName in ipairs({"TradeGUI", "TradeGUI_Phone"}) do
+        local screen = playerGui:FindFirstChild(guiName)
+        if screen then
+            foundGui = true
+            local enabled = screen:IsA("ScreenGui") and screen.Enabled
+            if enabled then enabledGui = true end
+            local trade = screen:FindFirstChild("Trade", true)
+                or screen:FindFirstChild("Container")
+                    and screen.Container:FindFirstChild("Trade")
+            local isVisible = enabled and trade ~= nil and trade:IsA("GuiObject") and visible(trade)
+            if isVisible then visibleTrade = true end
+            local yours = screen:FindFirstChild("YourOffer", true)
+            local theirs = screen:FindFirstChild("TheirOffer", true)
+            if yours then yourOffer = true end
+            if theirs then theirOffer = true end
+            table.insert(details, guiName .. "(enabled=" .. tostring(enabled)
+                .. ",tradeFrame=" .. tostring(trade ~= nil)
+                .. ",tradeVisible=" .. tostring(isVisible)
+                .. ",yourOffer=" .. tostring(yours ~= nil)
+                .. ",theirOffer=" .. tostring(theirs ~= nil) .. ")")
+        end
+    end
+    local status
+    if not foundGui then
+        status = "TRADE_GUI_ABSENT"
+    elseif not enabledGui then
+        status = "TRADE_GUI_PRESENT_DISABLED"
+    elseif not visibleTrade then
+        status = "TRADE_GUI_LOADED_HIDDEN"
+    elseif not yourOffer and not theirOffer then
+        status = "TRADE_UI_VISIBLE_NO_OFFER_PANELS"
+    elseif not yourOffer or not theirOffer then
+        status = "TRADE_UI_VISIBLE_PARTIAL_OFFER_STRUCTURE"
+    else
+        status = "TRADE_UI_VISIBLE_BOTH_OFFER_PANELS"
+    end
+    return status .. (#details > 0 and " | " .. table.concat(details, " ; ") or "")
+end
+
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
@@ -2269,6 +2313,15 @@ local function runCoreSelfTests()
         "fully valued trade should not be flagged")
     assert(tradeHasNumericValues(1, 0), "one valued side should still produce a comparison")
     assert(not tradeHasNumericValues(0, 0), "two sides without numeric values cannot be compared")
+    assert(getVerdict(0, 0) == "FAIR",
+        "zero-versus-zero pure arithmetic baseline must remain neutral")
+    assert(getVerdict(0, 25) == "WIN" and getVerdict(25, 0) == "LOSE",
+        "a single numeric side must produce the correct directional verdict")
+    local ignoredTotal, ignoredKnown = addNumericValue(7, 2, nil, 9)
+    ignoredTotal, ignoredKnown = addNumericValue(ignoredTotal, ignoredKnown, 0, 4)
+    ignoredTotal, ignoredKnown = addNumericValue(ignoredTotal, ignoredKnown, math.huge, 3)
+    assert(ignoredTotal == 7 and ignoredKnown == 2,
+        "missing, zero and infinite values must never enter numeric totals")
     assert(getUnknownItemCount(2, 5, 1) == 2,
         "unknown item quantity should exclude numeric and tier entries")
     assert(getUnknownItemCount(0, 2, 2) == 0,
@@ -2307,6 +2360,11 @@ local function runCoreSelfTests()
         "valued items must produce a result even when other items are unvalued")
     local fairVerdict = getVerdict(100, 101)
     assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
+    assert(getVerdict(100, 102) == "FAIR",
+        "the exact two-percent boundary must be classified FAIR")
+    assert(getVerdict(100, 102.0001) == "WIN"
+        and getVerdict(102.0001, 100) == "LOSE",
+        "values outside the two-percent boundary must classify directionally")
     local tinyVerdict, tinyDifference = getVerdict(0.00001, 0)
     assert(tinyVerdict == "LOSE" and math.abs(tinyDifference + 0.00001) < 0.000000001,
         "tiny numeric values must not be hidden by a coarse fair tolerance")
@@ -2444,7 +2502,7 @@ local function scanTrade()
     state.coverageSeenTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
-        state.latestTrade = "No active trade detected."
+        state.latestTrade = "No active trade detected. Trade UI: " .. getTradeGuiStatus()
         return nil
     end
 
@@ -3308,6 +3366,7 @@ local function buildRuntimeEnvironmentReport()
     add("InventoryScreens", state.inventoryScreenList)
     add("InventoryGuiStructure", state.inventoryGuiStructure)
     add("InventoryFrameParents", state.inventoryFrameParents)
+    add("TradeGuiStatus", getTradeGuiStatus())
     return table.concat(rows, "\n")
 end
 
@@ -3429,6 +3488,7 @@ local function buildDiagnostic()
         "",
         "Trade scan status: " .. tostring(state.tradeScanStatus),
         "Trade scan error: " .. tostring(state.tradeScanError),
+        "Trade GUI lifecycle: " .. getTradeGuiStatus(),
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "",
