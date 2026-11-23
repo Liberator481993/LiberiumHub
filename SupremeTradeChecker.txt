@@ -1410,6 +1410,11 @@ local function getVerdict(giveValue, receiveValue)
     return difference > 0 and "WIN" or "LOSE", difference
 end
 
+local function tradeNeedsManualReview(known, count, tierCount)
+    return (tonumber(tierCount) or 0) > 0
+        or (tonumber(known) or 0) < (tonumber(count) or 0)
+end
+
 local function runCoreSelfTests()
     local numericCases = {
         {"Value - 4,600", 4600},
@@ -1540,11 +1545,12 @@ local function runCoreSelfTests()
     assert(not hasTierValue(nil), "missing tier should not be recognized")
     assert(not hasTierValue(" "), "blank tier should not be recognized")
 
-    -- A trade with one priced stack and one unknown stack must remain incomplete.
-    local testTotal = 10 * 2
-    local testKnown = 2
-    local testCount = 2 + 1
-    assert(testKnown < testCount, "unknown trade items must prevent a complete verdict")
+    assert(tradeNeedsManualReview(2, 3, 0),
+        "unknown trade quantity must require manual review")
+    assert(tradeNeedsManualReview(3, 3, 1),
+        "tier-only trade quantity must require manual review")
+    assert(not tradeNeedsManualReview(3, 3, 0),
+        "fully valued trade should not require manual review")
 
     local duplicateTotal = 10 * 2 + 100 * 3
     assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
@@ -1578,10 +1584,13 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
         caption, color = "ОЖИДАНИЕ ПРЕДМЕТОВ", Color3.fromRGB(196, 201, 211)
-    elseif yourTierCount > 0 or theirTierCount > 0 then
-        caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(198, 164, 108)
-    elseif yourKnown < yourCount or theirKnown < theirCount then
-        caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(198, 164, 108)
+    elseif tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
+        or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount) then
+        if (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0 then
+            caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(198, 164, 108)
+        else
+            caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(198, 164, 108)
+        end
     else
         verdict, difference = getVerdict(yourTotal, theirTotal)
         if verdict == "WIN" then
@@ -1634,10 +1643,13 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     local advice, color
     if yourCount == 0 or theirCount == 0 then
         advice, color = "Добавь предметы с обеих сторон для сравнения", Color3.fromRGB(196, 201, 211)
-    elseif yourTierCount > 0 or theirTierCount > 0 then
-        advice, color = "Tier-предметы: числовой совет отключён", Color3.fromRGB(198, 164, 108)
-    elseif yourKnown < yourCount or theirKnown < theirCount then
-        advice, color = "Сначала проверь предметы без точной оценки", Color3.fromRGB(198, 164, 108)
+    elseif tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
+        or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount) then
+        if (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0 then
+            advice, color = "Tier-предметы: числовой совет отключён", Color3.fromRGB(198, 164, 108)
+        else
+            advice, color = "Сначала проверь предметы без точной оценки", Color3.fromRGB(198, 164, 108)
+        end
     else
         local verdict, difference = getVerdict(yourTotal, theirTotal)
         if verdict == "LOSE" then
