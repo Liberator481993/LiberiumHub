@@ -444,6 +444,14 @@ local function readValuesCache()
         return nil
     end
     if #decoded.items < 300 then return nil end
+    for _, entry in ipairs(decoded.items) do
+        if type(entry) ~= "table" or type(entry.c) ~= "string"
+            or type(entry.n) ~= "string"
+            or (entry.v ~= nil and tonumber(entry.v) == nil)
+            or (entry.t ~= nil and type(entry.t) ~= "string") then
+            return nil
+        end
+    end
     return decoded
 end
 
@@ -1673,6 +1681,30 @@ local function runCoreSelfTests()
         local aliasFallbackValue = valueOf(fakeTile("rbxassetid://999999", false), "Alias Gun")
         assert(aliasFallbackValue == 42,
             "a full-name candidate with the wrong weapon type must not block a valid base-name alias")
+
+        local yearVariantDatabase = {
+            Item = {
+                SeasonKnife2020 = {
+                    ItemName = "Season Knife", ItemType = "Knife",
+                    Rarity = "Godly", Year = "2020", Image = "rbxassetid://121212"
+                },
+                SeasonKnife2021 = {
+                    ItemName = "Season Knife", ItemType = "Knife",
+                    Rarity = "Godly", Year = "2021", Image = "rbxassetid://131313"
+                }
+            },
+            Pets = {}
+        }
+        local yearVariantEntry = {
+            c = "godlies", n = "Season Knife", im = "Season Knife (Knife)",
+            v = 34, cl = "Godly", y = "2021"
+        }
+        local yearVariantMapping = buildMapping({yearVariantEntry}, yearVariantDatabase)
+        state.mapped = yearVariantMapping
+        local correctYearValue = valueOf(fakeTile("rbxassetid://131313", false), "Season Knife")
+        local wrongYearValue = valueOf(fakeTile("rbxassetid://121212", false), "Season Knife")
+        assert(correctYearValue == 34 and wrongYearValue == nil,
+            "year metadata must select the correct seasonal weapon variant")
 
         -- Regression: duplicate database names without a reliable discriminator
         -- must stay unmapped instead of assigning one item's value to both skins.
