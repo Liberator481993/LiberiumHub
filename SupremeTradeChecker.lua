@@ -1556,6 +1556,53 @@ local function getUnknownItemCount(known, count, tierCount)
         - (tonumber(known) or 0) - (tonumber(tierCount) or 0))
 end
 
+local function buildNumericItemAudit(sourceEntries)
+    local itemsByKey, categoryCounts = {}, {}
+    local rawNumeric, duplicates, conflicts = 0, 0, 0
+    for _, entry in ipairs(sourceEntries or {}) do
+        local category = tostring(entry.c or "")
+        local value = tonumber(entry.v)
+        local name = clean(entry.n)
+        if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
+            rawNumeric = rawNumeric + 1
+            local key = category .. ":" .. normalize(name)
+            local existing = itemsByKey[key]
+            if existing then
+                duplicates = duplicates + 1
+                if tonumber(existing.value) ~= value then
+                    conflicts = conflicts + 1
+                end
+            else
+                itemsByKey[key] = {
+                    name = name,
+                    category = RARITIES[category] or ({
+                        chromas = "Chroma",
+                        pets = "Pet",
+                        misc = "Miscellaneous"
+                    })[category] or category,
+                    value = value
+                }
+                categoryCounts[category] = (categoryCounts[category] or 0) + 1
+            end
+        end
+    end
+
+    local items = {}
+    for _, item in pairs(itemsByKey) do table.insert(items, item) end
+    table.sort(items, function(a, b)
+        if a.category ~= b.category then return a.category < b.category end
+        if a.value ~= b.value then return a.value > b.value end
+        return a.name:lower() < b.name:lower()
+    end)
+    return {
+        items = items,
+        categoryCounts = categoryCounts,
+        rawNumeric = rawNumeric,
+        duplicates = duplicates,
+        conflicts = conflicts
+    }
+end
+
 local function runCoreSelfTests()
     assert(assetId("rbxassetid://123456789") == "123456789",
         "rbxassetid identifier extraction failed")
@@ -1593,6 +1640,21 @@ local function runCoreSelfTests()
     assert(not isTrackedValue(math.huge), "infinite item value must be rejected")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
+
+    local numericAuditTest = buildNumericItemAudit({
+        {c = "godlies", n = "Test Knife", v = 5},
+        {c = "godlies", n = " test   knife ", v = 5},
+        {c = "godlies", n = "Test Knife", v = 6},
+        {c = "chromas", n = "Test Knife", v = 10},
+        {c = "commons", n = "Tier Only", t = "x1 T1 Common"},
+        {c = "sets", n = "Aggregate Set", v = 500}
+    })
+    assert(#numericAuditTest.items == 2 and numericAuditTest.rawNumeric == 4
+        and numericAuditTest.duplicates == 2 and numericAuditTest.conflicts == 1,
+        "numeric item audit must deduplicate by category/name and detect conflicting values")
+    assert(numericAuditTest.categoryCounts.godlies == 1
+        and numericAuditTest.categoryCounts.chromas == 1,
+        "numeric item audit category counts are incorrect")
 
     local syntheticHtml =
         '<div class="itemcolumn"><div class="itemhead">Test Gun</div><span>Value - 4,600</span></div>' ..
@@ -2814,31 +2876,13 @@ local function buildNumericAuditSummary()
     if type(sourceEntries) ~= "table" then
         return "not available — Supreme values not loaded"
     end
-    local seen, counts = {}, {}
-    local rawNumeric, duplicates, conflicts = 0, 0, 0
-    for _, entry in ipairs(sourceEntries) do
-        local category = tostring(entry.c or "")
-        local value = tonumber(entry.v)
-        local name = clean(entry.n)
-        if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
-            rawNumeric = rawNumeric + 1
-            local key = category .. ":" .. normalize(name)
-            if seen[key] then
-                duplicates = duplicates + 1
-                if seen[key] ~= value then conflicts = conflicts + 1 end
-            else
-                seen[key] = value
-                counts[category] = (counts[category] or 0) + 1
-            end
-        end
-    end
-    local unique = 0
-    for _, count in pairs(counts) do unique = unique + count end
+    local audit = buildNumericItemAudit(sourceEntries)
+    local unique = #audit.items
     return "UNIQUE=" .. tostring(unique)
-        .. ", RAW=" .. tostring(rawNumeric)
-        .. ", DUPLICATES=" .. tostring(duplicates)
-        .. ", VALUE_CONFLICTS=" .. tostring(conflicts)
-        .. ", BY_CATEGORY=" .. HttpService:JSONEncode(counts)
+        .. ", RAW=" .. tostring(audit.rawNumeric)
+        .. ", DUPLICATES=" .. tostring(audit.duplicates)
+        .. ", VALUE_CONFLICTS=" .. tostring(audit.conflicts)
+        .. ", BY_CATEGORY=" .. HttpService:JSONEncode(audit.categoryCounts)
 end
 
 local function buildDiagnostic()
@@ -2897,65 +2941,19 @@ local function buildNumericValuesExport()
         return nil, "Supreme values are not loaded yet"
     end
 
-    -- Count raw numeric source cards separately from unique item identities.
-    -- Duplicate cards must not inflate the number of valued MM2 items.
-    local itemsByKey = {}
-    local duplicateSourceRecords, conflictingDuplicateValues = 0, 0
-    for _, entry in ipairs(sourceEntries) do
-        local category = tostring(entry.c or "")
-        local value = tonumber(entry.v)
-        local name = clean(entry.n)
-        if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
-            local key = category .. ":" .. normalize(name)
-            local existing = itemsByKey[key]
-            if existing then
-                duplicateSourceRecords = duplicateSourceRecords + 1
-                if tonumber(existing.value) ~= value then
-                    conflictingDuplicateValues = conflictingDuplicateValues + 1
-                end
-                -- Keep the first occurrence; conflicting duplicates are
-                -- explicitly reported instead of silently inflating totals.
-            else
-                local item = {
-                    name = name,
-                    category = RARITIES[category] or ({
-                        chromas = "Chroma",
-                        pets = "Pet",
-                        misc = "Miscellaneous"
-                    })[category] or category,
-                    value = value
-                }
-                itemsByKey[key] = item
-            end
-        end
-    end
-
-    local items = {}
-    local uniqueCategoryCounts = {}
-    for key, item in pairs(itemsByKey) do
-        table.insert(items, item)
-        local rawCategory = key:match("^([^:]+):")
-        uniqueCategoryCounts[rawCategory] = (uniqueCategoryCounts[rawCategory] or 0) + 1
-    end
-    table.sort(items, function(a, b)
-        if a.category ~= b.category then return a.category < b.category end
-        if a.value ~= b.value then return a.value > b.value end
-        return a.name:lower() < b.name:lower()
-    end)
-
-    local rawNumericSourceRecords = #items + duplicateSourceRecords
+    local audit = buildNumericItemAudit(sourceEntries)
     local payload = {
         schema = "supreme-trade-checker.numeric-values.v2",
         source = BASE,
         generatedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         sourceEntryCount = #sourceEntries,
         tierOnlyEntryCount = state.tierEntryCount or 0,
-        rawNumericSourceRecords = rawNumericSourceRecords,
-        numericItemCount = #items,
-        duplicateSourceRecords = duplicateSourceRecords,
-        conflictingDuplicateValues = conflictingDuplicateValues,
-        numericCategoryCounts = uniqueCategoryCounts,
-        items = items
+        rawNumericSourceRecords = audit.rawNumeric,
+        numericItemCount = #audit.items,
+        duplicateSourceRecords = audit.duplicates,
+        conflictingDuplicateValues = audit.conflicts,
+        numericCategoryCounts = audit.categoryCounts,
+        items = audit.items
     }
     local ok, encoded = pcall(function()
         return HttpService:JSONEncode(payload)
@@ -2963,7 +2961,7 @@ local function buildNumericValuesExport()
     if not ok or type(encoded) ~= "string" then
         return nil, "JSON encoding failed: " .. tostring(encoded)
     end
-    return encoded, #items
+    return encoded, #audit.items
 end
 
 exportButton.Activated:Connect(function()
