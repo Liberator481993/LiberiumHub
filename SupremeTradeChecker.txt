@@ -1749,6 +1749,16 @@ local function runCoreSelfTests()
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
 
+    local winVerdict = getVerdict(10, 12)
+    local loseVerdict = getVerdict(12, 10)
+    local fairVerdict = getVerdict(100, 101)
+    assert(winVerdict == "WIN" and loseVerdict == "LOSE" and fairVerdict == "FAIR",
+        "trade verdict direction or two-percent FAIR tolerance failed")
+
+    local duplicateTotal, duplicateKnown = addNumericValue(0, 0, 25, 3)
+    assert(duplicateTotal == 75 and duplicateKnown == 3,
+        "duplicate item quantities must multiply the total and known count")
+
     local numericAuditTest = buildNumericItemAudit({
         {c = "godlies", n = "Test Knife", v = 5},
         {c = "godlies", n = " test   knife ", v = 5},
@@ -1848,6 +1858,10 @@ local function runCoreSelfTests()
     local previousMapping = state.mapped
     local mappingOk, mappingError = pcall(function()
         local fullMapping = buildMapping({regularEntry, chromaEntry}, testDatabase)
+        assert(fullMapping.numericSourceCount == 2
+            and fullMapping.numericMatchedSourceCount == 2
+            and #fullMapping.numericUnmatched == 0,
+            "Supreme numeric mapping coverage audit missed unique regular/Chroma entries")
         state.mapped = fullMapping
         local regularValue = valueOf(fakeTile("rbxassetid://111111", false), "Test Gun")
         local chromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
@@ -2023,8 +2037,11 @@ local function runCoreSelfTests()
             v = 777, cl = "Godly"
         }
         local ambiguousMapping = buildMapping({ambiguousEntry}, ambiguousDatabase)
-        assert(ambiguousMapping.n == 0,
-            "ambiguous database names must not receive a guessed numeric value")
+        assert(ambiguousMapping.n == 0
+            and ambiguousMapping.numericSourceCount == 1
+            and ambiguousMapping.numericMatchedSourceCount == 0
+            and #ambiguousMapping.numericUnmatched == 1,
+            "ambiguous database names must be reported as unmatched, never guessed")
 
         local wrongRarityMapping = buildMapping({
             {c = "rares", n = "Test Gun", im = "Test Gun (Gun)", v = 999, cl = "Rare"}
