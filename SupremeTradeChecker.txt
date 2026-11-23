@@ -769,6 +769,20 @@ local function buildMapping(entries, database)
             end
             if numericSourceKey and byKey[idKey].sourceKey == numericSourceKey then
                 numericMatchedSourceKeys[numericSourceKey] = true
+            elseif numericSourceKey then
+                -- Preserve the first mapping, but expose the exact prior source
+                -- row when another Supreme entry resolves to the same MM2 key.
+                -- This makes collisions auditable without overwriting a value.
+                local diagnostic = numericSourceDiagnostics[numericSourceKey]
+                    or {aliases = "", candidateCount = 0, eligibleCount = 0,
+                        matchCount = #matches, candidates = ""}
+                local existing = byKey[idKey]
+                diagnostic.occupiedBy = idKey .. " <- "
+                    .. tostring(existing and existing.category or "unknown") .. ":"
+                    .. tostring(existing and existing.name or "unknown")
+                    .. " = " .. tostring(existing and existing.v or "nil")
+                    .. " [sourceKey=" .. tostring(existing and existing.sourceKey or "none") .. "]"
+                numericSourceDiagnostics[numericSourceKey] = diagnostic
             end
         end
     end
@@ -864,7 +878,8 @@ local function buildMapping(entries, database)
                 aliases = diagnostic.aliases or "",
                 candidateCount = diagnostic.candidateCount or 0,
                 eligibleCount = diagnostic.eligibleCount or 0,
-                candidates = diagnostic.candidates or "none"
+                candidates = diagnostic.candidates or "none",
+                occupiedBy = diagnostic.occupiedBy or "none"
             })
         end
     end
@@ -3186,7 +3201,8 @@ local function buildDiagnostic()
                         .. " = " .. formatValue(item.value) .. " [" .. item.reason
                         .. "; candidates=" .. tostring(item.candidateCount or 0)
                         .. "; eligible=" .. tostring(item.eligibleCount or 0)
-                        .. "; DB=" .. tostring(item.candidates or "none") .. "]")
+                        .. "; DB=" .. tostring(item.candidates or "none")
+                        .. "; occupied=" .. tostring(item.occupiedBy or "none") .. "]")
                 end
                 return tostring(#missing) .. " total"
                     .. (#rows > 0 and "\n" .. table.concat(rows, "\n") or "")
