@@ -2866,7 +2866,7 @@ local function buildNumericValuesExport()
 
     -- Count raw numeric source cards separately from unique item identities.
     -- Duplicate cards must not inflate the number of valued MM2 items.
-    local itemsByKey, categoryCounts = {}, {}
+    local itemsByKey = {}
     local duplicateSourceRecords, conflictingDuplicateValues = 0, 0
     for _, entry in ipairs(sourceEntries) do
         local category = tostring(entry.c or "")
@@ -2893,7 +2893,6 @@ local function buildNumericValuesExport()
                     value = value
                 }
                 itemsByKey[key] = item
-                table.insert(categoryCounts, category)
             end
         end
     end
