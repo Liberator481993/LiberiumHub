@@ -559,6 +559,7 @@ local function buildMapping(entries, database)
 
     local byKey, mappedCount = {}, 0
     local numericSourceKeys, numericMatchedSourceKeys = {}, {}
+    local numericSourceDiagnostics = {}
     for entryIndex, value in ipairs(entries) do
         if entryIndex % 150 == 0 then task.wait() end
         local category, amount = value.c, tonumber(value.v)
@@ -661,6 +662,7 @@ local function buildMapping(entries, database)
         end
 
         local matches = {}
+        local diagnosticCandidates, diagnosticEligible = {}, {}
         local bestMetadataScore = -1
         local yearWanted = year ~= nil and clean(year) ~= ""
         local eventWanted = event ~= nil and clean(event) ~= ""
@@ -671,6 +673,8 @@ local function buildMapping(entries, database)
             local aliasMatches = {}
             for _, candidate in ipairs(candidates) do
                 local item = candidate.item
+                local diagnosticKey = candidate.kind .. ":" .. candidate.id
+                diagnosticCandidates[diagnosticKey] = candidate
                 local eligible = false
                 if candidate.kind == "p" then
                     eligible = (item.Chroma == true) == chroma
@@ -688,6 +692,7 @@ local function buildMapping(entries, database)
                 if eligible
                     and (not kind or item.ItemType == kind)
                     and (not value.cl or normalize(item.Rarity) == normalize(value.cl)) then
+                    diagnosticEligible[diagnosticKey] = candidate
                     table.insert(aliasMatches, candidate)
                 end
             end
@@ -724,6 +729,26 @@ local function buildMapping(entries, database)
                 end
             end
             if #correct > 0 then matches = correct end
+        end
+
+        if numericSourceKey then
+            local candidateDetails, candidateCount, eligibleCount = {}, 0, 0
+            for key, candidate in pairs(diagnosticCandidates) do
+                candidateCount = candidateCount + 1
+                local item = candidate.item
+                table.insert(candidateDetails, key .. ":" .. tostring(item.ItemName or item.Name or "")
+                    .. "[" .. tostring(item.Rarity or "?") .. "/" .. tostring(item.ItemType or "Pet")
+                    .. (item.Chroma and "/Chroma" or "") .. "]")
+            end
+            for _ in pairs(diagnosticEligible) do eligibleCount = eligibleCount + 1 end
+            table.sort(candidateDetails)
+            numericSourceDiagnostics[numericSourceKey] = {
+                aliases = table.concat(aliases, " / "),
+                candidateCount = candidateCount,
+                eligibleCount = eligibleCount,
+                matchCount = #matches,
+                candidates = table.concat(candidateDetails, "; ")
+            }
         end
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
@@ -826,11 +851,20 @@ local function buildMapping(entries, database)
         if numericMatchedSourceKeys[sourceKey] then
             numericMatchedSourceCount = numericMatchedSourceCount + 1
         else
+            local diagnostic = numericSourceDiagnostics[sourceKey] or {}
+            local reason = diagnostic.candidateCount == 0 and "NO_DB_NAME_CANDIDATE"
+                or diagnostic.eligibleCount == 0 and "FILTERED_BY_RARITY_TYPE_CHROMA"
+                or diagnostic.matchCount > 1 and "AMBIGUOUS_MATCH"
+                or "MAPPING_COLLISION_OR_METADATA_CONFLICT"
             table.insert(numericUnmatched, {
                 name = sourceItem.name,
                 category = sourceItem.category,
                 value = sourceItem.value,
-                reason = "NO_UNIQUE_MM2_MATCH"
+                reason = reason,
+                aliases = diagnostic.aliases or "",
+                candidateCount = diagnostic.candidateCount or 0,
+                eligibleCount = diagnostic.eligibleCount or 0,
+                candidates = diagnostic.candidates or "none"
             })
         end
     end
@@ -3146,7 +3180,10 @@ local function buildDiagnostic()
                 for index = 1, math.min(#missing, 60) do
                     local item = missing[index]
                     table.insert(rows, item.category .. ": " .. item.name
-                        .. " = " .. formatValue(item.value) .. " [" .. item.reason .. "]")
+                        .. " = " .. formatValue(item.value) .. " [" .. item.reason
+                        .. "; candidates=" .. tostring(item.candidateCount or 0)
+                        .. "; eligible=" .. tostring(item.eligibleCount or 0)
+                        .. "; DB=" .. tostring(item.candidates or "none") .. "]")
                 end
                 return tostring(#missing) .. " total"
                     .. (#rows > 0 and "\n" .. table.concat(rows, "\n") or "")
