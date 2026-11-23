@@ -2362,9 +2362,10 @@ local function runCoreSelfTests()
     assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
     assert(getVerdict(100, 102) == "FAIR",
         "the exact two-percent boundary must be classified FAIR")
-    assert(getVerdict(100, 102.0001) == "WIN"
-        and getVerdict(102.0001, 100) == "LOSE",
-        "values outside the two-percent boundary must classify directionally")
+    -- Tolerance is 2% of the larger side, so compare against the symmetric threshold.
+    assert(getVerdict(100, 102.05) == "WIN"
+        and getVerdict(102.05, 100) == "LOSE",
+        "values outside the two-percent-of-larger-side tolerance must classify directionally")
     local tinyVerdict, tinyDifference = getVerdict(0.00001, 0)
     assert(tinyVerdict == "LOSE" and math.abs(tinyDifference + 0.00001) < 0.000000001,
         "tiny numeric values must not be hidden by a coarse fair tolerance")
