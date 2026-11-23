@@ -119,6 +119,7 @@ local state = {
     selfTestStatus = "pending",
     cacheStatus = "not checked",
     mapped = nil,
+    supremeEntries = nil,
     updated = 0,
     loadDuration = 0,
     lastUpdate = "Not loaded",
@@ -1031,6 +1032,7 @@ local function loadValues(force)
                 error("only " .. tostring(mapping.n) .. " MM2 records matched Supreme Values")
             end
 
+            state.supremeEntries = entries
             state.mapped = mapping
             state.dbItems = mapping.dbItems
             state.dbPets = mapping.dbPets
@@ -2512,7 +2514,7 @@ toggleCorner.Parent = toggle
 
 local output = Instance.new("TextBox")
 output.Name = "DiagnosticText"
-output.Size = UDim2.new(1, -20, 1, -164)
+output.Size = UDim2.new(1, -20, 1, -204)
 output.Position = UDim2.fromOffset(10, 78)
 output.BackgroundColor3 = Color3.fromRGB(15, 16, 20)
 output.BackgroundTransparency = 0.04
@@ -2559,6 +2561,27 @@ hopStroke.Transparency = 0.42
 hopStroke.Thickness = 1
 hopStroke.Parent = hopButton
 
+local exportButton = Instance.new("TextButton")
+exportButton.Name = "ExportSupremeNumericValues"
+exportButton.Size = UDim2.new(1, -20, 0, 32)
+exportButton.Position = UDim2.new(0, 10, 1, -119)
+exportButton.BackgroundColor3 = Color3.fromRGB(34, 48, 57)
+exportButton.BorderSizePixel = 0
+exportButton.AutoButtonColor = false
+exportButton.Font = Enum.Font.Roboto
+exportButton.TextSize = 12
+exportButton.TextColor3 = Color3.fromRGB(205, 235, 244)
+exportButton.Text = "EXPORT NUMERIC VALUES (JSON)"
+exportButton.ZIndex = 205
+exportButton.Parent = panel
+local exportCorner = Instance.new("UICorner")
+exportCorner.CornerRadius = UDim.new(0, 9)
+exportCorner.Parent = exportButton
+local exportStroke = Instance.new("UIStroke")
+exportStroke.Color = Color3.fromRGB(69, 112, 128)
+exportStroke.Transparency = 0.34
+exportStroke.Parent = exportButton
+
 local copyButton = Instance.new("TextButton")
 copyButton.Name = "CopySupremeDiagnostic"
 copyButton.Size = UDim2.new(1, -20, 0, 32)
@@ -2582,7 +2605,7 @@ copyStroke.Parent = copyButton
 
 __bootStage("BOOT 05/06 — MAIN UI CREATED", "Starting buttons and inventory/trade scanners...")
 local collapsed = true
-local expandedSize = UDim2.fromOffset(290, 274)
+local expandedSize = UDim2.fromOffset(290, 314)
 local collapsedSize = UDim2.fromOffset(176, 38)
 local function setCollapsed(value)
     collapsed = value
@@ -2592,6 +2615,7 @@ local function setCollapsed(value)
     }):Play()
     output.Visible = not collapsed
     hopButton.Visible = not collapsed
+    exportButton.Visible = not collapsed
     copyButton.Visible = not collapsed
     headerLine.Visible = not collapsed
     toggle.Text = collapsed and "+" or "−"
@@ -2833,6 +2857,102 @@ local function buildDiagnostic()
     }
     return table.concat(lines, "\n")
 end
+
+local function buildNumericValuesExport()
+    local sourceEntries = state.supremeEntries
+    if type(sourceEntries) ~= "table" then
+        return nil, "Supreme values are not loaded yet"
+    end
+
+    local items = {}
+    local seen = {}
+    for _, entry in ipairs(sourceEntries) do
+        local category = tostring(entry.c or "")
+        local value = tonumber(entry.v)
+        local name = clean(entry.n)
+        if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
+            local key = category .. ":" .. normalize(name)
+            if not seen[key] then
+                seen[key] = true
+                table.insert(items, {
+                    name = name,
+                    category = RARITIES[category] or ({
+                        chromas = "Chroma",
+                        pets = "Pet",
+                        misc = "Miscellaneous"
+                    })[category] or category,
+                    value = value
+                })
+            end
+        end
+    end
+
+    table.sort(items, function(a, b)
+        if a.category ~= b.category then return a.category < b.category end
+        if a.value ~= b.value then return a.value > b.value end
+        return a.name:lower() < b.name:lower()
+    end)
+
+    local payload = {
+        schema = "supreme-trade-checker.numeric-values.v1",
+        source = BASE,
+        generatedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        sourceEntryCount = #sourceEntries,
+        tierOnlyEntryCount = state.tierEntryCount or 0,
+        numericItemCount = #items,
+        baselineNumericItemCount = 441,
+        items = items
+    }
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode(payload)
+    end)
+    if not ok or type(encoded) ~= "string" then
+        return nil, "JSON encoding failed: " .. tostring(encoded)
+    end
+    return encoded, #items
+end
+
+exportButton.Activated:Connect(function()
+    if state.status ~= "ok" then
+        exportButton.Text = "WAIT — VALUES NOT READY"
+        task.delay(2.5, function()
+            if exportButton and exportButton.Parent then
+                exportButton.Text = "EXPORT NUMERIC VALUES (JSON)"
+            end
+        end)
+        return
+    end
+
+    local encoded, result = buildNumericValuesExport()
+    if not encoded then
+        exportButton.Text = "EXPORT FAILED — " .. tostring(result):sub(1, 28)
+        warn("[Supreme Trade Checker] Numeric export failed: " .. tostring(result))
+        return
+    end
+
+    local filename = "SupremeTradeChecker_numeric_values.json"
+    local saved = false
+    local saveError = "writefile unavailable"
+    if type(writefile) == "function" then
+        local ok, resultWrite = pcall(writefile, filename, encoded)
+        saved = ok and resultWrite ~= false
+        if not saved then saveError = tostring(resultWrite) end
+    end
+    local copied = copyText(encoded)
+    local count = tonumber(result) or 0
+    exportButton.Text = "EXPORTED " .. tostring(count) .. " ITEMS"
+    if not saved and not copied then
+        exportButton.Text = "EXPORT FAILED — NO FILE/CLIPBOARD"
+        warn("[Supreme Trade Checker] Export unavailable: " .. saveError)
+    elseif not saved then
+        warn("[Supreme Trade Checker] JSON copied; file save unavailable: " .. saveError)
+    end
+    task.delay(4, function()
+        if exportButton and exportButton.Parent then
+            exportButton.Text = "EXPORT NUMERIC VALUES (JSON)"
+        end
+    end)
+end)
 
 copyButton.Activated:Connect(function()
     local report = buildDiagnostic()
