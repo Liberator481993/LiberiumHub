@@ -697,8 +697,22 @@ local function buildMapping(entries, database)
                 end
             end
             local yearExact, eventExact
+            local beforeYearCount = #aliasMatches
             aliasMatches, yearExact = preferExactMetadata(aliasMatches, "Year", year)
+            local afterYearCount = #aliasMatches
             aliasMatches, eventExact = preferExactMetadata(aliasMatches, "Event", event)
+            local afterEventCount = #aliasMatches
+            if numericSourceKey then
+                local diagnostic = numericSourceDiagnostics[numericSourceKey] or {}
+                diagnostic.beforeYearCount = math.max(diagnostic.beforeYearCount or 0, beforeYearCount)
+                diagnostic.afterYearCount = math.max(diagnostic.afterYearCount or 0, afterYearCount)
+                diagnostic.afterEventCount = math.max(diagnostic.afterEventCount or 0, afterEventCount)
+                diagnostic.yearExact = yearExact
+                diagnostic.eventExact = eventExact
+                diagnostic.yearWanted = year and tostring(year) or ""
+                diagnostic.eventWanted = event
+                numericSourceDiagnostics[numericSourceKey] = diagnostic
+            end
             if #aliasMatches > 0 then
                 local score = (yearWanted and yearExact and 2 or 0)
                     + (eventWanted and eventExact and 1 or 0)
@@ -742,13 +756,13 @@ local function buildMapping(entries, database)
             end
             for _ in pairs(diagnosticEligible) do eligibleCount = eligibleCount + 1 end
             table.sort(candidateDetails)
-            numericSourceDiagnostics[numericSourceKey] = {
-                aliases = table.concat(aliases, " / "),
-                candidateCount = candidateCount,
-                eligibleCount = eligibleCount,
-                matchCount = #matches,
-                candidates = table.concat(candidateDetails, "; ")
-            }
+            local diagnostic = numericSourceDiagnostics[numericSourceKey] or {}
+            diagnostic.aliases = table.concat(aliases, " / ")
+            diagnostic.candidateCount = candidateCount
+            diagnostic.eligibleCount = eligibleCount
+            diagnostic.matchCount = #matches
+            diagnostic.candidates = table.concat(candidateDetails, "; ")
+            numericSourceDiagnostics[numericSourceKey] = diagnostic
         end
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
@@ -782,6 +796,10 @@ local function buildMapping(entries, database)
                     .. tostring(existing and existing.name or "unknown")
                     .. " = " .. tostring(existing and existing.v or "nil")
                     .. " [sourceKey=" .. tostring(existing and existing.sourceKey or "none") .. "]"
+                numericSourceDiagnostics[numericSourceKey] = diagnostic
+            else
+                local diagnostic = numericSourceDiagnostics[numericSourceKey] or {}
+                diagnostic.resolvedCandidates = idKey
                 numericSourceDiagnostics[numericSourceKey] = diagnostic
             end
         end
@@ -869,7 +887,11 @@ local function buildMapping(entries, database)
             local reason = diagnostic.candidateCount == 0 and "NO_DB_NAME_CANDIDATE"
                 or diagnostic.eligibleCount == 0 and "FILTERED_BY_RARITY_TYPE_CHROMA"
                 or diagnostic.matchCount > 1 and "AMBIGUOUS_MATCH"
-                or "MAPPING_COLLISION_OR_METADATA_CONFLICT"
+                or (diagnostic.beforeYearCount or 0) > 0 and (diagnostic.afterYearCount or 0) == 0
+                    and "METADATA_YEAR_MISMATCH"
+                or (diagnostic.afterYearCount or 0) > 0 and (diagnostic.afterEventCount or 0) == 0
+                    and "METADATA_EVENT_MISMATCH"
+                or "NO_UNIQUE_MAPPING"
             table.insert(numericUnmatched, {
                 name = sourceItem.name,
                 category = sourceItem.category,
@@ -879,7 +901,13 @@ local function buildMapping(entries, database)
                 candidateCount = diagnostic.candidateCount or 0,
                 eligibleCount = diagnostic.eligibleCount or 0,
                 candidates = diagnostic.candidates or "none",
-                occupiedBy = diagnostic.occupiedBy or "none"
+                occupiedBy = diagnostic.occupiedBy or "none",
+                resolvedCandidates = diagnostic.resolvedCandidates or "none",
+                yearWanted = diagnostic.yearWanted or "",
+                eventWanted = diagnostic.eventWanted or "",
+                beforeYearCount = diagnostic.beforeYearCount or 0,
+                afterYearCount = diagnostic.afterYearCount or 0,
+                afterEventCount = diagnostic.afterEventCount or 0
             })
         end
     end
@@ -3215,6 +3243,11 @@ local function buildDiagnostic()
                         .. "; candidates=" .. tostring(item.candidateCount or 0)
                         .. "; eligible=" .. tostring(item.eligibleCount or 0)
                         .. "; DB=" .. tostring(item.candidates or "none")
+                        .. "; year=" .. tostring(item.yearWanted or "none")
+                        .. "; event=" .. tostring(item.eventWanted or "none")
+                        .. "; metadata=" .. tostring(item.beforeYearCount or 0) .. ">"
+                        .. tostring(item.afterYearCount or 0) .. ">" .. tostring(item.afterEventCount or 0)
+                        .. "; resolved=" .. tostring(item.resolvedCandidates or "none")
                         .. "; occupied=" .. tostring(item.occupiedBy or "none") .. "]")
                 end
                 return tostring(#missing) .. " total"
