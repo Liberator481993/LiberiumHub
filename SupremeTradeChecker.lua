@@ -152,6 +152,8 @@ local state = {
     inventoryGuiStructure = "not scanned",
     busy = false,
     latestTrade = "No active trade detected.",
+    tradeScanStatus = "not scanned",
+    tradeScanError = "none",
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
     unmatchedTrade = {},
@@ -431,7 +433,8 @@ local function readValuesCache()
     local decodedOk, decoded = pcall(function()
         return HttpService:JSONDecode(raw)
     end)
-    if not decodedOk or type(decoded) ~= "table" or type(decoded.items) ~= "table" then
+    if not decodedOk or type(decoded) ~= "table" or decoded.v ~= 1
+        or type(decoded.items) ~= "table" then
         return nil
     end
     local timestamp = tonumber(decoded.t)
@@ -900,12 +903,21 @@ local function loadValues(force)
                     end
                 end)
             end
+            local fetchDeadline = os.clock() + 45
             while not stopped do
                 local complete = true
                 for index = 1, #CATEGORIES do
                     if fetched[index] == nil then complete = false break end
                 end
                 if complete then break end
+                if os.clock() >= fetchDeadline then
+                    for index = 1, #CATEGORIES do
+                        if fetched[index] == nil then
+                            fetched[index] = {html = nil, info = "timeout after 45 seconds"}
+                        end
+                    end
+                    break
+                end
                 task.wait(0.05)
             end
 
@@ -999,6 +1011,15 @@ local function loadValues(force)
     end)
 end
 
+local function parseQuantity(raw)
+    local text = tostring(raw or ""):gsub("[%s,]", "")
+    local digits = text:match("^[xX×]?([%d]+)[xX×]?$")
+        or text:match("[xX×]?([%d]+)")
+    local number = tonumber(digits)
+    if not number or number < 1 then return 1 end
+    return math.floor(number)
+end
+
 local function itemData(tile)
     if not tile then return nil, 1, nil end
     local nameNode = tile:FindFirstChild("ItemName")
@@ -1010,7 +1031,7 @@ local function itemData(tile)
     local amountNode = container and container:FindFirstChild("Amount")
     local quantity = 1
     if amountNode and (amountNode:IsA("TextLabel") or amountNode:IsA("TextButton")) then
-        quantity = math.max(1, math.floor(tonumber(tostring(amountNode.Text):match("%d+")) or 1))
+        quantity = parseQuantity(amountNode.Text)
     end
     return name, quantity, label
 end
@@ -1171,7 +1192,17 @@ local VALUE_TEXT_COLORS = {
 -- Zero is treated as no tradable numeric value; tier labels remain a separate case.
 isTrackedValue = function(value)
     local numeric = tonumber(value)
-    return numeric ~= nil and numeric > 0
+    return numeric ~= nil and numeric == numeric and numeric > 0 and numeric < math.huge
+end
+
+-- Keep stack multiplication and valued-item counts identical across every
+-- inventory and trade scanning path.
+local function addNumericValue(total, known, value, quantity)
+    if not isTrackedValue(value) then return total, known end
+    local numeric = tonumber(value)
+    local count = math.max(1, math.floor(tonumber(quantity) or 1))
+    return (tonumber(total) or 0) + numeric * count,
+        (tonumber(known) or 0) + count
 end
 
 local function updateTileBadge(tile, value, quantity, group, tierText, category, itemName)
@@ -1245,8 +1276,7 @@ local function scanRoot(root, group)
         count = count + quantity
         if isTrackedValue(value) then
             value = tonumber(value)
-            total = total + value * quantity
-            known = known + quantity
+            total, known = addNumericValue(total, known, value, quantity)
             updateTileBadge(tile, value, quantity, group, nil, category, name)
         elseif hasTierValue(tierText) then
             tierCount = tierCount + quantity
@@ -1306,8 +1336,7 @@ local function scanImageCards(root, group, seenTiles)
         recordCoverage(card, name, quantity, group, value, tierText, resolvedName)
         count = count + quantity
         if isTrackedValue(value) then
-            total = total + tonumber(value) * quantity
-            known = known + quantity
+            total, known = addNumericValue(total, known, value, quantity)
             updateTileBadge(card, value, quantity, group, nil, category, name)
         elseif hasTierValue(tierText) then
             tierCount = tierCount + quantity
@@ -1382,8 +1411,7 @@ local function scanOffer(offer, group)
                     tier = nil,
                     quantity = quantity
                 })
-                total = total + value * quantity
-                known = known + quantity
+                total, known = addNumericValue(total, known, value, quantity)
                 updateTileBadge(tile, value, quantity, group, nil, category, name)
             elseif hasTierValue(tierText) then
                 tierCount = tierCount + quantity
@@ -1436,7 +1464,7 @@ local function getVerdict(giveValue, receiveValue)
     local receive = tonumber(receiveValue) or 0
     local difference = receive - give
     -- Relative tolerance stays meaningful even for very small fractional values.
-    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.000000000001)
+    local tolerance = math.max(math.abs(give), math.abs(receive)) * 0.02
     if math.abs(difference) <= tolerance then
         return "FAIR", difference
     end
@@ -1475,6 +1503,13 @@ local function runCoreSelfTests()
     assert(formatValue(0.000000001) == "0.000000001", "sub-nanovalue formatting failed")
     assert(formatValue(0.0000000000001) == "0.0000000000001",
         "scientific-notation expansion lost a tiny positive value")
+    assert(parseQuantity("x2") == 2 and parseQuantity("× 3") == 3,
+        "stack quantity prefix parsing failed")
+    assert(parseQuantity("1,000") == 1000 and parseQuantity("4x") == 4,
+        "stack quantity grouping/suffix parsing failed")
+    assert(parseQuantity("0") == 1 and parseQuantity("") == 1,
+        "invalid stack quantity must safely default to one")
+    assert(not isTrackedValue(math.huge), "infinite item value must be rejected")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
 
@@ -1631,8 +1666,11 @@ local function runCoreSelfTests()
     assert(getUnknownItemCount(0, 2, 2) == 0,
         "tier-only items should not also be counted as unknown")
 
-    local duplicateTotal = 10 * 2 + 100 * 3
-    assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
+    local duplicateTotal, duplicateKnown = 0, 0
+    duplicateTotal, duplicateKnown = addNumericValue(duplicateTotal, duplicateKnown, 10, 2)
+    duplicateTotal, duplicateKnown = addNumericValue(duplicateTotal, duplicateKnown, 100, 3)
+    assert(duplicateTotal == 320 and duplicateKnown == 5,
+        "production stack aggregation failed for duplicate quantities")
     -- Unknown/tier items are excluded, but numeric items still produce a verdict.
     local verdict, difference = getVerdict(100, 150)
     assert(verdict == "WIN" and difference == 50,
@@ -1644,7 +1682,11 @@ local function runCoreSelfTests()
         "tiny numeric values must not be hidden by a coarse fair tolerance")
     local subNanoVerdict, subNanoDifference = getVerdict(0.000000001, 0)
     assert(subNanoVerdict == "LOSE" and math.abs(subNanoDifference + 0.000000001) < 0.0000000001,
-        "sub-nanovalue must not be hidden by the minimum fair tolerance")
+        "sub-nanovalue must not be hidden by fair tolerance")
+    local ultraTinyVerdict, ultraTinyDifference = getVerdict(0.0000000000001, 0)
+    assert(ultraTinyVerdict == "LOSE"
+        and math.abs(ultraTinyDifference + 0.0000000000001) < 0.000000000000001,
+        "sub-picovalue must not be classified FAIR against zero")
     return true
 end
 
@@ -1744,7 +1786,7 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
                 local itemValue = tonumber(item.value)
                 if isTrackedValue(itemValue) then
                     local nextGap = math.abs((yourTotal - itemValue) - theirTotal)
-                    if nextGap + 0.000001 < bestGap then
+                    if nextGap < bestGap then
                         bestItem, bestGap = item, nextGap
                     end
                 end
@@ -1944,8 +1986,7 @@ local function scanModuleInventory()
                 count = count + quantity
                 if isTrackedValue(resolvedValue) then
                     resolvedValue = tonumber(resolvedValue)
-                    total = total + resolvedValue * quantity
-                    known = known + quantity
+                    total, known = addNumericValue(total, known, resolvedValue, quantity)
                     updateTileBadge(tile, resolvedValue, quantity, "inventory", nil, category)
                 elseif hasTierValue(tierText) then
                     tierCount = tierCount + quantity
@@ -2348,6 +2389,8 @@ setCollapsed(true)
 
 local hopBusy = false
 local hopStatus = "Ready to find a new public server"
+local inputChangedConnection
+local teleportFailedConnection
 
 local function httpGetJson(url)
     local body
@@ -2416,7 +2459,7 @@ local function findHopServer()
     return candidates[rng:NextInteger(1, #candidates)]
 end
 
-TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
+teleportFailedConnection = TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
     if failedPlayer ~= player then return end
     hopStatus = "Teleport failed: " .. tostring(teleportResult) .. " / " .. tostring(errorMessage)
     hopButton.Text = "↻   TRY AGAIN"
@@ -2555,6 +2598,8 @@ local function buildDiagnostic()
         "",
         "Hop server: " .. tostring(hopStatus),
         "",
+        "Trade scan status: " .. tostring(state.tradeScanStatus),
+        "Trade scan error: " .. tostring(state.tradeScanError),
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "",
@@ -2601,7 +2646,7 @@ title.InputBegan:Connect(function(input)
     end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
+inputChangedConnection = UserInputService.InputChanged:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
@@ -2612,17 +2657,25 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
+local lastDiagnosticRefresh = 0
 local function updateUi()
     if state.status == "ok" then
         title.Text = collapsed and "SUPREME" or "SUPREME  /  READY"
     else
         title.Text = collapsed and "SUPREME" or "SUPREME  /  " .. string.upper(state.status)
     end
-    output.Text = buildDiagnostic()
+    -- The full coverage report can contain hundreds of rows. Do not rebuild it
+    -- every frame while collapsed; refresh it at a low rate only when visible.
+    if not collapsed and os.clock() - lastDiagnosticRefresh >= 2 then
+        output.Text = buildDiagnostic()
+        lastDiagnosticRefresh = os.clock()
+    end
 end
 
 textGui.Destroying:Connect(function()
     stopped = true
+    if inputChangedConnection then inputChangedConnection:Disconnect() end
+    if teleportFailedConnection then teleportFailedConnection:Disconnect() end
 end)
 
 __bootStage("BOOT 06/06 — SCRIPT RUNNING", "Main panel created. Running self-tests...")
@@ -2640,7 +2693,15 @@ task.spawn(function()
     end
     local nextInventoryScan = 0
     while textGui.Parent and not stopped do
-        pcall(scanTrade)
+        local tradeScanOk, tradeScanError = xpcall(scanTrade, function(err)
+            local trace = tostring(err)
+            pcall(function()
+                if debug and debug.traceback then trace = debug.traceback(trace, 2) end
+            end)
+            return trace
+        end)
+        state.tradeScanStatus = tradeScanOk and "completed" or "FAILED"
+        state.tradeScanError = tradeScanOk and "none" or tostring(tradeScanError):sub(1, 1800)
         if os.clock() >= nextInventoryScan then
             state.inventoryScanCount = (state.inventoryScanCount or 0) + 1
             local scanOk, scanError = xpcall(scanInventory, function(err)
