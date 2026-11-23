@@ -1060,14 +1060,26 @@ local function loadValues(force)
 end
 
 local function parseQuantity(raw)
-    local text = tostring(raw or ""):gsub("[%s,]", "")
-    -- Lua patterns are byte-oriented: the UTF-8 multiplication sign (×)
-    -- must be matched as a literal sequence, not inside a character class.
-    local digits = text:match("^[xX](%d+)$")
-        or text:match("^×(%d+)$")
-        or text:match("^(%d+)[xX]$")
-        or text:match("^(%d+)×$")
-        or text:match("^(%d+)$")
+    local text = tostring(raw or ""):gsub("%s", ""):gsub(",", "")
+    local digits
+
+    -- Handle UTF-8 multiplication sign by its two bytes. This avoids
+    -- executor-specific Lua pattern/UTF-8 behavior entirely.
+    local firstTwo = text:sub(1, 2)
+    local lastTwo = text:sub(-2)
+    if firstTwo == "\\195\\151" then
+        digits = text:sub(3)
+    elseif lastTwo == "\\195\\151" then
+        digits = text:sub(1, -3)
+    elseif text:sub(1, 1) == "x" or text:sub(1, 1) == "X" then
+        digits = text:sub(2)
+    elseif text:sub(-1) == "x" or text:sub(-1) == "X" then
+        digits = text:sub(1, -2)
+    else
+        digits = text
+    end
+
+    if not digits:match("^%d+$") then return 1 end
     local number = tonumber(digits)
     if not number or number ~= number or number < 1
         or number >= math.huge or number > 1000000 then return 1 end
