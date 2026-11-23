@@ -2882,6 +2882,7 @@ task.spawn(function()
         warn("[Supreme Trade Checker] Core self-tests failed; values loading is blocked: " .. tostring(testsError))
     end
     local nextInventoryScan = 0
+    local nextValuesRetry = os.clock() + 20
     while textGui.Parent and not stopped do
         local tradeScanOk, tradeScanError = xpcall(scanTrade, function(err)
             local trace = tostring(err)
@@ -2906,11 +2907,14 @@ task.spawn(function()
             nextInventoryScan = os.clock() + 1.25
         end
         updateUi()
-        if coreTestsPassed and state.status == "fail" and not state.busy then
-            task.wait(20)
+        if coreTestsPassed and state.status == "fail" and not state.busy
+            and os.clock() >= nextValuesRetry then
+            -- Retry the source without pausing trade/inventory scans.
+            nextValuesRetry = os.clock() + 20
             loadValues(true)
         elseif coreTestsPassed and state.status == "ok"
             and os.clock() - state.updated >= 900 and not state.busy then
+            nextValuesRetry = os.clock() + 20
             loadValues(false)
         end
         task.wait(0.6)
