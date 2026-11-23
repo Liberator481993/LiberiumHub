@@ -194,13 +194,31 @@ local function normalize(value)
     return string.lower(tostring(value or "")):gsub("[^%w]", "")
 end
 
--- Supreme Values contains fractional values for low-tier items.
--- Keep eight decimal places so small positive values remain visible in badges and totals.
+-- Preserve small positive Supreme values without rounding them down to zero.
+-- Expand scientific notation before adding thousands separators.
 local function formatValue(value)
     local number = tonumber(value) or 0
-    local formatted = string.format("%.12f", number)
-        :gsub("0+$", "")
-        :gsub("%.$", "")
+    local formatted = string.format("%.15g", number)
+    local mantissa, exponent = formatted:match("^([%-]?[%d%.]+)[eE]([%+%-]?%d+)$")
+    if mantissa then
+        local sign = ""
+        if mantissa:sub(1, 1) == "-" then
+            sign = "-"
+            mantissa = mantissa:sub(2)
+        end
+        local dot = mantissa:find(".", 1, true)
+        local decimalPosition = (dot and dot - 1 or #mantissa) + tonumber(exponent)
+        local digits = mantissa:gsub("%.", "")
+        if decimalPosition <= 0 then
+            formatted = sign .. "0." .. string.rep("0", -decimalPosition) .. digits
+        elseif decimalPosition >= #digits then
+            formatted = sign .. digits .. string.rep("0", decimalPosition - #digits)
+        else
+            formatted = sign .. digits:sub(1, decimalPosition) .. "."
+                .. digits:sub(decimalPosition + 1)
+        end
+    end
+    formatted = formatted:gsub("(%.%d-)0+$", "%1"):gsub("%.$", "")
     if formatted == "-0" or formatted == "" then return "0" end
 
     local integer, fraction = formatted:match("^(%-?%d+)(%.%d+)$")
@@ -1455,6 +1473,8 @@ local function runCoreSelfTests()
     assert(formatValue(1000000) == "1,000,000", "large value formatting failed")
     assert(formatValue(0.00001) == "0.00001", "tiny positive value formatting failed")
     assert(formatValue(0.000000001) == "0.000000001", "sub-nanovalue formatting failed")
+    assert(formatValue(0.0000000000001) == "0.0000000000001",
+        "scientific-notation expansion lost a tiny positive value")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
 
