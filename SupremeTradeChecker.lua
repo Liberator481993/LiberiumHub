@@ -198,7 +198,7 @@ end
 -- Keep eight decimal places so small positive values remain visible in badges and totals.
 local function formatValue(value)
     local number = tonumber(value) or 0
-    local formatted = string.format("%.8f", number)
+    local formatted = string.format("%.12f", number)
         :gsub("0+$", "")
         :gsub("%.$", "")
     if formatted == "-0" or formatted == "" then return "0" end
@@ -432,8 +432,8 @@ local function writeValuesCache(entries)
         return HttpService:JSONEncode({v = 1, t = os.time(), items = entries})
     end)
     if not ok or type(encoded) ~= "string" then return false end
-    local saved = pcall(writefile, VALUES_CACHE_FILE, encoded)
-    return saved
+    local saved, result = pcall(writefile, VALUES_CACHE_FILE, encoded)
+    return saved and result ~= false
 end
 
 
@@ -1418,7 +1418,7 @@ local function getVerdict(giveValue, receiveValue)
     local receive = tonumber(receiveValue) or 0
     local difference = receive - give
     -- Relative tolerance stays meaningful even for very small fractional values.
-    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.00000001)
+    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.000000000001)
     if math.abs(difference) <= tolerance then
         return "FAIR", difference
     end
@@ -1454,6 +1454,7 @@ local function runCoreSelfTests()
     assert(formatValue(4600) == "4,600", "thousands formatting failed")
     assert(formatValue(1000000) == "1,000,000", "large value formatting failed")
     assert(formatValue(0.00001) == "0.00001", "tiny positive value formatting failed")
+    assert(formatValue(0.000000001) == "0.000000001", "sub-nanovalue formatting failed")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
 
@@ -1564,6 +1565,8 @@ local function runCoreSelfTests()
     assert(isTrackedValue(0.1), "0.1 value should be included")
     assert(isTrackedValue(0.099), "fractional values below 0.1 should be included")
     assert(isTrackedValue(0.00001), "very small positive numeric values should be included")
+    assert(isTrackedValue(0.000000001), "sub-nanovalue should be included")
+    assert(not isTrackedValue(-0.1), "negative item value should not be included")
     assert(isTrackedValue(0.5), "fractional value should be included")
     assert(isTrackedValue(1), "integer value should be included")
     assert(not isTrackedValue(0), "zero value should be excluded")
@@ -1596,6 +1599,9 @@ local function runCoreSelfTests()
     local tinyVerdict, tinyDifference = getVerdict(0.00001, 0)
     assert(tinyVerdict == "LOSE" and math.abs(tinyDifference + 0.00001) < 0.000000001,
         "tiny numeric values must not be hidden by a coarse fair tolerance")
+    local subNanoVerdict, subNanoDifference = getVerdict(0.000000001, 0)
+    assert(subNanoVerdict == "LOSE" and math.abs(subNanoDifference + 0.000000001) < 0.0000000001,
+        "sub-nanovalue must not be hidden by the minimum fair tolerance")
     return true
 end
 
