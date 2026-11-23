@@ -158,6 +158,8 @@ local state = {
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
     unmatchedTrade = {},
+    unmatchedSeenInventory = {},
+    unmatchedSeenTrade = {},
     coverageInventory = {},
     coverageTrade = {},
     coverageSeenInventory = {},
@@ -1116,8 +1118,17 @@ local function hasTierValue(tierText)
     return tierText ~= nil and clean(tierText) ~= ""
 end
 
+local function claimUnmatchedTile(tile, target)
+    if not tile then return true end
+    local seen = target == state.unmatchedTrade
+        and state.unmatchedSeenTrade or state.unmatchedSeenInventory
+    if seen[tile] then return false end
+    seen[tile] = true
+    return true
+end
+
 local function recordUnmatched(tile, name, quantity, target)
-    if type(target) ~= "table" then return end
+    if type(target) ~= "table" or not claimUnmatchedTile(tile, target) then return end
     local imageId = tileImageId(tile) or "no-icon"
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
@@ -1637,6 +1648,18 @@ local function runCoreSelfTests()
         "malformed stack quantity must not extract unrelated digits")
     assert(parseQuantity("999999999999999999999999999999999999") == 1,
         "infinite stack quantity must safely default to one")
+
+    local previousUnmatchedInventory = state.unmatchedInventory
+    local previousUnmatchedSeen = state.unmatchedSeenInventory
+    state.unmatchedInventory = {}
+    state.unmatchedSeenInventory = {}
+    local duplicateUnknownTile = {}
+    assert(claimUnmatchedTile(duplicateUnknownTile, state.unmatchedInventory),
+        "first unmatched GUI tile must be recorded")
+    assert(not claimUnmatchedTile(duplicateUnknownTile, state.unmatchedInventory),
+        "the same unmatched GUI tile must not be counted again by overlay scanning")
+    state.unmatchedInventory = previousUnmatchedInventory
+    state.unmatchedSeenInventory = previousUnmatchedSeen
     assert(not isTrackedValue(math.huge), "infinite item value must be rejected")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
@@ -2135,6 +2158,7 @@ end
 
 local function scanTrade()
     state.unmatchedTrade = {}
+    state.unmatchedSeenTrade = {}
     state.coverageTrade = {}
     state.coverageSeenTrade = {}
     local screen, container, trade = findTrade()
@@ -2474,6 +2498,7 @@ end
 
 local function scanInventory()
     state.unmatchedInventory = {}
+    state.unmatchedSeenInventory = {}
     state.coverageInventory = {}
     state.coverageSeenInventory = {}
     state.inventoryMissingFrames = 0
