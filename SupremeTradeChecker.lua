@@ -752,7 +752,9 @@ local function buildMapping(entries, database)
                 local item = candidate.item
                 table.insert(candidateDetails, key .. ":" .. tostring(item.ItemName or item.Name or "")
                     .. "[" .. tostring(item.Rarity or "?") .. "/" .. tostring(item.ItemType or "Pet")
-                    .. (item.Chroma and "/Chroma" or "") .. "]")
+                    .. (item.Chroma and "/Chroma" or "")
+                    .. (item.Year and "/Year=" .. tostring(item.Year) or "")
+                    .. (item.Event and "/Event=" .. tostring(item.Event) or "") .. "]")
             end
             for _ in pairs(diagnosticEligible) do eligibleCount = eligibleCount + 1 end
             table.sort(candidateDetails)
@@ -796,10 +798,6 @@ local function buildMapping(entries, database)
                     .. tostring(existing and existing.name or "unknown")
                     .. " = " .. tostring(existing and existing.v or "nil")
                     .. " [sourceKey=" .. tostring(existing and existing.sourceKey or "none") .. "]"
-                numericSourceDiagnostics[numericSourceKey] = diagnostic
-            else
-                local diagnostic = numericSourceDiagnostics[numericSourceKey] or {}
-                diagnostic.resolvedCandidates = idKey
                 numericSourceDiagnostics[numericSourceKey] = diagnostic
             end
         end
@@ -1996,6 +1994,20 @@ local function runCoreSelfTests()
         -- Regression: two differently titled Supreme rows may resolve to the
         -- same MM2 key. Keep the first mapping and expose the prior source row
         -- for the unmatched row instead of silently losing the collision.
+        local metadataMismatchMapping = buildMapping({
+            {c = "godlies", n = "Test Gun", im = "Test Gun", v = 10,
+                cl = "Godly", y = "2026"}
+        }, {
+            Item = {
+                TestGun = {ItemName = "Test", ItemType = "Gun", Rarity = "Godly",
+                    Year = "2025", Image = "rbxassetid://444444"}
+            },
+            Pets = {}
+        })
+        assert(metadataMismatchMapping.numericMatchedSourceCount == 0
+            and metadataMismatchMapping.numericUnmatched[1].reason == "METADATA_YEAR_MISMATCH",
+            "year mismatch must be reported separately from a name collision")
+
         local collisionMapping = buildMapping({
             {c = "godlies", n = "Test", im = "Test Gun", v = 10, cl = "Godly"},
             {c = "godlies", n = "Test Gun", im = "Test Gun", v = 20, cl = "Godly"}
