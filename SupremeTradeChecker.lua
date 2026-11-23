@@ -605,6 +605,14 @@ local function buildMapping(entries, database)
 
         local name, kind, titleYear = splitVariant(value.n)
         local year = value.y or titleYear
+        if name == "Blue Scratch" or name == "Red Scratch" then
+            -- MM2 stores both as ItemName="Scratch"; Year distinguishes them.
+            local scratchYear = name == "Blue Scratch" and "2017" or "2016"
+            name = "Scratch"
+            kind = kind or "Knife"
+            year = scratchYear
+            event = "Halloween"
+        end
         if value.y and titleYear and tostring(value.y) ~= tostring(titleYear) then
             continue
         end
@@ -676,6 +684,12 @@ local function buildMapping(entries, database)
                 local diagnosticKey = candidate.kind .. ":" .. candidate.id
                 diagnosticCandidates[diagnosticKey] = candidate
                 local eligible = false
+                local knownBatwingRarityAlias = category == "godlies"
+                    and name == "Batwing" and candidate.kind == "i"
+                    and candidate.id == "Scythe"
+                    and tostring(item.ItemName or "") == "Batwing"
+                    and item.ItemType == "Knife" and item.Rarity == "Ancient"
+                    and item.Chroma ~= true
                 if candidate.kind == "p" then
                     eligible = (item.Chroma == true) == chroma
                         and (category == "pets" or category == "chromas")
@@ -686,12 +700,14 @@ local function buildMapping(entries, database)
                     elseif chroma then
                         eligible = item.Chroma == true
                     else
-                        eligible = item.Chroma ~= true and item.Rarity == RARITIES[category]
+                        eligible = item.Chroma ~= true
+                            and (item.Rarity == RARITIES[category] or knownBatwingRarityAlias)
                     end
                 end
                 if eligible
                     and (not kind or item.ItemType == kind)
-                    and (not value.cl or normalize(item.Rarity) == normalize(value.cl)) then
+                    and (not value.cl or normalize(item.Rarity) == normalize(value.cl)
+                        or knownBatwingRarityAlias) then
                     diagnosticEligible[diagnosticKey] = candidate
                     table.insert(aliasMatches, candidate)
                 end
