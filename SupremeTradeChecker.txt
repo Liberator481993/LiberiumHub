@@ -1809,6 +1809,10 @@ local function runCoreSelfTests()
                 ChromaEmbersickle = {
                     ItemName = "Embersickle", ItemType = "Knife",
                     Rarity = "Godly", Chroma = true, Image = "rbxassetid://20261104"
+                },
+                ChromaEmberscythe = {
+                    ItemName = "Emberscythe", ItemType = "Knife",
+                    Rarity = "Godly", Chroma = true, Image = "rbxassetid://20261105"
                 }
             },
             Pets = {}
@@ -1817,15 +1821,18 @@ local function runCoreSelfTests()
             {c = "godlies", n = "Emberbow", im = "Emberbow (Knife)", v = 650, cl = "Godly"},
             {c = "chromas", n = "Chroma Emberbow", im = "Emberbow (Knife)", v = 6000, cl = "Godly"},
             {c = "godlies", n = "Emberscythe", im = "Emberscythe (Knife)", v = 650, cl = "Godly"},
-            {c = "chromas", n = "Chroma Embersickle", im = "Embersickle (Knife)", v = 1850, cl = "Godly"}
+            {c = "chromas", n = "Chroma Embersickle", im = "Embersickle (Knife)", v = 1850, cl = "Godly"},
+            {c = "chromas", n = "Chroma Emberscythe", im = "Emberscythe (Knife)", v = 8500, cl = "Godly"}
         }, emberDatabase)
         state.mapped = emberMapping
         local emberbowValue = valueOf(fakeTile("rbxassetid://20261101", false), "Emberbow")
         local chromaEmberbowValue = valueOf(fakeTile("rbxassetid://20261102", true), "Emberbow")
         local emberscytheValue = valueOf(fakeTile("rbxassetid://20261103", false), "Emberscythe")
         local chromaEmbersickleValue = valueOf(fakeTile("rbxassetid://20261104", true), "Embersickle")
+        local chromaEmberscytheValue = valueOf(fakeTile("rbxassetid://20261105", true), "Emberscythe")
         assert(emberbowValue == 650 and chromaEmberbowValue == 6000
-            and emberscytheValue == 650 and chromaEmbersickleValue == 1850,
+            and emberscytheValue == 650 and chromaEmbersickleValue == 1850
+            and chromaEmberscytheValue == 8500,
             "November 2026 Ember item and Chroma mappings failed")
 
         local aliasFallbackDatabase = {
