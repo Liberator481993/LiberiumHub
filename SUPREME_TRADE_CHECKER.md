@@ -10,7 +10,7 @@ In-game Supreme Values overlay for Murder Mystery 2. This is a Luau script for a
 - Preserves small fractional Supreme Values, including values displayed in scientific notation.
 - Displays a WIN / FAIR / LOSE result and the numeric difference whenever at least one side contains numeric values.
 - Keeps unknown and tier-only items visible as separate counts; they are not silently added to numeric totals.
-- Shows an inventory value total and item-value coverage diagnostics.
+- Shows an inventory value total and item-value coverage diagnostics, including data-only inventory records whose GUI cards are missing or detached when their exact MM2 database key is available.
 - Includes a copyable diagnostic report for troubleshooting.
 - Can optionally cache parsed Supreme Values locally for up to seven days when the executor supports file access.
 - Includes an optional public-server hop button.
@@ -46,6 +46,7 @@ Open the compact Supreme panel and use **COPY FULL DIAGNOSTIC**. The report incl
 - Inventory and trade totals
 - Valued, tier-only, unknown, and unmatched item coverage
 - Inventory and trade scanner states and any captured errors
+- Frame-less inventory entries are resolved only by exact MM2 database key; otherwise they remain unknown
 
 When reporting an issue, send the complete copied report and describe what screen was open (inventory or active trade).
 
