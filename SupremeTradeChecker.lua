@@ -598,10 +598,26 @@ local function buildMapping(entries, database)
         -- Do not strip the first word from legendary names: that can
         -- collide with a different weapon and assign its value incorrectly.
 
+        local function preferExactMetadata(candidates, field, wanted)
+            if not wanted or clean(wanted) == "" then return candidates end
+            local exact, unknown = {}, {}
+            for _, candidate in ipairs(candidates) do
+                local actual = clean(candidate.item[field])
+                if actual == "" then
+                    table.insert(unknown, candidate)
+                elseif normalize(actual) == normalize(wanted) then
+                    table.insert(exact, candidate)
+                end
+            end
+            if #exact > 0 then return exact end
+            return unknown
+        end
+
         local matches = {}
         for _, alias in ipairs(aliases) do
             local prefix = category == "pets" and "pet:" or ""
             local candidates = index[prefix .. normalize(alias)] or {}
+            local aliasMatches = {}
             for _, candidate in ipairs(candidates) do
                 local item = candidate.item
                 local eligible = false
@@ -618,9 +634,18 @@ local function buildMapping(entries, database)
                         eligible = item.Chroma ~= true and item.Rarity == RARITIES[category]
                     end
                 end
-                if eligible then table.insert(matches, candidate) end
+                if eligible
+                    and (not kind or item.ItemType == kind)
+                    and (not value.cl or normalize(item.Rarity) == normalize(value.cl)) then
+                    table.insert(aliasMatches, candidate)
+                end
             end
-            if #matches > 0 then break end
+            aliasMatches = preferExactMetadata(aliasMatches, "Year", year)
+            aliasMatches = preferExactMetadata(aliasMatches, "Event", event)
+            if #aliasMatches > 0 then
+                matches = aliasMatches
+                break
+            end
         end
 
         if category == "pets" and year then
@@ -642,43 +667,6 @@ local function buildMapping(entries, database)
             end
             if #correct > 0 then matches = correct end
         end
-
-        local function filterMatches(predicate)
-            local filtered = {}
-            for _, candidate in ipairs(matches) do
-                if predicate(candidate.item) then table.insert(filtered, candidate) end
-            end
-            -- A supplied discriminator that does not match must reject the
-            -- candidate set; never silently fall back to a different skin.
-            matches = filtered
-        end
-
-        if kind then filterMatches(function(item) return item.ItemType == kind end) end
-        if value.cl then
-            filterMatches(function(item)
-                return normalize(item.Rarity) == normalize(value.cl)
-            end)
-        end
-
-        local function preferExactMetadata(field, wanted)
-            if not wanted or clean(wanted) == "" then return end
-            local exact, unknown = {}, {}
-            for _, candidate in ipairs(matches) do
-                local actual = clean(candidate.item[field])
-                if actual == "" then
-                    table.insert(unknown, candidate)
-                elseif normalize(actual) == normalize(wanted) then
-                    table.insert(exact, candidate)
-                end
-            end
-            if #exact > 0 then
-                matches = exact
-            else
-                matches = unknown
-            end
-        end
-        preferExactMetadata("Year", year)
-        preferExactMetadata("Event", event)
 
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
@@ -1662,6 +1650,29 @@ local function runCoreSelfTests()
         local fullTitleValue = valueOf(fakeTile("rbxassetid://777777", false), "Swirly Gun")
         assert(fullTitleValue == 55,
             "full weapon title must win over a shorter same-name database record")
+
+        local aliasFallbackDatabase = {
+            Item = {
+                WrongFullTitle = {
+                    ItemName = "Alias Gun", ItemType = "Knife",
+                    Rarity = "Godly", Image = "rbxassetid://888888"
+                },
+                CorrectBaseTitle = {
+                    ItemName = "Alias", ItemType = "Gun",
+                    Rarity = "Godly", Image = "rbxassetid://999999"
+                }
+            },
+            Pets = {}
+        }
+        local aliasFallbackEntry = {
+            c = "godlies", n = "Alias Gun", im = "Alias Gun (Gun)",
+            v = 42, cl = "Godly"
+        }
+        local aliasFallbackMapping = buildMapping({aliasFallbackEntry}, aliasFallbackDatabase)
+        state.mapped = aliasFallbackMapping
+        local aliasFallbackValue = valueOf(fakeTile("rbxassetid://999999", false), "Alias Gun")
+        assert(aliasFallbackValue == 42,
+            "a full-name candidate with the wrong weapon type must not block a valid base-name alias")
 
         -- Regression: duplicate database names without a reliable discriminator
         -- must stay unmapped instead of assigning one item's value to both skins.
