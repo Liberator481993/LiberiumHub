@@ -1061,7 +1061,13 @@ end
 
 local function parseQuantity(raw)
     local text = tostring(raw or ""):gsub("[%s,]", "")
-    local digits = text:match("^[xX×]?([%d]+)[xX×]?$")
+    -- Lua patterns are byte-oriented: the UTF-8 multiplication sign (×)
+    -- must be matched as a literal sequence, not inside a character class.
+    local digits = text:match("^[xX](%d+)$")
+        or text:match("^×(%d+)$")
+        or text:match("^(%d+)[xX]$")
+        or text:match("^(%d+)×$")
+        or text:match("^(%d+)$")
     local number = tonumber(digits)
     if not number or number ~= number or number < 1
         or number >= math.huge or number > 1000000 then return 1 end
