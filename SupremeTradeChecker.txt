@@ -2953,6 +2953,11 @@ local function buildDiagnostic()
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "Local values cache: " .. tostring(state.cacheStatus or "not checked"),
         "Values data timestamp: " .. tostring(state.lastUpdate or "unknown"),
+        "Automatic refresh: every 900 seconds while the script is running",
+        "Refresh countdown: " .. (state.updated > 0
+            and (tostring(math.max(0, math.ceil(900 - (os.clock() - state.updated)))) .. "s")
+            or "initial load pending"),
+        "MM2 database: ReplicatedStorage.Database.Sync is re-read on each values refresh",
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
