@@ -554,11 +554,22 @@ local function buildMapping(entries, database)
     end
 
     local byKey, mappedCount = {}, 0
+    local numericSourceKeys, numericMatchedSourceKeys = {}, {}
     for entryIndex, value in ipairs(entries) do
         if entryIndex % 150 == 0 then task.wait() end
         local category, amount = value.c, tonumber(value.v)
         local tierText = clean(value.t)
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
+        local numericSourceKey
+        if VALUE_CATEGORIES[category] and amount and amount >= 1 then
+            local sourceName = clean(value.n)
+            if sourceName ~= "" then
+                numericSourceKey = category .. ":" .. normalize(sourceName)
+                numericSourceKeys[numericSourceKey] = {
+                    name = sourceName, category = category, value = amount
+                }
+            end
+        end
 
         -- Parse both the value title and image label; the image label often
         -- carries the exact weapon type/year while the value title is generic.
@@ -707,6 +718,7 @@ local function buildMapping(entries, database)
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
         if #matches == 1 then
+            if numericSourceKey then numericMatchedSourceKeys[numericSourceKey] = true end
             local candidate = matches[1]
             local idKey = candidate.kind .. ":" .. candidate.id
             if not byKey[idKey] then
@@ -793,10 +805,33 @@ local function buildMapping(entries, database)
         end
     end
 
+    local numericUnmatched = {}
+    local numericSourceCount, numericMatchedSourceCount = 0, 0
+    for sourceKey, sourceItem in pairs(numericSourceKeys) do
+        numericSourceCount = numericSourceCount + 1
+        if numericMatchedSourceKeys[sourceKey] then
+            numericMatchedSourceCount = numericMatchedSourceCount + 1
+        else
+            table.insert(numericUnmatched, {
+                name = sourceItem.name,
+                category = sourceItem.category,
+                value = sourceItem.value,
+                reason = "NO_UNIQUE_MM2_MATCH"
+            })
+        end
+    end
+    table.sort(numericUnmatched, function(a, b)
+        if a.category ~= b.category then return a.category < b.category end
+        return a.name:lower() < b.name:lower()
+    end)
+
     local iconCount = 0
     for _ in pairs(icon) do iconCount = iconCount + 1 end
     return {
         byKey = byKey,
+        numericSourceCount = numericSourceCount,
+        numericMatchedSourceCount = numericMatchedSourceCount,
+        numericUnmatched = numericUnmatched,
         icon = icon,
         chromaOf = chromaOf,
         dbByName = dbByName,
@@ -1716,14 +1751,17 @@ local function runCoreSelfTests()
         {c = "godlies", n = " test   knife ", v = 5},
         {c = "godlies", n = "Test Knife", v = 6},
         {c = "chromas", n = "Test Knife", v = 10},
+        {c = "commons", n = "Value One", v = 1},
+        {c = "commons", n = "Below One", v = 0.99},
         {c = "commons", n = "Tier Only", t = "x1 T1 Common"},
         {c = "sets", n = "Aggregate Set", v = 500}
     })
-    assert(#numericAuditTest.items == 2 and numericAuditTest.rawNumeric == 4
+    assert(#numericAuditTest.items == 3 and numericAuditTest.rawNumeric == 5
         and numericAuditTest.duplicates == 2 and numericAuditTest.conflicts == 1,
         "numeric item audit must deduplicate by category/name and detect conflicting values")
     assert(numericAuditTest.categoryCounts.godlies == 1
-        and numericAuditTest.categoryCounts.chromas == 1,
+        and numericAuditTest.categoryCounts.chromas == 1
+        and numericAuditTest.categoryCounts.commons == 1,
         "numeric item audit category counts are incorrect")
 
     local syntheticHtml =
@@ -3066,6 +3104,22 @@ local function buildDiagnostic()
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
+        "SUPREME NUMERIC MAPPING COVERAGE (Value >= 1): "
+            .. tostring(state.mapped and state.mapped.numericMatchedSourceCount or 0)
+            .. "/" .. tostring(state.mapped and state.mapped.numericSourceCount or 0)
+            .. " unique source items matched unambiguously",
+        "UNMATCHED SUPREME NUMERIC ITEMS (top 60): "
+            .. (function()
+                local rows = {}
+                local missing = state.mapped and state.mapped.numericUnmatched or {}
+                for index = 1, math.min(#missing, 60) do
+                    local item = missing[index]
+                    table.insert(rows, item.category .. ": " .. item.name
+                        .. " = " .. formatValue(item.value) .. " [" .. item.reason .. "]")
+                end
+                return tostring(#missing) .. " total"
+                    .. (#rows > 0 and "\\n" .. table.concat(rows, "\\n") or "")
+            end)(),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
