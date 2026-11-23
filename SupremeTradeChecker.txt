@@ -1965,6 +1965,19 @@ local function runCoreSelfTests()
         local swirlyValue = valueOf(fakeTile("rbxassetid://333333", false), "Swirly Gun")
         assert(swirlyValue == 55, "weapon name/type suffix alias mapping failed")
 
+        -- Regression: two differently titled Supreme rows may resolve to the
+        -- same MM2 key. Keep the first mapping and expose the prior source row
+        -- for the unmatched row instead of silently losing the collision.
+        local collisionMapping = buildMapping({
+            {c = "godlies", n = "Test", im = "Test Knife", v = 10, cl = "Godly"},
+            {c = "godlies", n = "Test Knife", im = "Test Knife", v = 20, cl = "Godly"}
+        }, swirlyDatabase)
+        assert(collisionMapping.numericSourceCount == 2
+            and collisionMapping.numericMatchedSourceCount == 1
+            and #collisionMapping.numericUnmatched == 1
+            and collisionMapping.numericUnmatched[1].occupiedBy:find("godlies:Test", 1, true),
+            "same-MM2-key mapping collision must retain and report the existing source row")
+
         local fullTitleDatabase = {
             Item = {
                 BaseSwirly = {
