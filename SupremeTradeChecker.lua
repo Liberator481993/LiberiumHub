@@ -1016,7 +1016,7 @@ local function parseQuantity(raw)
     local digits = text:match("^[xX×]?([%d]+)[xX×]?$")
         or text:match("[xX×]?([%d]+)")
     local number = tonumber(digits)
-    if not number or number < 1 then return 1 end
+    if not number or number ~= number or number < 1 or number >= math.huge then return 1 end
     return math.floor(number)
 end
 
@@ -1200,7 +1200,11 @@ end
 local function addNumericValue(total, known, value, quantity)
     if not isTrackedValue(value) then return total, known end
     local numeric = tonumber(value)
-    local count = math.max(1, math.floor(tonumber(quantity) or 1))
+    local rawCount = tonumber(quantity)
+    if not rawCount or rawCount ~= rawCount or rawCount < 1 or rawCount >= math.huge then
+        rawCount = 1
+    end
+    local count = math.max(1, math.floor(rawCount))
     return (tonumber(total) or 0) + numeric * count,
         (tonumber(known) or 0) + count
 end
@@ -1509,6 +1513,8 @@ local function runCoreSelfTests()
         "stack quantity grouping/suffix parsing failed")
     assert(parseQuantity("0") == 1 and parseQuantity("") == 1,
         "invalid stack quantity must safely default to one")
+    assert(parseQuantity("999999999999999999999999999999999999") == 1,
+        "infinite stack quantity must safely default to one")
     assert(not isTrackedValue(math.huge), "infinite item value must be rejected")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
@@ -1636,6 +1642,12 @@ local function runCoreSelfTests()
         local ambiguousMapping = buildMapping({ambiguousEntry}, ambiguousDatabase)
         assert(ambiguousMapping.n == 0,
             "ambiguous database names must not receive a guessed numeric value")
+
+        local wrongRarityMapping = buildMapping({
+            {c = "rares", n = "Test Gun", im = "Test Gun (Gun)", v = 999, cl = "Rare"}
+        }, testDatabase)
+        assert(wrongRarityMapping.n == 0,
+            "an item must not inherit a value from a different rarity category")
     end)
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
@@ -1947,8 +1959,8 @@ local function scanModuleInventory()
             for itemKey, entry in pairs(subgroup) do
                 if type(entry) ~= "table" then continue end
                 dataEntries = dataEntries + 1
-                local storedAmount = tonumber(entry.Amount)
-                local entryQuantity = storedAmount and math.max(1, math.floor(storedAmount)) or 1
+                local hasStoredAmount = entry.Amount ~= nil
+                local entryQuantity = hasStoredAmount and parseQuantity(entry.Amount) or 1
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
                     -- No tile means no reliable Supreme value lookup; exclude it.
@@ -1978,7 +1990,7 @@ local function scanModuleInventory()
                 -- Do not depend on ItemName text: PulseHub's inventory tiles
                 -- are reliably identified by Container.Icon -> MM2 database.
                 local name, quantity = itemData(tile)
-                if storedAmount and quantity <= 1 then
+                if hasStoredAmount and quantity <= 1 then
                     quantity = entryQuantity
                 end
                 local resolvedValue, resolvedName, tierText, category = valueOf(tile, name)
