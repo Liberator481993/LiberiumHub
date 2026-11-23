@@ -549,7 +549,11 @@ local function buildMapping(entries, database)
         if type(item) ~= "table" then continue end
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
+        -- Chroma Fire pets are listed on Supreme's Chromas page, not Pets.
+        -- Index pets by both their explicit pet key and plain display name;
+        -- category eligibility below still prevents cross-category matches.
         addIndex("pet:" .. normalize(item.Name), entry)
+        addIndex(normalize(item.Name), entry)
         table.insert(petEntries, entry)
     end
 
@@ -692,6 +696,35 @@ local function buildMapping(entries, database)
                     bestMetadataScore = score
                 end
                 if score >= targetMetadataScore then break end
+            end
+        end
+
+        -- Some Supreme rows are filed under a different rarity page than the
+        -- live MM2 database rarity (for example, an Ancient shown in Godlies).
+        -- Only use this fallback when the exact normalized name resolves to a
+        -- single database record after Chroma/type/year/event filtering.
+        if #matches == 0 and category ~= "pets" then
+            for _, alias in ipairs(aliases) do
+                local aliasMatches = {}
+                for _, candidate in ipairs(index[normalize(alias)] or {}) do
+                    local item = candidate.item
+                    local eligible = candidate.kind == "i"
+                        and (item.Chroma == true) == chroma
+                        and (not kind or item.ItemType == kind)
+                    if eligible then table.insert(aliasMatches, candidate) end
+                end
+                local yearExact, eventExact
+                aliasMatches, yearExact = preferExactMetadata(aliasMatches, "Year", year)
+                aliasMatches, eventExact = preferExactMetadata(aliasMatches, "Event", event)
+                if #aliasMatches > 0 then
+                    local score = (yearWanted and yearExact and 2 or 0)
+                        + (eventWanted and eventExact and 1 or 0)
+                    if score > bestMetadataScore then
+                        matches = aliasMatches
+                        bestMetadataScore = score
+                    end
+                    if #matches == 1 and score >= targetMetadataScore then break end
+                end
             end
         end
 
