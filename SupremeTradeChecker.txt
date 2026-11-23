@@ -1546,16 +1546,18 @@ local function runCoreSelfTests()
     assert(not hasTierValue(" "), "blank tier should not be recognized")
 
     assert(tradeNeedsManualReview(2, 3, 0),
-        "unknown trade quantity must require manual review")
+        "unknown quantity should be flagged as not included")
     assert(tradeNeedsManualReview(3, 3, 1),
-        "tier-only trade quantity must require manual review")
+        "tier-only quantity should be flagged as not included")
     assert(not tradeNeedsManualReview(3, 3, 0),
-        "fully valued trade should not require manual review")
+        "fully valued trade should not be flagged")
 
     local duplicateTotal = 10 * 2 + 100 * 3
     assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
-    local verdict, difference = getVerdict(200, duplicateTotal)
-    assert(verdict == "WIN" and difference == 120, "trade verdict calculation failed")
+    -- Unknown/tier items are excluded, but numeric items still produce a verdict.
+    local verdict, difference = getVerdict(100, 150)
+    assert(verdict == "WIN" and difference == 50,
+        "valued items must produce a result even when other items are unvalued")
     local fairVerdict = getVerdict(100, 101)
     assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
     return true
@@ -1584,23 +1586,21 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local verdict, difference, caption, color
     if yourCount == 0 or theirCount == 0 then
         caption, color = "ОЖИДАНИЕ ПРЕДМЕТОВ", Color3.fromRGB(196, 201, 211)
-    elseif tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
-        or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount) then
-        if (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0 then
-            caption, color = "TIER — НУЖНА РУЧНАЯ ПРОВЕРКА", Color3.fromRGB(198, 164, 108)
-        else
-            caption, color = "ЕСТЬ ПРЕДМЕТЫ БЕЗ ОЦЕНКИ", Color3.fromRGB(198, 164, 108)
-        end
     else
+        -- Always calculate the result from numeric Supreme Values.
+        -- Tier-only and unknown items stay excluded from the sum, but never hide the verdict.
         verdict, difference = getVerdict(yourTotal, theirTotal)
+        local incomplete = yourKnown < yourCount or theirKnown < theirCount
+            or (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0
+        local marker = incomplete and "ПО VALUE • " or ""
         if verdict == "WIN" then
-            caption = "ПЛЮС  +" .. formatValue(difference)
+            caption = marker .. "ПЛЮС  +" .. formatValue(difference)
             color = Color3.fromRGB(102, 183, 143)
         elseif verdict == "LOSE" then
-            caption = "МИНУС  " .. formatValue(difference)
+            caption = marker .. "МИНУС  " .. formatValue(difference)
             color = Color3.fromRGB(201, 111, 124)
         else
-            caption = "РОВНЫЙ ОБМЕН  " .. formatValue(difference)
+            caption = marker .. "РОВНЫЙ ОБМЕН  " .. formatValue(difference)
             color = Color3.fromRGB(130, 166, 190)
         end
     end
@@ -1641,15 +1641,12 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     label.TextYAlignment = Enum.TextYAlignment.Center
 
     local advice, color
+    local incomplete = yourKnown < yourCount or theirKnown < theirCount
+        or (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0
     if yourCount == 0 or theirCount == 0 then
         advice, color = "Добавь предметы с обеих сторон для сравнения", Color3.fromRGB(196, 201, 211)
-    elseif tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
-        or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount) then
-        if (tonumber(yourTierCount) or 0) > 0 or (tonumber(theirTierCount) or 0) > 0 then
-            advice, color = "Tier-предметы: числовой совет отключён", Color3.fromRGB(198, 164, 108)
-        else
-            advice, color = "Сначала проверь предметы без точной оценки", Color3.fromRGB(198, 164, 108)
-        end
+    elseif incomplete then
+        advice, color = "Итог рассчитан по Value • предметы без Value/Tier не учтены", Color3.fromRGB(198, 164, 108)
     else
         local verdict, difference = getVerdict(yourTotal, theirTotal)
         if verdict == "LOSE" then
@@ -1718,15 +1715,12 @@ local function scanTrade()
             .. tostring(theirTierCount) .. " tier)"
     }
     if yourCount > 0 and theirCount > 0 then
-        if yourTierCount > 0 or theirTierCount > 0 then
-            table.insert(lines, "РЕЗУЛЬТАТ: TIER-ПРЕДМЕТЫ — числовое сравнение отключено")
-        elseif yourKnown < yourCount or theirKnown < theirCount then
-            table.insert(lines, "РЕЗУЛЬТАТ: НЕПОЛНЫЕ ОЦЕНКИ — проверь неизвестные предметы")
-        else
-            local verdict, difference = getVerdict(yourTotal, theirTotal)
-            table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
-                .. (difference > 0 and "+" or "") .. formatValue(difference))
-        end
+        local verdict, difference = getVerdict(yourTotal, theirTotal)
+        local incomplete = yourKnown < yourCount or theirKnown < theirCount
+            or yourTierCount > 0 or theirTierCount > 0
+        table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
+            .. (difference > 0 and "+" or "") .. formatValue(difference)
+            .. (incomplete and " | только по предметам с числовым Value; без Value/Tier не учтены" or ""))
     else
         table.insert(lines, "РЕЗУЛЬТАТ: ожидаются предметы с обеих сторон.")
     end
