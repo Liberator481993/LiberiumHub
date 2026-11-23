@@ -1097,7 +1097,7 @@ local function itemData(tile)
     if name == "" or name:find("^Loading") then name = nil end
 
     local container = tile:FindFirstChild("Container")
-    local amountNode = container and container:FindFirstChild("Amount")
+    local amountNode = container and container:FindFirstChild("Amount", true)
     local quantity = 1
     if amountNode and (amountNode:IsA("TextLabel") or amountNode:IsA("TextButton")) then
         quantity = parseQuantity(amountNode.Text)
@@ -1512,11 +1512,14 @@ local function scanOffer(offer, group)
 
     local function cardVisible(tile)
         local current = tile
-        while current and current ~= offer do
+        local reachedOffer = false
+        while current do
             if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            if current == offer then reachedOffer = true end
             current = current.Parent
         end
-        return current == offer or current == container or current ~= nil
+        return reachedOffer
     end
 
     for _, tile in ipairs(tiles) do
