@@ -2025,6 +2025,39 @@ local function runCoreSelfTests()
             and metadataMismatchMapping.numericUnmatched[1].reason == "METADATA_YEAR_MISMATCH",
             "year mismatch must be reported separately from a name collision")
 
+        local scratchMapping = buildMapping({
+            {c = "legendaries", n = "Blue Scratch", im = "Blue Scratch (Knife)",
+                v = 2, cl = "Legendary", o = "Halloween 2017"},
+            {c = "legendaries", n = "Red Scratch", im = "Red Scratch (Knife)",
+                v = 3, cl = "Legendary", o = "Halloween 2016"}
+        }, {
+            Item = {
+                Scratch = {ItemName = "Scratch", ItemType = "Knife", Rarity = "Legendary",
+                    Year = "2016", Event = "Halloween", Image = "rbxassetid://445001"},
+                ScratchBlue = {ItemName = "Scratch", ItemType = "Knife", Rarity = "Legendary",
+                    Year = "2017", Event = "Halloween", Image = "rbxassetid://445002"}
+            },
+            Pets = {}
+        })
+        assert(scratchMapping.numericMatchedSourceCount == 2
+            and scratchMapping.byKey["i:Scratch"].v == 3
+            and scratchMapping.byKey["i:ScratchBlue"].v == 2,
+            "Blue/Red Scratch aliases must resolve to their exact year-specific MM2 records")
+
+        local batwingMapping = buildMapping({
+            {c = "godlies", n = "Batwing", im = "Batwing (Knife)",
+                v = 1000000, cl = "Godly", o = "Halloween 2018"}
+        }, {
+            Item = {
+                Scythe = {ItemName = "Batwing", ItemType = "Knife", Rarity = "Ancient",
+                    Year = "2018", Event = "Halloween", Image = "rbxassetid://445003"}
+            },
+            Pets = {}
+        })
+        assert(batwingMapping.numericMatchedSourceCount == 1
+            and batwingMapping.byKey["i:Scythe"].v == 1000000,
+            "the verified Batwing Supreme/Database rarity alias must map only to Scythe")
+
         local collisionMapping = buildMapping({
             {c = "godlies", n = "Test", im = "Test Gun", v = 10, cl = "Godly"},
             {c = "godlies", n = "Test Gun", im = "Test Gun", v = 20, cl = "Godly"}
