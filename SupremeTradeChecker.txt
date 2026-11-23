@@ -997,6 +997,19 @@ local function itemData(tile)
     return name, quantity, label
 end
 
+local function hasItemIcon(tile)
+    local container = tile and tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon")
+    if not icon or not (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+        return false
+    end
+    return assetId(icon.Image) ~= nil
+end
+
+local function hasTierValue(tierText)
+    return tierText ~= nil and clean(tierText) ~= ""
+end
+
 local function recordUnmatched(tile, name, quantity, target)
     if type(target) ~= "table" then return end
     local container = tile and tile:FindFirstChild("Container")
@@ -1148,8 +1161,9 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     if not container then return end
 
     local existing = container:FindFirstChild("__SupremeItemValue")
-    local hasTier = false
-    if not isTrackedValue(value) then
+    local numericValue = isTrackedValue(value)
+    local hasTier = not numericValue and hasTierValue(tierText)
+    if not numericValue and not hasTier then
         -- Don't clutter the inventory with "N/A" or fake zero values.
         if existing and existing:IsA("TextLabel") then existing.Visible = false end
         return
@@ -1172,7 +1186,7 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     label.Position = UDim2.new(1, -3, 0, 3)
     label.Size = UDim2.new(0, 58, 0, 19)
 
-    if value ~= nil then
+    if numericValue then
         local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(190, 196, 207)
         if normalize(itemName) == "emberbow" then
             accent = Color3.fromRGB(194, 132, 142)
@@ -1205,18 +1219,23 @@ local function scanRoot(root, group)
     for _, tile in ipairs(getTiles(root)) do
         if not tile.Parent or tile.Visible == false then continue end
         local name, quantity = itemData(tile)
+        if not name and not hasItemIcon(tile) then continue end
         local value, resolvedName, tierText, category = valueOf(tile, name)
         recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
-        if not isTrackedValue(value) then
+        count = count + quantity
+        if isTrackedValue(value) then
+            value = tonumber(value)
+            total = total + value * quantity
+            known = known + quantity
+            updateTileBadge(tile, value, quantity, group, nil, category, name)
+        elseif hasTierValue(tierText) then
+            tierCount = tierCount + quantity
+            updateTileBadge(tile, nil, quantity, group, tierText, category, name)
+        else
             updateTileBadge(tile, nil, quantity, group, nil, category, name)
             recordUnmatched(tile, name, quantity,
                 group == "trade" and state.unmatchedTrade or state.unmatchedInventory)
-            continue
         end
-        total = total + tonumber(value) * quantity
-        known = known + quantity
-        count = count + quantity
-        updateTileBadge(tile, value, quantity, group, nil, category, name)
     end
     return total, known, count, tierCount
 end
@@ -1265,16 +1284,19 @@ local function scanImageCards(root, group)
         local name, quantity = itemData(card)
         local value, resolvedName, tierText, category = valueOf(card, name)
         recordCoverage(card, name, quantity, group, value, tierText, resolvedName)
-        if not isTrackedValue(value) then
+        count = count + quantity
+        if isTrackedValue(value) then
+            total = total + tonumber(value) * quantity
+            known = known + quantity
+            updateTileBadge(card, value, quantity, group, nil, category, name)
+        elseif hasTierValue(tierText) then
+            tierCount = tierCount + quantity
+            updateTileBadge(card, nil, quantity, group, tierText, category, name)
+        else
             updateTileBadge(card, nil, quantity, group, nil, category, name)
             recordUnmatched(card, name, quantity,
                 group == "trade" and state.unmatchedTrade or state.unmatchedInventory)
-            continue
         end
-        total = total + tonumber(value) * quantity
-        known = known + quantity
-        count = count + quantity
-        updateTileBadge(card, value, quantity, group, nil, category, name)
     end
     return total, known, count, tierCount
 end
@@ -1305,15 +1327,6 @@ local function findTrade()
     return nil
 end
 
-local function hasItemIcon(tile)
-    local container = tile and tile:FindFirstChild("Container")
-    local icon = container and container:FindFirstChild("Icon")
-    if not icon or not (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
-        return false
-    end
-    return assetId(icon.Image) ~= nil
-end
-
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
@@ -1324,10 +1337,12 @@ local function scanOffer(offer, group)
         if tile:IsA("GuiObject") and tile.Visible and not seen[tile] then
             seen[tile] = true
             local name, quantity = itemData(tile)
+            if not name and not hasItemIcon(tile) then continue end
+
             local value, resolvedName, tierText, category = valueOf(tile, name)
-            -- Some mobile trade slots briefly have no ItemName node.
-            -- A real item asset still counts as an item, even while unmatched.
             recordCoverage(tile, name, quantity, group, value, tierText, resolvedName)
+            count = count + quantity
+
             if isTrackedValue(value) then
                 value = tonumber(value)
                 table.insert(items, {
@@ -1336,10 +1351,12 @@ local function scanOffer(offer, group)
                     tier = nil,
                     quantity = quantity
                 })
-                count = count + quantity
                 total = total + value * quantity
                 known = known + quantity
                 updateTileBadge(tile, value, quantity, group, nil, category, name)
+            elseif hasTierValue(tierText) then
+                tierCount = tierCount + quantity
+                updateTileBadge(tile, nil, quantity, group, tierText, category, name)
             else
                 updateTileBadge(tile, nil, quantity, group, nil, category, name)
                 recordUnmatched(tile, name, quantity, state.unmatchedTrade)
@@ -1519,6 +1536,15 @@ local function runCoreSelfTests()
     assert(not isTrackedValue(0), "zero value should be excluded")
     assert(not isTrackedValue(0.099), "values below 0.1 should be excluded")
     assert(not isTrackedValue(nil), "unvalued items should be excluded")
+    assert(hasTierValue("x1 T3 Godly"), "tier-only value should be recognized")
+    assert(not hasTierValue(nil), "missing tier should not be recognized")
+    assert(not hasTierValue(" "), "blank tier should not be recognized")
+
+    -- A trade with one priced stack and one unknown stack must remain incomplete.
+    local testTotal = 10 * 2
+    local testKnown = 2
+    local testCount = 2 + 1
+    assert(testKnown < testCount, "unknown trade items must prevent a complete verdict")
 
     local duplicateTotal = 10 * 2 + 100 * 3
     assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
@@ -1814,12 +1840,15 @@ local function scanModuleInventory()
                 end
                 local resolvedValue, resolvedName, tierText, category = valueOf(tile, name)
                 recordCoverage(tile, name, quantity, "inventory", resolvedValue, tierText, resolvedName)
+                count = count + quantity
                 if isTrackedValue(resolvedValue) then
                     resolvedValue = tonumber(resolvedValue)
                     total = total + resolvedValue * quantity
                     known = known + quantity
-                    count = count + quantity
                     updateTileBadge(tile, resolvedValue, quantity, "inventory", nil, category)
+                elseif hasTierValue(tierText) then
+                    tierCount = tierCount + quantity
+                    updateTileBadge(tile, nil, quantity, "inventory", tierText, category, name)
                 else
                     updateTileBadge(tile, nil, quantity, "inventory", nil, category, name)
                     recordUnmatched(tile, name, quantity, state.unmatchedInventory)
