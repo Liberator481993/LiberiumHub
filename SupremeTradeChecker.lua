@@ -968,11 +968,13 @@ local function loadValues(force)
             state.categoryCardCounts = categoryCardCounts
 
             local cacheUsed = false
+            local cacheTimestamp = nil
             if #failed > 0 or pageCount ~= #CATEGORIES then
                 local cached = readValuesCache()
                 if cached then
                     entries = cached.items
                     cacheUsed = true
+                    cacheTimestamp = tonumber(cached.t)
                     local cachedTierCount = 0
                     for _, cachedEntry in ipairs(entries) do
                         if type(cachedEntry) == "table" and clean(cachedEntry.t) ~= "" then
@@ -1011,7 +1013,7 @@ local function loadValues(force)
             state.updated = os.clock()
             state.loadDuration = state.updated - loadStarted
             state.lastUpdate = cacheUsed
-                and ("cache " .. os.date("%Y-%m-%d %H:%M:%S", os.time()))
+                and ("cache " .. os.date("%Y-%m-%d %H:%M:%S", cacheTimestamp or os.time()))
                 or os.date("%H:%M:%S")
         end)
 
