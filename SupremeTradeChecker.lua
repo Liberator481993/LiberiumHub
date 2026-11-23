@@ -607,7 +607,7 @@ local function buildMapping(entries, database)
         -- collide with a different weapon and assign its value incorrectly.
 
         local function preferExactMetadata(candidates, field, wanted)
-            if not wanted or clean(wanted) == "" then return candidates end
+            if not wanted or clean(wanted) == "" then return candidates, true end
             local exact, unknown = {}, {}
             for _, candidate in ipairs(candidates) do
                 local actual = clean(candidate.item[field])
@@ -617,11 +617,15 @@ local function buildMapping(entries, database)
                     table.insert(exact, candidate)
                 end
             end
-            if #exact > 0 then return exact end
-            return unknown
+            if #exact > 0 then return exact, true end
+            return unknown, false
         end
 
         local matches = {}
+        local bestMetadataScore = -1
+        local yearWanted = year ~= nil and clean(year) ~= ""
+        local eventWanted = event ~= nil and clean(event) ~= ""
+        local targetMetadataScore = (yearWanted and 2 or 0) + (eventWanted and 1 or 0)
         for _, alias in ipairs(aliases) do
             local prefix = category == "pets" and "pet:" or ""
             local candidates = index[prefix .. normalize(alias)] or {}
@@ -648,11 +652,17 @@ local function buildMapping(entries, database)
                     table.insert(aliasMatches, candidate)
                 end
             end
-            aliasMatches = preferExactMetadata(aliasMatches, "Year", year)
-            aliasMatches = preferExactMetadata(aliasMatches, "Event", event)
+            local yearExact, eventExact
+            aliasMatches, yearExact = preferExactMetadata(aliasMatches, "Year", year)
+            aliasMatches, eventExact = preferExactMetadata(aliasMatches, "Event", event)
             if #aliasMatches > 0 then
-                matches = aliasMatches
-                break
+                local score = (yearWanted and yearExact and 2 or 0)
+                    + (eventWanted and eventExact and 1 or 0)
+                if score > bestMetadataScore then
+                    matches = aliasMatches
+                    bestMetadataScore = score
+                end
+                if score >= targetMetadataScore then break end
             end
         end
 
