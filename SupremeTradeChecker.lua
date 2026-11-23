@@ -3264,11 +3264,18 @@ end
 
 local function buildRuntimeEnvironmentReport()
     local rows = {}
+    local environment = _G
+    pcall(function()
+        if type(getgenv) == "function" then
+            local executorEnvironment = getgenv()
+            if type(executorEnvironment) == "table" then environment = executorEnvironment end
+        end
+    end)
     local function add(name, value)
         table.insert(rows, name .. "=" .. tostring(value))
     end
     local function globalType(name)
-        local ok, value = pcall(function() return _G[name] end)
+        local ok, value = pcall(function() return environment[name] end)
         if ok then return type(value) end
         return "unavailable"
     end
@@ -3304,7 +3311,11 @@ local function buildRuntimeEnvironmentReport()
     return table.concat(rows, "\n")
 end
 
+local guiStructureCache, guiStructureCacheAt = nil, 0
 local function buildGuiStructureReport()
+    if guiStructureCache and os.clock() - guiStructureCacheAt < 12 then
+        return guiStructureCache
+    end
     local rows, seen = {}, {}
     local roots = {}
     for _, child in ipairs(playerGui:GetChildren()) do
