@@ -1,0 +1,59 @@
+name: Supreme Trade Checker validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "SupremeTradeChecker.lua"
+      - "SupremeTradeChecker.txt"
+      - ".github/workflows/supreme-trade-checker.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "SupremeTradeChecker.lua"
+      - "SupremeTradeChecker.txt"
+      - ".github/workflows/supreme-trade-checker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Copy sync and Luau syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify distributable copies are identical
+        shell: bash
+        run: |
+          cmp --silent SupremeTradeChecker.lua SupremeTradeChecker.txt
+          echo "Lua and TXT copies match."
+
+      - name: Install Luau compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://github.com/luau-lang/luau/releases/download/0.748/luau-ubuntu.zip \
+            --output /tmp/luau-ubuntu.zip
+          unzip -q /tmp/luau-ubuntu.zip -d /tmp/luau
+          compiler="$(find /tmp/luau -type f -name luau-compile -print -quit)"
+          if [ -z "$compiler" ]; then
+            echo "luau-compile was not found in the official release archive."
+            find /tmp/luau -maxdepth 3 -type f -print
+            exit 1
+          fi
+          chmod +x "$compiler"
+          echo "$compiler" > /tmp/luau-compiler-path
+
+      - name: Compile Supreme Trade Checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          compiler="$(cat /tmp/luau-compiler-path)"
+          "$compiler" SupremeTradeChecker.lua >/dev/null
+          echo "SupremeTradeChecker.lua compiled successfully."
