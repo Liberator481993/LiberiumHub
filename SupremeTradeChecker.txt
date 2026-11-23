@@ -2856,7 +2856,7 @@ local function httpGetJson(url)
     end
 
     if requestFn then
-        local ok, response = pcall(requestFn, {Url = url, Method = "GET"})
+        local ok, response = pcall(requestFn, {Url = url, Method = "GET", Timeout = 8})
         if ok and type(response) == "table" then
             local statusCode = tonumber(response.StatusCode or response.Status or 200)
             if statusCode and statusCode >= 200 and statusCode < 300 then
@@ -2882,8 +2882,9 @@ local function findHopServer()
     local sortOrders = {"Asc", "Desc"}
     for _, sortOrder in ipairs(sortOrders) do
         local cursor = nil
-        -- Sample more of both ends; never stop after a few low-population servers.
-        for page = 1, 8 do
+        -- Keep mobile server hopping responsive: sample at most two pages
+        -- from each end instead of issuing up to sixteen sequential requests.
+        for page = 1, 2 do
             local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
                 .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100&excludeFullGames=true"
             if cursor and cursor ~= "" then
