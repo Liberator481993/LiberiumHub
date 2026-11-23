@@ -194,11 +194,11 @@ local function normalize(value)
     return string.lower(tostring(value or "")):gsub("[^%w]", "")
 end
 
--- Supreme Values contains fractional values for many low-tier items.
--- Keep up to four decimals instead of rounding each item to a whole number.
+-- Supreme Values contains fractional values for low-tier items.
+-- Keep eight decimal places so small positive values remain visible in badges and totals.
 local function formatValue(value)
     local number = tonumber(value) or 0
-    local formatted = string.format("%.4f", number)
+    local formatted = string.format("%.8f", number)
         :gsub("0+$", "")
         :gsub("%.$", "")
     if formatted == "-0" or formatted == "" then return "0" end
@@ -1383,9 +1383,10 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextColor3 = title == "ОТДАЁШЬ"
         and Color3.fromRGB(226, 164, 119) or Color3.fromRGB(119, 196, 190)
+    local unknownCount = getUnknownItemCount(known, count, tierCount)
     label.Text = title .. ": " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
-        .. (known < count and " + ?" or "")
+        .. (unknownCount > 0 and " + ?(" .. tostring(unknownCount) .. ")" or "")
     local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 9)
     corner.Parent = label
@@ -1403,7 +1404,8 @@ local function getVerdict(giveValue, receiveValue)
     local give = tonumber(giveValue) or 0
     local receive = tonumber(receiveValue) or 0
     local difference = receive - give
-    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.005)
+    -- Relative tolerance stays meaningful even for very small fractional values.
+    local tolerance = math.max(math.max(math.abs(give), math.abs(receive)) * 0.02, 0.00000001)
     if math.abs(difference) <= tolerance then
         return "FAIR", difference
     end
@@ -1420,6 +1422,11 @@ local function tradeHasNumericValues(yourKnown, theirKnown)
         or (tonumber(theirKnown) or 0) > 0
 end
 
+local function getUnknownItemCount(known, count, tierCount)
+    return math.max(0, (tonumber(count) or 0)
+        - (tonumber(known) or 0) - (tonumber(tierCount) or 0))
+end
+
 local function runCoreSelfTests()
     local numericCases = {
         {"Value - 4,600", 4600},
@@ -1433,6 +1440,7 @@ local function runCoreSelfTests()
     end
     assert(formatValue(4600) == "4,600", "thousands formatting failed")
     assert(formatValue(1000000) == "1,000,000", "large value formatting failed")
+    assert(formatValue(0.00001) == "0.00001", "tiny positive value formatting failed")
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
 
@@ -1559,6 +1567,10 @@ local function runCoreSelfTests()
         "fully valued trade should not be flagged")
     assert(tradeHasNumericValues(1, 0), "one valued side should still produce a comparison")
     assert(not tradeHasNumericValues(0, 0), "two sides without numeric values cannot be compared")
+    assert(getUnknownItemCount(2, 5, 1) == 2,
+        "unknown item quantity should exclude numeric and tier entries")
+    assert(getUnknownItemCount(0, 2, 2) == 0,
+        "tier-only items should not also be counted as unknown")
 
     local duplicateTotal = 10 * 2 + 100 * 3
     assert(duplicateTotal == 320, "duplicate quantity aggregation failed")
@@ -1568,6 +1580,9 @@ local function runCoreSelfTests()
         "valued items must produce a result even when other items are unvalued")
     local fairVerdict = getVerdict(100, 101)
     assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
+    local tinyVerdict, tinyDifference = getVerdict(0.00001, 0)
+    assert(tinyVerdict == "LOSE" and math.abs(tinyDifference + 0.00001) < 0.000000001,
+        "tiny numeric values must not be hidden by a coarse fair tolerance")
     return true
 end
 
@@ -1721,10 +1736,12 @@ local function scanTrade()
     local lines = {
         "ОТДАЁШЬ: " .. formatValue(yourTotal)
             .. " (" .. tostring(yourKnown) .. "/" .. tostring(yourCount) .. " оценено, "
-            .. tostring(yourTierCount) .. " tier)",
+            .. tostring(yourTierCount) .. " tier, unknown="
+            .. tostring(getUnknownItemCount(yourKnown, yourCount, yourTierCount)) .. ")",
         "ПОЛУЧАЕШЬ: " .. formatValue(theirTotal)
             .. " (" .. tostring(theirKnown) .. "/" .. tostring(theirCount) .. " оценено, "
-            .. tostring(theirTierCount) .. " tier)"
+            .. tostring(theirTierCount) .. " tier, unknown="
+            .. tostring(getUnknownItemCount(theirKnown, theirCount, theirTierCount)) .. ")"
     }
     if yourCount > 0 and theirCount > 0 then
         if not tradeHasNumericValues(yourKnown, theirKnown) then
