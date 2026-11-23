@@ -1766,6 +1766,16 @@ local function runCoreSelfTests()
         assert(regularValue == 10, "regular icon mapping failed")
         assert(chromaValue == 100, "Chroma icon mapping failed")
 
+        -- Regression: some mobile MM2 cards expose only Container.Icon and no
+        -- ItemName label. A unique database icon must still resolve its value.
+        local unnamedRegularValue = valueOf(fakeTile("rbxassetid://111111", false), nil)
+        local unnamedChromaValue = valueOf(fakeTile("rbxassetid://222222", true), nil)
+        local unnamedUnknownValue = valueOf(fakeTile("rbxassetid://333999", false), nil)
+        assert(unnamedRegularValue == 10 and unnamedChromaValue == 100,
+            "nameless inventory/trade cards must resolve through unique icon mappings")
+        assert(unnamedUnknownValue == nil,
+            "nameless cards with unknown icons must remain unvalued, never guessed")
+
         local regularOnlyMapping = buildMapping({regularEntry}, testDatabase)
         state.mapped = regularOnlyMapping
         local missingChromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
