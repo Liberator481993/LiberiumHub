@@ -1552,7 +1552,10 @@ local function scanOffer(offer, group)
     return items, total, known, count, tierCount
 end
 
-local getUnknownItemCount
+local function getUnknownItemCount(known, count, tierCount)
+    return math.max(0, (tonumber(count) or 0)
+        - (tonumber(known) or 0) - (tonumber(tierCount) or 0))
+end
 
 local function setSummary(parent, name, title, total, known, count, group, tierCount)
     if not parent then return end
@@ -1610,10 +1613,6 @@ local function tradeHasNumericValues(yourKnown, theirKnown)
         or (tonumber(theirKnown) or 0) > 0
 end
 
-getUnknownItemCount = function(known, count, tierCount)
-    return math.max(0, (tonumber(count) or 0)
-        - (tonumber(known) or 0) - (tonumber(tierCount) or 0))
-end
 
 local function buildNumericItemAudit(sourceEntries)
     local itemsByKey, categoryCounts = {}, {}
