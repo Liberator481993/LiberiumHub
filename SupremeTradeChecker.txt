@@ -245,6 +245,20 @@ local function assetId(value)
     return text:match("(%d%d%d%d%d+)")
 end
 
+local function tileImageId(tile)
+    local container = tile and tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon")
+    if not icon then return nil end
+    local isImage = false
+    if typeof(icon) == "Instance" then
+        isImage = icon:IsA("ImageLabel") or icon:IsA("ImageButton")
+    elseif type(icon) == "table" then
+        -- Table-backed mock tiles are used by the in-script mapping tests.
+        isImage = icon.Image ~= nil
+    end
+    return isImage and assetId(icon.Image) or nil
+end
+
 local function fetchPage(url)
     local errors = {}
     local function attempt(fn, label)
@@ -803,9 +817,7 @@ local function valueOf(tile, name)
 
     -- A globally unique database icon is the strongest identifier. Resolve it
     -- before the visible name because seasonal skins often share one label.
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
-    local imageId = iconObject and assetId(iconObject.Image)
+    local imageId = tileImageId(tile)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
         -- Never fall back to the regular weapon's price when a Chroma tile
@@ -861,9 +873,7 @@ local function recordCoverage(tile, name, quantity, group, value, tierText, reso
     local target = isTrade and state.coverageTrade or state.coverageInventory
     local displayName = clean(resolvedName or name)
     if displayName == "" then displayName = "UNKNOWN ITEM" end
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
-    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local imageId = tileImageId(tile) or "no-icon"
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
@@ -1052,7 +1062,6 @@ end
 local function parseQuantity(raw)
     local text = tostring(raw or ""):gsub("[%s,]", "")
     local digits = text:match("^[xX×]?([%d]+)[xX×]?$")
-        or text:match("[xX×]?([%d]+)")
     local number = tonumber(digits)
     if not number or number ~= number or number < 1
         or number >= math.huge or number > 1000000 then return 1 end
@@ -1090,9 +1099,7 @@ end
 
 local function recordUnmatched(tile, name, quantity, target)
     if type(target) ~= "table" then return end
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
-    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local imageId = tileImageId(tile) or "no-icon"
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
@@ -1560,6 +1567,8 @@ local function runCoreSelfTests()
         "stack quantity grouping/suffix parsing failed")
     assert(parseQuantity("0") == 1 and parseQuantity("") == 1,
         "invalid stack quantity must safely default to one")
+    assert(parseQuantity("-2") == 1 and parseQuantity("Amount 2") == 1,
+        "malformed stack quantity must not extract unrelated digits")
     assert(parseQuantity("999999999999999999999999999999999999") == 1,
         "infinite stack quantity must safely default to one")
     assert(not isTrackedValue(math.huge), "infinite item value must be rejected")
@@ -1577,6 +1586,17 @@ local function runCoreSelfTests()
     assert(parsedEntries[2].v == 0.025, "fractional card value was not preserved")
     assert(parsedEntries[3].v == nil and parsedEntries[3].t ~= nil,
         "tier card was treated as a numeric value")
+
+    local parserEdgeHtml =
+        '<div class="itemcolumn"><div class="itemhead">Test &amp; Gun</div>' ..
+        '<div data-value="1,250"></div></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">Deleted Test</div>' ..
+        '<div class="itemorigin">Deletion</div><span>Value - 50</span></div>'
+    local parserEdgeEntries = {}
+    local parserEdgeCount = parseCategory("godlies", parserEdgeHtml, parserEdgeEntries)
+    assert(parserEdgeCount == 1 and parserEdgeEntries[1].v == 1250
+        and parserEdgeEntries[1].n == "Test & Gun",
+        "data-value fallback, HTML entity decoding, or deletion exclusion failed")
 
     local testDatabase = {
         Item = {
@@ -2871,6 +2891,7 @@ task.spawn(function()
         warn("[Supreme Trade Checker] Core self-tests failed; values loading is blocked: " .. tostring(testsError))
     end
     local nextInventoryScan = 0
+    local nextValuesRetry = os.clock() + 20
     while textGui.Parent and not stopped do
         local tradeScanOk, tradeScanError = xpcall(scanTrade, function(err)
             local trace = tostring(err)
@@ -2895,11 +2916,14 @@ task.spawn(function()
             nextInventoryScan = os.clock() + 1.25
         end
         updateUi()
-        if coreTestsPassed and state.status == "fail" and not state.busy then
-            task.wait(20)
+        if coreTestsPassed and state.status == "fail" and not state.busy
+            and os.clock() >= nextValuesRetry then
+            -- Retry the source without pausing trade/inventory scans.
+            nextValuesRetry = os.clock() + 20
             loadValues(true)
         elseif coreTestsPassed and state.status == "ok"
             and os.clock() - state.updated >= 900 and not state.busy then
+            nextValuesRetry = os.clock() + 20
             loadValues(false)
         end
         task.wait(0.6)
