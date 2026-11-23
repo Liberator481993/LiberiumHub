@@ -1063,13 +1063,12 @@ local function parseQuantity(raw)
     local text = tostring(raw or ""):gsub("%s", ""):gsub(",", "")
     local digits
 
-    -- Handle UTF-8 multiplication sign by its two bytes. This avoids
-    -- executor-specific Lua pattern/UTF-8 behavior entirely.
+    -- UTF-8 multiplication sign (×) is handled by its two bytes.
     local firstTwo = text:sub(1, 2)
     local lastTwo = text:sub(-2)
-    if firstTwo == "\\195\\151" then
+    if firstTwo == "\195\151" then
         digits = text:sub(3)
-    elseif lastTwo == "\\195\\151" then
+    elseif lastTwo == "\195\151" then
         digits = text:sub(1, -3)
     elseif text:sub(1, 1) == "x" or text:sub(1, 1) == "X" then
         digits = text:sub(2)
