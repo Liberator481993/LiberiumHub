@@ -6,7 +6,8 @@ In-game Supreme Values overlay for Murder Mystery 2. This is a Luau script for a
 
 - Shows Supreme numeric Value badges on supported inventory and trade item cards.
 - Calculates the total value on both sides of an active trade.
-- Counts stack quantities, including duplicate items.
+- Counts stack quantities, including duplicate items, using a shared aggregation path for inventory and both trade sides.
+- Preserves small fractional Supreme Values, including values displayed in scientific notation.
 - Displays a WIN / FAIR / LOSE result and the numeric difference whenever at least one side contains numeric values.
 - Keeps unknown and tier-only items visible as separate counts; they are not silently added to numeric totals.
 - Shows an inventory value total and item-value coverage diagnostics.
@@ -44,7 +45,7 @@ Open the compact Supreme panel and use **COPY FULL DIAGNOSTIC**. The report incl
 - MM2 database and mapping counts
 - Inventory and trade totals
 - Valued, tier-only, unknown, and unmatched item coverage
-- Inventory scanner state and any captured error
+- Inventory and trade scanner states and any captured errors
 
 When reporting an issue, send the complete copied report and describe what screen was open (inventory or active trade).
 
