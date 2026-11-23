@@ -1016,7 +1016,8 @@ local function parseQuantity(raw)
     local digits = text:match("^[xX×]?([%d]+)[xX×]?$")
         or text:match("[xX×]?([%d]+)")
     local number = tonumber(digits)
-    if not number or number ~= number or number < 1 or number >= math.huge then return 1 end
+    if not number or number ~= number or number < 1
+        or number >= math.huge or number > 1000000 then return 1 end
     return math.floor(number)
 end
 
@@ -1201,7 +1202,8 @@ local function addNumericValue(total, known, value, quantity)
     if not isTrackedValue(value) then return total, known end
     local numeric = tonumber(value)
     local rawCount = tonumber(quantity)
-    if not rawCount or rawCount ~= rawCount or rawCount < 1 or rawCount >= math.huge then
+    if not rawCount or rawCount ~= rawCount or rawCount < 1
+        or rawCount >= math.huge or rawCount > 1000000 then
         rawCount = 1
     end
     local count = math.max(1, math.floor(rawCount))
