@@ -990,15 +990,21 @@ local function loadValues(force)
                     cacheUsed = true
                     cacheTimestamp = tonumber(cached.t)
                     local cachedTierCount = 0
+                    local cachedCategoryCounts = {}
                     for _, cachedEntry in ipairs(entries) do
-                        if type(cachedEntry) == "table" and clean(cachedEntry.t) ~= "" then
-                            cachedTierCount = cachedTierCount + 1
+                        if type(cachedEntry) == "table" then
+                            cachedCategoryCounts[cachedEntry.c] =
+                                (cachedCategoryCounts[cachedEntry.c] or 0) + 1
+                            if clean(cachedEntry.t) ~= "" then
+                                cachedTierCount = cachedTierCount + 1
+                            end
                         end
                     end
                     -- Report the data actually used for mapping, not the
                     -- smaller partial response from the failed live fetch.
                     state.entryCount = #entries
                     state.tierEntryCount = cachedTierCount
+                    state.categoryCounts = cachedCategoryCounts
                     state.cacheStatus = "using local cache (" .. os.date("%Y-%m-%d", tonumber(cached.t)) .. ")"
                 else
                     state.cacheStatus = "unavailable"
@@ -1028,7 +1034,7 @@ local function loadValues(force)
             state.loadDuration = state.updated - loadStarted
             state.lastUpdate = cacheUsed
                 and ("cache " .. os.date("%Y-%m-%d %H:%M:%S", cacheTimestamp or os.time()))
-                or os.date("%H:%M:%S")
+                or os.date("%Y-%m-%d %H:%M:%S")
         end)
 
         if not ok then
