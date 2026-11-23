@@ -1383,21 +1383,28 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     end
 
     local label = makeLabel(container, "__SupremeItemValue", group)
-    label.BackgroundTransparency = 0.06
+    local isTradeCard = group == "trade"
+    label.BackgroundTransparency = isTradeCard and 1 or 0.06
     label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
     label.BorderSizePixel = 0
-    label.Font = Enum.Font.Roboto
+    label.Font = isTradeCard and Enum.Font.GothamSemibold or Enum.Font.Roboto
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextScaled = true
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextSize = 11
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = isTradeCard and 0.48 or 1
     label.ZIndex = 100
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
-    label.Size = UDim2.new(0, 58, 0, 19)
+    label.Size = UDim2.new(0, 52, 0, 16)
+    if isTradeCard then
+        stripDefaultLabelDecorations(label)
+        local stroke = label:FindFirstChild("SupremeStroke")
+        if stroke then stroke:Destroy() end
+    end
 
     if numericValue then
         local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(190, 196, 207)
@@ -1645,32 +1652,24 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     local label = makeLabel(parent, name, group)
     stripDefaultLabelDecorations(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
-    label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.new(1, -12, 0, 32)
-    label.BackgroundTransparency = 0.04
-    label.BackgroundColor3 = title == "ОТДАЁШЬ"
-        and Color3.fromRGB(43, 34, 31) or Color3.fromRGB(29, 40, 43)
-    label.TextSize = 17
+    label.Position = UDim2.new(0.5, 0, 0, 4)
+    label.Size = UDim2.new(1, -16, 0, 22)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.TextSize = 13
     label.TextScaled = false
-    label.Font = Enum.Font.Roboto
-    label.TextStrokeTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = 0.58
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextColor3 = title == "ОТДАЁШЬ"
-        and Color3.fromRGB(226, 164, 119) or Color3.fromRGB(119, 196, 190)
+        and Color3.fromRGB(231, 171, 130) or Color3.fromRGB(126, 207, 194)
     local unknownCount = getUnknownItemCount(known, count, tierCount)
     label.Text = title .. ": " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
         .. (unknownCount > 0 and " + ?(" .. tostring(unknownCount) .. ")" or "")
-    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 9)
-    corner.Parent = label
-    local stroke = label:FindFirstChild("SupremeStroke") or Instance.new("UIStroke")
-    stroke.Name = "SupremeStroke"
-    stroke.Color = title == "ОТДАЁШЬ"
-        and Color3.fromRGB(151, 105, 78) or Color3.fromRGB(77, 139, 137)
-    stroke.Transparency = 0.35
-    stroke.Thickness = 1
-    stroke.Parent = label
+    -- Trade totals are typography, not cards: no filled plate, border or corner.
+    stripDefaultLabelDecorations(label)
     label.Visible = count > 0
 end
 
@@ -2210,16 +2209,17 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local oldGradient = label:FindFirstChild("SupremeTextGradient")
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -34)
-    label.Size = UDim2.new(0.86, 0, 0, 34)
-    label.BackgroundTransparency = 0.05
-    label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
+    label.Position = UDim2.new(0.5, 0, 1, -31)
+    label.Size = UDim2.new(0.92, 0, 0, 22)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
     label.ZIndex = 150
-    label.Font = Enum.Font.Roboto
-    label.TextSize = 18
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 16
     label.TextScaled = false
     label.TextWrapped = false
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = 0.48
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -2249,15 +2249,8 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     label.TextColor3 = color
     label.Text = caption
-    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = label
-    local stroke = label:FindFirstChild("SupremeStroke") or Instance.new("UIStroke")
-    stroke.Name = "SupremeStroke"
-    stroke.Color = color
-    stroke.Transparency = 0.4
-    stroke.Thickness = 1.1
-    stroke.Parent = label
+    -- Keep the verdict floating over the native trade UI without a giant panel.
+    stripDefaultLabelDecorations(label)
     label.Visible = true
 end
 
@@ -2268,17 +2261,18 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     local gradient = label:FindFirstChild("SupremeTextGradient")
     if gradient then gradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -8)
-    label.Size = UDim2.new(0.94, 0, 0, 24)
-    label.BackgroundTransparency = 0.10
-    label.BackgroundColor3 = Color3.fromRGB(24, 27, 33)
+    label.Position = UDim2.new(0.5, 0, 1, -7)
+    label.Size = UDim2.new(0.94, 0, 0, 18)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
     label.ZIndex = 150
-    label.Font = Enum.Font.Roboto
-    label.TextSize = 13
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 11
     label.TextScaled = false
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = 0.62
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -2320,9 +2314,8 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     end
     label.TextColor3 = color
     label.Text = advice
-    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = label
+    -- Advice remains a subtle secondary line, never another boxed banner.
+    stripDefaultLabelDecorations(label)
     label.Visible = true
 end
 
