@@ -2121,7 +2121,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
             or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
-        local marker = incomplete and "ПО VALUE • " or ""
+        local marker = incomplete and "ПРЕДВАРИТЕЛЬНО • " or ""
         if verdict == "WIN" then
             caption = marker .. "ПЛЮС  +" .. formatValue(difference)
             color = Color3.fromRGB(102, 183, 143)
@@ -2255,7 +2255,7 @@ local function scanTrade()
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
                 or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
-            table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
+            table.insert(lines, (incomplete and "РЕЗУЛЬТАТ: ПРЕДВАРИТЕЛЬНО • " or "РЕЗУЛЬТАТ: ") .. verdict .. " | Разница: "
                 .. (difference > 0 and "+" or "") .. formatValue(difference)
                 .. (incomplete and " | только по предметам с числовым Value; без Value/Tier не учтены" or ""))
         end
