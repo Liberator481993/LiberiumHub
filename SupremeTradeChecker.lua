@@ -249,9 +249,12 @@ local function tileImageId(tile)
     local container = tile and tile:FindFirstChild("Container")
     local icon = container and container:FindFirstChild("Icon")
     if not icon then return nil end
-    local isImage = type(icon.IsA) ~= "function"
-    if not isImage then
+    local isImage = false
+    if typeof(icon) == "Instance" then
         isImage = icon:IsA("ImageLabel") or icon:IsA("ImageButton")
+    elseif type(icon) == "table" then
+        -- Table-backed mock tiles are used by the in-script mapping tests.
+        isImage = icon.Image ~= nil
     end
     return isImage and assetId(icon.Image) or nil
 end
