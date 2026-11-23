@@ -1052,7 +1052,6 @@ end
 local function parseQuantity(raw)
     local text = tostring(raw or ""):gsub("[%s,]", "")
     local digits = text:match("^[xX×]?([%d]+)[xX×]?$")
-        or text:match("[xX×]?([%d]+)")
     local number = tonumber(digits)
     if not number or number ~= number or number < 1
         or number >= math.huge or number > 1000000 then return 1 end
@@ -1560,6 +1559,8 @@ local function runCoreSelfTests()
         "stack quantity grouping/suffix parsing failed")
     assert(parseQuantity("0") == 1 and parseQuantity("") == 1,
         "invalid stack quantity must safely default to one")
+    assert(parseQuantity("-2") == 1 and parseQuantity("Amount 2") == 1,
+        "malformed stack quantity must not extract unrelated digits")
     assert(parseQuantity("999999999999999999999999999999999999") == 1,
         "infinite stack quantity must safely default to one")
     assert(not isTrackedValue(math.huge), "infinite item value must be rejected")
