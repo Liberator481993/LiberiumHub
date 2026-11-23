@@ -64,7 +64,7 @@ pcall(function()
     label.TextWrapped = true
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Center
-    label.Text = "SUPREME CHECKER\\nBOOT 00/06 — INITIALIZING"
+    label.Text = "SUPREME CHECKER\nBOOT 00/06 — INITIALIZING"
     label.Parent = frame
     __bootText = label
 end)
@@ -235,11 +235,13 @@ local function formatValue(value)
 end
 
 local function assetId(value)
-    local result
-    for match in tostring(value or ""):gmatch("%d%d%d%d%d+") do
-        result = match
-    end
-    return result
+    local text = tostring(value or "")
+    -- Prefer explicit Roblox asset identifiers over incidental numbers in
+    -- thumbnail dimensions, URL paths, or query parameters.
+    local explicit = text:match("rbxassetid://(%d+)")
+        or text:match("[?&]id=(%d+)")
+    if explicit then return explicit end
+    return text:match("(%d%d%d%d%d+)")
 end
 
 local function fetchPage(url)
@@ -580,14 +582,15 @@ local function buildMapping(entries, database)
             name = name:gsub("^Chroma%s+", ""):gsub("^C%.%s+", "")
         end
 
-        local aliases = {name}
-        -- Supreme titles can split the weapon suffix from the base name:
-        -- "Swirly Gun" becomes name="Swirly", kind="Gun". Database.Sync may
-        -- store ItemName with or without that suffix, so test both exact forms.
+        local aliases = {}
+        -- Prefer the full title (including weapon type) before the base name.
+        -- This avoids choosing a shorter same-name record when both variants
+        -- exist in Database.Sync.
         if kind then
             table.insert(aliases, name .. " " .. kind)
             table.insert(aliases, name .. " (" .. kind .. ")")
         end
+        table.insert(aliases, name)
         local wrapping = name:match("^(%a+) Papers$")
         if wrapping then table.insert(aliases, "Box of " .. wrapping .. " Wrapping Paper") end
         if name == "Ultra Wrap" then table.insert(aliases, "Box of Ultra Wrapping Paper") end
@@ -965,11 +968,23 @@ local function loadValues(force)
             state.categoryCardCounts = categoryCardCounts
 
             local cacheUsed = false
+            local cacheTimestamp = nil
             if #failed > 0 or pageCount ~= #CATEGORIES then
                 local cached = readValuesCache()
                 if cached then
                     entries = cached.items
                     cacheUsed = true
+                    cacheTimestamp = tonumber(cached.t)
+                    local cachedTierCount = 0
+                    for _, cachedEntry in ipairs(entries) do
+                        if type(cachedEntry) == "table" and clean(cachedEntry.t) ~= "" then
+                            cachedTierCount = cachedTierCount + 1
+                        end
+                    end
+                    -- Report the data actually used for mapping, not the
+                    -- smaller partial response from the failed live fetch.
+                    state.entryCount = #entries
+                    state.tierEntryCount = cachedTierCount
                     state.cacheStatus = "using local cache (" .. os.date("%Y-%m-%d", tonumber(cached.t)) .. ")"
                 else
                     state.cacheStatus = "unavailable"
@@ -997,7 +1012,9 @@ local function loadValues(force)
             end
             state.updated = os.clock()
             state.loadDuration = state.updated - loadStarted
-            state.lastUpdate = os.date("%H:%M:%S")
+            state.lastUpdate = cacheUsed
+                and ("cache " .. os.date("%Y-%m-%d %H:%M:%S", cacheTimestamp or os.time()))
+                or os.date("%H:%M:%S")
         end)
 
         if not ok then
@@ -1493,6 +1510,11 @@ local function getUnknownItemCount(known, count, tierCount)
 end
 
 local function runCoreSelfTests()
+    assert(assetId("rbxassetid://123456789") == "123456789",
+        "rbxassetid identifier extraction failed")
+    assert(assetId("rbxthumb://type=Asset&id=987654321&w=150&h=150") == "987654321",
+        "rbxthumb query identifier extraction used a dimension instead of the asset ID")
+
     local numericCases = {
         {"Value - 4,600", 4600},
         {"Value - 1,000,000", 1000000},
@@ -1621,6 +1643,25 @@ local function runCoreSelfTests()
         state.mapped = swirlyMapping
         local swirlyValue = valueOf(fakeTile("rbxassetid://333333", false), "Swirly Gun")
         assert(swirlyValue == 55, "weapon name/type suffix alias mapping failed")
+
+        local fullTitleDatabase = {
+            Item = {
+                BaseSwirly = {
+                    ItemName = "Swirly", ItemType = "Gun",
+                    Rarity = "Godly", Image = "rbxassetid://666666"
+                },
+                FullSwirly = {
+                    ItemName = "Swirly Gun", ItemType = "Gun",
+                    Rarity = "Godly", Image = "rbxassetid://777777"
+                }
+            },
+            Pets = {}
+        }
+        local fullTitleMapping = buildMapping({swirlyEntry}, fullTitleDatabase)
+        state.mapped = fullTitleMapping
+        local fullTitleValue = valueOf(fakeTile("rbxassetid://777777", false), "Swirly Gun")
+        assert(fullTitleValue == 55,
+            "full weapon title must win over a shorter same-name database record")
 
         -- Regression: duplicate database names without a reliable discriminator
         -- must stay unmapped instead of assigning one item's value to both skins.
@@ -2602,6 +2643,7 @@ local function buildDiagnostic()
         "All page card counts: " .. HttpService:JSONEncode(state.categoryCardCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "Local values cache: " .. tostring(state.cacheStatus or "not checked"),
+        "Values data timestamp: " .. tostring(state.lastUpdate or "unknown"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
