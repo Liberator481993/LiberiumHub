@@ -3204,7 +3204,7 @@ local function formatUnmatchedItems(items)
         return a.name < b.name
     end)
     local output = {}
-    for index = 1, math.min(#rows, 25) do
+    for index = 1, math.min(#rows, 80) do
         local entry = rows[index]
         table.insert(output, entry.name .. " [x" .. tostring(entry.count)
             .. ", icon=" .. tostring(entry.image)
@@ -3262,10 +3262,104 @@ local function buildNumericAuditSummary()
         .. ", BY_CATEGORY=" .. HttpService:JSONEncode(audit.categoryCounts)
 end
 
+local function buildRuntimeEnvironmentReport()
+    local rows = {}
+    local function add(name, value)
+        table.insert(rows, name .. "=" .. tostring(value))
+    end
+    local function globalType(name)
+        local ok, value = pcall(function() return _G[name] end)
+        if ok then return type(value) end
+        return "unavailable"
+    end
+    add("PlaceId", game.PlaceId)
+    add("GameId", game.GameId)
+    add("JobId", game.JobId ~= "" and "present" or "empty")
+    add("RobloxVersion", version and version() or "unknown")
+    add("Platform", UserInputService.TouchEnabled and "touch"
+        or (UserInputService.GamepadEnabled and "gamepad" or "mouse/keyboard"))
+    add("Viewport", workspace.CurrentCamera and tostring(workspace.CurrentCamera.ViewportSize) or "unknown")
+    local coreOk, coreName = pcall(function() return game:GetService("CoreGui"):GetFullName() end)
+    add("CoreGui", coreOk and coreName or "blocked: " .. tostring(coreName))
+    for _, name in ipairs({
+        "request", "http_request", "syn", "http", "gethui", "get_hidden_gui",
+        "protect_gui", "cloneref", "getcustomasset", "getsynasset", "identifyexecutor",
+        "setclipboard", "toclipboard", "setrbxclipboard", "Clipboard",
+        "readfile", "writefile", "isfile", "makefolder", "Drawing",
+        "debug", "hookfunction", "getconnections"
+    }) do
+        add("API." .. name, globalType(name))
+    end
+    local ok, executorName = pcall(function()
+        if type(identifyexecutor) == "function" then return identifyexecutor() end
+        return "not exposed"
+    end)
+    add("Executor", ok and executorName or ("error: " .. tostring(executorName)))
+    add("PlayerGui", playerGui and playerGui:GetFullName() or "missing")
+    add("InventoryModule", state.inventoryModuleStatus)
+    add("InventoryPath", state.inventoryGuiPath)
+    add("InventoryScreens", state.inventoryScreenList)
+    add("InventoryGuiStructure", state.inventoryGuiStructure)
+    add("InventoryFrameParents", state.inventoryFrameParents)
+    return table.concat(rows, "\n")
+end
+
+local function buildGuiStructureReport()
+    local rows, seen = {}, {}
+    local roots = {}
+    for _, child in ipairs(playerGui:GetChildren()) do
+        if child:IsA("LayerCollector") then
+            table.insert(roots, child)
+            local enabled = child:IsA("ScreenGui") and tostring(child.Enabled) or "n/a"
+            table.insert(rows, "SCREEN " .. child.Name .. " [" .. child.ClassName .. "] enabled=" .. enabled)
+        end
+    end
+    local patterns = {"trade", "offer", "item", "inventory", "accept", "decline",
+        "container", "weapon", "pet", "confirm", "player", "main", "frame", "mobile"}
+    local function relevant(name)
+        local lower = string.lower(name)
+        for _, pattern in ipairs(patterns) do
+            if string.find(lower, pattern, 1, true) then return true end
+        end
+        return false
+    end
+    for _, root in ipairs(roots) do
+        local descendants = root:GetDescendants()
+        for _, node in ipairs(descendants) do
+            if #rows >= 170 then break end
+            if relevant(node.Name) then
+                local pathOk, path = pcall(function() return node:GetFullName() end)
+                path = pathOk and path or node.Name
+                if not seen[path] then
+                    seen[path] = true
+                    local details = path .. " [" .. node.ClassName .. "]"
+                    if node:IsA("GuiObject") then
+                        details = details .. " vis=" .. tostring(node.Visible)
+                            .. " abs=" .. tostring(node.AbsoluteSize)
+                    elseif node:IsA("LayerCollector") then
+                        details = details .. " enabled=" .. tostring(node.Enabled)
+                    end
+                    if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
+                        local label = clean(node.Text)
+                        if label ~= "" then details = details .. ' text="' .. label:sub(1, 70) .. '"' end
+                    elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
+                        details = details .. " image=" .. tostring(assetId(node.Image) or "none")
+                    end
+                    table.insert(rows, details)
+                end
+            end
+        end
+    end
+    if #rows == 0 then return "no relevant PlayerGui nodes found" end
+    return table.concat(rows, "\n")
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
+        "RUNTIME / EXECUTOR CAPABILITIES:\n" .. buildRuntimeEnvironmentReport(),
+        "PLAYERGUI STRUCTURE SNAPSHOT (filtered nodes):\n" .. buildGuiStructureReport(),
         "Status: " .. tostring(state.status),
         "Core self-tests: " .. tostring(state.selfTestStatus),
         "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
@@ -3298,7 +3392,7 @@ local function buildDiagnostic()
             .. (function()
                 local rows = {}
                 local missing = state.mapped and state.mapped.numericUnmatched or {}
-                for index = 1, math.min(#missing, 60) do
+                for index = 1, math.min(#missing, 120) do
                     local item = missing[index]
                     table.insert(rows, item.category .. ": " .. item.name
                         .. " = " .. formatValue(item.value) .. " [" .. item.reason
