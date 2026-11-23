@@ -2866,24 +2866,24 @@ local function buildNumericValuesExport()
 
     local items = {}
     local seen = {}
+    local duplicateSourceRecords = 0
     for _, entry in ipairs(sourceEntries) do
         local category = tostring(entry.c or "")
         local value = tonumber(entry.v)
         local name = clean(entry.n)
         if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
             local key = category .. ":" .. normalize(name)
-            if not seen[key] then
-                seen[key] = true
-                table.insert(items, {
-                    name = name,
-                    category = RARITIES[category] or ({
-                        chromas = "Chroma",
-                        pets = "Pet",
-                        misc = "Miscellaneous"
-                    })[category] or category,
-                    value = value
-                })
-            end
+            if seen[key] then duplicateSourceRecords = duplicateSourceRecords + 1 end
+            seen[key] = true
+            table.insert(items, {
+                name = name,
+                category = RARITIES[category] or ({
+                    chromas = "Chroma",
+                    pets = "Pet",
+                    misc = "Miscellaneous"
+                })[category] or category,
+                value = value
+            })
         end
     end
 
@@ -2900,6 +2900,7 @@ local function buildNumericValuesExport()
         sourceEntryCount = #sourceEntries,
         tierOnlyEntryCount = state.tierEntryCount or 0,
         numericItemCount = #items,
+        duplicateSourceRecords = duplicateSourceRecords,
         baselineNumericItemCount = 441,
         items = items
     }
