@@ -1969,9 +1969,9 @@ local function runCoreSelfTests()
         -- same MM2 key. Keep the first mapping and expose the prior source row
         -- for the unmatched row instead of silently losing the collision.
         local collisionMapping = buildMapping({
-            {c = "godlies", n = "Test", im = "Test Knife", v = 10, cl = "Godly"},
-            {c = "godlies", n = "Test Knife", im = "Test Knife", v = 20, cl = "Godly"}
-        }, swirlyDatabase)
+            {c = "godlies", n = "Test", im = "Test Gun", v = 10, cl = "Godly"},
+            {c = "godlies", n = "Test Gun", im = "Test Gun", v = 20, cl = "Godly"}
+        }, testDatabase)
         assert(collisionMapping.numericSourceCount == 2
             and collisionMapping.numericMatchedSourceCount == 1
             and #collisionMapping.numericUnmatched == 1
