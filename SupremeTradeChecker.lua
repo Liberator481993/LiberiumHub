@@ -264,11 +264,14 @@ end
 
 local function fetchPage(url)
     local errors = {}
+    local attempted = {}
     local function attempt(fn, label)
-        if type(fn) ~= "function" then return nil end
+        if type(fn) ~= "function" or attempted[fn] then return nil end
+        attempted[fn] = true
         local ok, response = pcall(fn, {
             Url = url,
             Method = "GET",
+            Timeout = 12,
             Headers = {
                 ["User-Agent"] = "Mozilla/5.0",
                 ["Accept"] = "text/html,application/xhtml+xml"
@@ -655,6 +658,17 @@ local function buildMapping(entries, database)
         -- Do not strip the first word from legendary names: that can
         -- collide with a different weapon and assign its value incorrectly.
 
+        local function canonicalMetadata(field, raw)
+            local normalized = normalize(raw)
+            -- Supreme uses both "Valentine" and "Valentines" for the same
+            -- MM2 event label. Normalize only this harmless plural variant;
+            -- year, item type, rarity and chroma checks remain strict.
+            if field == "Event" then
+                normalized = normalized:gsub("s$", "")
+            end
+            return normalized
+        end
+
         local function preferExactMetadata(candidates, field, wanted)
             if not wanted or clean(wanted) == "" then return candidates, true end
             local exact, unknown = {}, {}
@@ -662,7 +676,7 @@ local function buildMapping(entries, database)
                 local actual = clean(candidate.item[field])
                 if actual == "" then
                     table.insert(unknown, candidate)
-                elseif normalize(actual) == normalize(wanted) then
+                elseif canonicalMetadata(field, actual) == canonicalMetadata(field, wanted) then
                     table.insert(exact, candidate)
                 end
             end
@@ -1075,7 +1089,7 @@ local function loadValues(force)
                     end
                 end)
             end
-            local fetchDeadline = os.clock() + 45
+            local fetchDeadline = os.clock() + 55
             while not stopped do
                 local complete = true
                 for index = 1, #CATEGORIES do
