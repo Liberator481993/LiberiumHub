@@ -240,6 +240,7 @@ local function assetId(value)
     -- thumbnail dimensions, URL paths, or query parameters.
     local explicit = text:match("rbxassetid://(%d+)")
         or text:match("[?&]id=(%d+)")
+        or text:match("[?&][Aa]sset[Ii][Dd]=(%d+)")
     if explicit then return explicit end
     return text:match("(%d%d%d%d%d+)")
 end
@@ -1534,6 +1535,8 @@ local function runCoreSelfTests()
         "rbxassetid identifier extraction failed")
     assert(assetId("rbxthumb://type=Asset&id=987654321&w=150&h=150") == "987654321",
         "rbxthumb query identifier extraction used a dimension instead of the asset ID")
+    assert(assetId("https://www.roblox.com/asset-thumbnail/image?width=420&height=420&assetId=456789123")
+        == "456789123", "assetId query extraction must take priority over thumbnail parameters")
 
     local numericCases = {
         {"Value - 4,600", 4600},
