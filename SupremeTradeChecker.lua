@@ -3279,7 +3279,8 @@ local function buildRuntimeEnvironmentReport()
     add("Platform", UserInputService.TouchEnabled and "touch"
         or (UserInputService.GamepadEnabled and "gamepad" or "mouse/keyboard"))
     add("Viewport", workspace.CurrentCamera and tostring(workspace.CurrentCamera.ViewportSize) or "unknown")
-    add("CoreGui", pcall(function() return game:GetService("CoreGui"):GetFullName() end))
+    local coreOk, coreName = pcall(function() return game:GetService("CoreGui"):GetFullName() end)
+    add("CoreGui", coreOk and coreName or "blocked: " .. tostring(coreName))
     for _, name in ipairs({
         "request", "http_request", "syn", "http", "gethui", "get_hidden_gui",
         "protect_gui", "cloneref", "getcustomasset", "getsynasset", "identifyexecutor",
