@@ -64,7 +64,7 @@ pcall(function()
     label.TextWrapped = true
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Center
-    label.Text = "SUPREME CHECKER\\nBOOT 00/06 — INITIALIZING"
+    label.Text = "SUPREME CHECKER\nBOOT 00/06 — INITIALIZING"
     label.Parent = frame
     __bootText = label
 end)
@@ -973,6 +973,16 @@ local function loadValues(force)
                 if cached then
                     entries = cached.items
                     cacheUsed = true
+                    local cachedTierCount = 0
+                    for _, cachedEntry in ipairs(entries) do
+                        if type(cachedEntry) == "table" and clean(cachedEntry.t) ~= "" then
+                            cachedTierCount = cachedTierCount + 1
+                        end
+                    end
+                    -- Report the data actually used for mapping, not the
+                    -- smaller partial response from the failed live fetch.
+                    state.entryCount = #entries
+                    state.tierEntryCount = cachedTierCount
                     state.cacheStatus = "using local cache (" .. os.date("%Y-%m-%d", tonumber(cached.t)) .. ")"
                 else
                     state.cacheStatus = "unavailable"
@@ -1000,7 +1010,9 @@ local function loadValues(force)
             end
             state.updated = os.clock()
             state.loadDuration = state.updated - loadStarted
-            state.lastUpdate = os.date("%H:%M:%S")
+            state.lastUpdate = cacheUsed
+                and ("cache " .. os.date("%Y-%m-%d %H:%M:%S", os.time()))
+                or os.date("%H:%M:%S")
         end)
 
         if not ok then
@@ -2629,6 +2641,7 @@ local function buildDiagnostic()
         "All page card counts: " .. HttpService:JSONEncode(state.categoryCardCounts or {}),
         "MM2 DB source: " .. tostring(state.source ~= "" and state.source or "not loaded"),
         "Local values cache: " .. tostring(state.cacheStatus or "not checked"),
+        "Values data timestamp: " .. tostring(state.lastUpdate or "unknown"),
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
