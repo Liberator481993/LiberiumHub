@@ -2077,6 +2077,30 @@ local function scanModuleInventory()
         return table.concat(names, ".")
     end
 
+    local function countFrameLessRecord(collectionName, itemKey, quantity)
+        missingFrameEntries = missingFrameEntries + 1
+        local missingKey = collectionName .. ":" .. tostring(itemKey)
+        if seenMissingKeys[missingKey] then return end
+        seenMissingKeys[missingKey] = true
+
+        -- Resolve only by exact Database.Sync key. No fuzzy name lookup here.
+        local mappedEntry = getMappedInventoryEntry(collectionName, itemKey)
+        local displayName = mappedEntry and mappedEntry.name or tostring(itemKey)
+        local mappedValue = mappedEntry and mappedEntry.v or nil
+        local mappedTier = mappedEntry and mappedEntry.t or nil
+        local itemQuantity = parseQuantity(quantity)
+        count = count + itemQuantity
+        recordCoverage(nil, displayName, itemQuantity, "inventory",
+            mappedValue, mappedTier, mappedEntry and mappedEntry.name)
+        if isTrackedValue(mappedValue) then
+            total, known = addNumericValue(total, known, mappedValue, itemQuantity)
+        elseif hasTierValue(mappedTier) then
+            tierCount = tierCount + itemQuantity
+        else
+            recordUnmatched(nil, displayName, itemQuantity, state.unmatchedInventory)
+        end
+    end
+
     -- PulseHub's actual structure is Data.Weapons[group][itemId] = entry.
     -- The previous scanner stopped one level too early and counted only the
     -- category/group tables (5 in the user's diagnostic), not item entries.
@@ -2092,28 +2116,7 @@ local function scanModuleInventory()
                 local entryQuantity = hasStoredAmount and parseQuantity(entry.Amount) or 1
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
-                    missingFrameEntries = missingFrameEntries + 1
-                    local missingKey = collectionName .. ":" .. tostring(itemKey)
-                    if seenMissingKeys[missingKey] then continue end
-                    seenMissingKeys[missingKey] = true
-
-                    -- A missing GUI frame must not erase a real inventory
-                    -- record. Use only an exact Database.Sync key; otherwise
-                    -- include it as unknown, never guess a price by name.
-                    local mappedEntry = getMappedInventoryEntry(collectionName, itemKey)
-                    local displayName = mappedEntry and mappedEntry.name or tostring(itemKey)
-                    local mappedValue = mappedEntry and mappedEntry.v or nil
-                    local mappedTier = mappedEntry and mappedEntry.t or nil
-                    count = count + entryQuantity
-                    recordCoverage(nil, displayName, entryQuantity, "inventory",
-                        mappedValue, mappedTier, mappedEntry and mappedEntry.name)
-                    if isTrackedValue(mappedValue) then
-                        total, known = addNumericValue(total, known, mappedValue, entryQuantity)
-                    elseif hasTierValue(mappedTier) then
-                        tierCount = tierCount + entryQuantity
-                    else
-                        recordUnmatched(nil, displayName, entryQuantity, state.unmatchedInventory)
-                    end
+                    countFrameLessRecord(collectionName, itemKey, entryQuantity)
                     continue
                 end
                 if seen[tile] then continue end
@@ -2121,10 +2124,12 @@ local function scanModuleInventory()
                 frameCount = frameCount + 1
                 if not tile.Parent then
                     detachedFrames = detachedFrames + 1
-                    missingFrameEntries = missingFrameEntries + 1
                     if #frameSamples < 8 then
                         table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
                     end
+                    local _, tileQuantity = itemData(tile)
+                    countFrameLessRecord(collectionName, itemKey,
+                        hasStoredAmount and entryQuantity or tileQuantity)
                     continue
                 end
                 parentedFrames = parentedFrames + 1
