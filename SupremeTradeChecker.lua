@@ -1578,6 +1578,17 @@ local function runCoreSelfTests()
     assert(parsedEntries[3].v == nil and parsedEntries[3].t ~= nil,
         "tier card was treated as a numeric value")
 
+    local parserEdgeHtml =
+        '<div class="itemcolumn"><div class="itemhead">Test &amp; Gun</div>' ..
+        '<div data-value="1,250"></div></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">Deleted Test</div>' ..
+        '<div class="itemorigin">Deletion</div><span>Value - 50</span></div>'
+    local parserEdgeEntries = {}
+    local parserEdgeCount = parseCategory("godlies", parserEdgeHtml, parserEdgeEntries)
+    assert(parserEdgeCount == 1 and parserEdgeEntries[1].v == 1250
+        and parserEdgeEntries[1].n == "Test & Gun",
+        "data-value fallback, HTML entity decoding, or deletion exclusion failed")
+
     local testDatabase = {
         Item = {
             TestGun = {
