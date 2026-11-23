@@ -605,13 +605,13 @@ local function buildMapping(entries, database)
 
         local name, kind, titleYear = splitVariant(value.n)
         local year = value.y or titleYear
-        if name == "Blue Scratch" or name == "Red Scratch" then
+        local isScratchAlias = name == "Blue Scratch" or name == "Red Scratch"
+        if isScratchAlias then
             -- MM2 stores both as ItemName="Scratch"; Year distinguishes them.
             local scratchYear = name == "Blue Scratch" and "2017" or "2016"
             name = "Scratch"
             kind = kind or "Knife"
             year = scratchYear
-            event = "Halloween"
         end
         if value.y and titleYear and tostring(value.y) ~= tostring(titleYear) then
             continue
@@ -629,6 +629,7 @@ local function buildMapping(entries, database)
         end
 
         local event = clean(value.e)
+        if isScratchAlias then event = "Halloween" end
         if event == "" and value.o then
             event = clean(tostring(value.o):match("^(.-)%s+20%d%d") or "")
         end
