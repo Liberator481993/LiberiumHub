@@ -1964,6 +1964,28 @@ local function runCoreSelfTests()
     assert(getUnknownItemCount(0, 2, 2) == 0,
         "tier-only items should not also be counted as unknown")
 
+    -- Full mixed-offer regression: numeric stacks are summed, tier-only and
+    -- unmapped items remain visible in counts, and neither blocks the verdict.
+    local giveTotal, giveKnown = 0, 0
+    giveTotal, giveKnown = addNumericValue(giveTotal, giveKnown, 50, 2)
+    giveTotal, giveKnown = addNumericValue(giveTotal, giveKnown, 25, 1)
+    local receiveTotal, receiveKnown = 0, 0
+    receiveTotal, receiveKnown = addNumericValue(receiveTotal, receiveKnown, 100, 2)
+    local giveCount, giveTier, receiveCount, receiveTier = 5, 1, 4, 1
+    local mixedVerdict, mixedDifference = getVerdict(giveTotal, receiveTotal)
+    assert(giveTotal == 125 and giveKnown == 3
+        and receiveTotal == 200 and receiveKnown == 2,
+        "mixed offer numeric totals or duplicate quantities are incorrect")
+    assert(getUnknownItemCount(giveKnown, giveCount, giveTier) == 1
+        and getUnknownItemCount(receiveKnown, receiveCount, receiveTier) == 1,
+        "mixed offer unknown counts must exclude tier-only entries")
+    assert(tradeHasNumericValues(giveKnown, receiveKnown)
+        and tradeNeedsManualReview(giveKnown, giveCount, giveTier)
+        and tradeNeedsManualReview(receiveKnown, receiveCount, receiveTier),
+        "mixed offers must compare numeric items and flag incomplete valuation")
+    assert(mixedVerdict == "WIN" and mixedDifference == 75,
+        "mixed offer must keep a valid WIN/LOSE/FAIR result")
+
     local duplicateTotal, duplicateKnown = 0, 0
     duplicateTotal, duplicateKnown = addNumericValue(duplicateTotal, duplicateKnown, 10, 2)
     duplicateTotal, duplicateKnown = addNumericValue(duplicateTotal, duplicateKnown, 100, 3)
