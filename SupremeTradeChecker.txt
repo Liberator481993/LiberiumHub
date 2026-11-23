@@ -607,7 +607,7 @@ local function buildMapping(entries, database)
         -- collide with a different weapon and assign its value incorrectly.
 
         local function preferExactMetadata(candidates, field, wanted)
-            if not wanted or clean(wanted) == "" then return candidates end
+            if not wanted or clean(wanted) == "" then return candidates, true end
             local exact, unknown = {}, {}
             for _, candidate in ipairs(candidates) do
                 local actual = clean(candidate.item[field])
@@ -617,11 +617,15 @@ local function buildMapping(entries, database)
                     table.insert(exact, candidate)
                 end
             end
-            if #exact > 0 then return exact end
-            return unknown
+            if #exact > 0 then return exact, true end
+            return unknown, false
         end
 
         local matches = {}
+        local bestMetadataScore = -1
+        local yearWanted = year ~= nil and clean(year) ~= ""
+        local eventWanted = event ~= nil and clean(event) ~= ""
+        local targetMetadataScore = (yearWanted and 2 or 0) + (eventWanted and 1 or 0)
         for _, alias in ipairs(aliases) do
             local prefix = category == "pets" and "pet:" or ""
             local candidates = index[prefix .. normalize(alias)] or {}
@@ -648,11 +652,17 @@ local function buildMapping(entries, database)
                     table.insert(aliasMatches, candidate)
                 end
             end
-            aliasMatches = preferExactMetadata(aliasMatches, "Year", year)
-            aliasMatches = preferExactMetadata(aliasMatches, "Event", event)
+            local yearExact, eventExact
+            aliasMatches, yearExact = preferExactMetadata(aliasMatches, "Year", year)
+            aliasMatches, eventExact = preferExactMetadata(aliasMatches, "Event", event)
             if #aliasMatches > 0 then
-                matches = aliasMatches
-                break
+                local score = (yearWanted and yearExact and 2 or 0)
+                    + (eventWanted and eventExact and 1 or 0)
+                if score > bestMetadataScore then
+                    matches = aliasMatches
+                    bestMetadataScore = score
+                end
+                if score >= targetMetadataScore then break end
             end
         end
 
@@ -829,6 +839,14 @@ local function valueOf(tile, name)
         end
     end
     return nil
+end
+
+-- Resolve frame-less inventory records only through an exact MM2 database key.
+local function getMappedInventoryEntry(collectionName, itemKey)
+    local mapped = state.mapped
+    if type(mapped) ~= "table" or type(mapped.byKey) ~= "table" then return nil end
+    local prefix = collectionName == "Pets" and "p:" or "i:"
+    return mapped.byKey[prefix .. tostring(itemKey)]
 end
 
 -- Forward declaration: recordCoverage runs before the implementation below is assigned.
@@ -1734,6 +1752,30 @@ local function runCoreSelfTests()
         }, testDatabase)
         assert(wrongRarityMapping.n == 0,
             "an item must not inherit a value from a different rarity category")
+
+        state.mapped = fullMapping
+        local frameLessWeapon = getMappedInventoryEntry("Weapons", "TestGun")
+        assert(frameLessWeapon and frameLessWeapon.v == 10,
+            "frame-less weapon inventory lookup must use the exact database key")
+        assert(getMappedInventoryEntry("Weapons", "UnknownKey") == nil,
+            "frame-less inventory lookup must not guess an unknown database key")
+
+        local petDatabase = {
+            Item = {},
+            Pets = {
+                TestPet = {
+                    Name = "Test Pet", Year = "2021",
+                    Image = "rbxassetid://141414"
+                }
+            }
+        }
+        local petMapping = buildMapping({
+            {c = "pets", n = "Test Pet", im = "Test Pet", v = 20, y = "2021"}
+        }, petDatabase)
+        state.mapped = petMapping
+        local frameLessPet = getMappedInventoryEntry("Pets", "TestPet")
+        assert(frameLessPet and frameLessPet.v == 20,
+            "frame-less pet inventory lookup must use the pet database key")
     end)
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
@@ -2023,6 +2065,7 @@ local function scanModuleInventory()
     local parentedFrames, detachedFrames, missingFrameEntries = 0, 0, 0
     local frameSamples = {}
     local seen = {}
+    local seenMissingKeys = {}
 
     local function instancePath(object, stopAt)
         local names = {}
@@ -2032,6 +2075,30 @@ local function scanModuleInventory()
             current = current.Parent
         end
         return table.concat(names, ".")
+    end
+
+    local function countFrameLessRecord(collectionName, itemKey, quantity)
+        missingFrameEntries = missingFrameEntries + 1
+        local missingKey = collectionName .. ":" .. tostring(itemKey)
+        if seenMissingKeys[missingKey] then return end
+        seenMissingKeys[missingKey] = true
+
+        -- Resolve only by exact Database.Sync key. No fuzzy name lookup here.
+        local mappedEntry = getMappedInventoryEntry(collectionName, itemKey)
+        local displayName = mappedEntry and mappedEntry.name or tostring(itemKey)
+        local mappedValue = mappedEntry and mappedEntry.v or nil
+        local mappedTier = mappedEntry and mappedEntry.t or nil
+        local itemQuantity = parseQuantity(quantity)
+        count = count + itemQuantity
+        recordCoverage(nil, displayName, itemQuantity, "inventory",
+            mappedValue, mappedTier, mappedEntry and mappedEntry.name)
+        if isTrackedValue(mappedValue) then
+            total, known = addNumericValue(total, known, mappedValue, itemQuantity)
+        elseif hasTierValue(mappedTier) then
+            tierCount = tierCount + itemQuantity
+        else
+            recordUnmatched(nil, displayName, itemQuantity, state.unmatchedInventory)
+        end
     end
 
     -- PulseHub's actual structure is Data.Weapons[group][itemId] = entry.
@@ -2049,8 +2116,7 @@ local function scanModuleInventory()
                 local entryQuantity = hasStoredAmount and parseQuantity(entry.Amount) or 1
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
-                    -- No tile means no reliable Supreme value lookup; exclude it.
-                    missingFrameEntries = missingFrameEntries + 1
+                    countFrameLessRecord(collectionName, itemKey, entryQuantity)
                     continue
                 end
                 if seen[tile] then continue end
@@ -2058,10 +2124,12 @@ local function scanModuleInventory()
                 frameCount = frameCount + 1
                 if not tile.Parent then
                     detachedFrames = detachedFrames + 1
-                    missingFrameEntries = missingFrameEntries + 1
                     if #frameSamples < 8 then
                         table.insert(frameSamples, tostring(itemKey) .. "=>DETACHED:" .. tile.Name)
                     end
+                    local _, tileQuantity = itemData(tile)
+                    countFrameLessRecord(collectionName, itemKey,
+                        hasStoredAmount and entryQuantity or tileQuantity)
                     continue
                 end
                 parentedFrames = parentedFrames + 1
