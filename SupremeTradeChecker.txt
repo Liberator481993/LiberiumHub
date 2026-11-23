@@ -2809,6 +2809,38 @@ local function formatCoverageItems(items)
     return summary .. (#output > 0 and "\n" .. table.concat(output, "\n") or "\nnone")
 end
 
+local function buildNumericAuditSummary()
+    local sourceEntries = state.supremeEntries
+    if type(sourceEntries) ~= "table" then
+        return "not available — Supreme values not loaded"
+    end
+    local seen, counts = {}, {}
+    local rawNumeric, duplicates, conflicts = 0, 0, 0
+    for _, entry in ipairs(sourceEntries) do
+        local category = tostring(entry.c or "")
+        local value = tonumber(entry.v)
+        local name = clean(entry.n)
+        if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
+            rawNumeric = rawNumeric + 1
+            local key = category .. ":" .. normalize(name)
+            if seen[key] then
+                duplicates = duplicates + 1
+                if seen[key] ~= value then conflicts = conflicts + 1 end
+            else
+                seen[key] = value
+                counts[category] = (counts[category] or 0) + 1
+            end
+        end
+    end
+    local unique = 0
+    for _, count in pairs(counts) do unique = unique + count end
+    return "UNIQUE=" .. tostring(unique)
+        .. ", RAW=" .. tostring(rawNumeric)
+        .. ", DUPLICATES=" .. tostring(duplicates)
+        .. ", VALUE_CONFLICTS=" .. tostring(conflicts)
+        .. ", BY_CATEGORY=" .. HttpService:JSONEncode(counts)
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
@@ -2821,6 +2853,7 @@ local function buildDiagnostic()
         "Pages parsed: " .. tostring(state.parsedPages),
         "Supreme entries: " .. tostring(state.entryCount),
         "Supreme tier entries: " .. tostring(state.tierEntryCount or 0),
+        "NUMERIC ITEMS WITH VALUE >= 1: " .. buildNumericAuditSummary(),
         "Value entries by category: " .. HttpService:JSONEncode(state.categoryCounts or {}),
         "Reference-page value cards (not mapped as single items): "
             .. HttpService:JSONEncode(state.referenceValueCounts or {}),
