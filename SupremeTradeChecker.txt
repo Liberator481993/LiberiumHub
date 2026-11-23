@@ -2864,44 +2864,65 @@ local function buildNumericValuesExport()
         return nil, "Supreme values are not loaded yet"
     end
 
-    local items = {}
-    local seen = {}
-    local duplicateSourceRecords = 0
+    -- Count raw numeric source cards separately from unique item identities.
+    -- Duplicate cards must not inflate the number of valued MM2 items.
+    local itemsByKey, categoryCounts = {}, {}
+    local duplicateSourceRecords, conflictingDuplicateValues = 0, 0
     for _, entry in ipairs(sourceEntries) do
         local category = tostring(entry.c or "")
         local value = tonumber(entry.v)
         local name = clean(entry.n)
         if VALUE_CATEGORIES[category] and value and value >= 1 and name ~= "" then
             local key = category .. ":" .. normalize(name)
-            if seen[key] then duplicateSourceRecords = duplicateSourceRecords + 1 end
-            seen[key] = true
-            table.insert(items, {
-                name = name,
-                category = RARITIES[category] or ({
-                    chromas = "Chroma",
-                    pets = "Pet",
-                    misc = "Miscellaneous"
-                })[category] or category,
-                value = value
-            })
+            local existing = itemsByKey[key]
+            if existing then
+                duplicateSourceRecords = duplicateSourceRecords + 1
+                if tonumber(existing.value) ~= value then
+                    conflictingDuplicateValues = conflictingDuplicateValues + 1
+                end
+                -- Keep the first occurrence; conflicting duplicates are
+                -- explicitly reported instead of silently inflating totals.
+            else
+                local item = {
+                    name = name,
+                    category = RARITIES[category] or ({
+                        chromas = "Chroma",
+                        pets = "Pet",
+                        misc = "Miscellaneous"
+                    })[category] or category,
+                    value = value
+                }
+                itemsByKey[key] = item
+                table.insert(categoryCounts, category)
+            end
         end
     end
 
+    local items = {}
+    local uniqueCategoryCounts = {}
+    for key, item in pairs(itemsByKey) do
+        table.insert(items, item)
+        local rawCategory = key:match("^([^:]+):")
+        uniqueCategoryCounts[rawCategory] = (uniqueCategoryCounts[rawCategory] or 0) + 1
+    end
     table.sort(items, function(a, b)
         if a.category ~= b.category then return a.category < b.category end
         if a.value ~= b.value then return a.value > b.value end
         return a.name:lower() < b.name:lower()
     end)
 
+    local rawNumericSourceRecords = #items + duplicateSourceRecords
     local payload = {
-        schema = "supreme-trade-checker.numeric-values.v1",
+        schema = "supreme-trade-checker.numeric-values.v2",
         source = BASE,
         generatedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         sourceEntryCount = #sourceEntries,
         tierOnlyEntryCount = state.tierEntryCount or 0,
+        rawNumericSourceRecords = rawNumericSourceRecords,
         numericItemCount = #items,
         duplicateSourceRecords = duplicateSourceRecords,
-        baselineNumericItemCount = 441,
+        conflictingDuplicateValues = conflictingDuplicateValues,
+        numericCategoryCounts = uniqueCategoryCounts,
         items = items
     }
     local ok, encoded = pcall(function()
