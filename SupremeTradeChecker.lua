@@ -374,7 +374,7 @@ local function parseCategory(category, html, output)
         local year = card:match('data%-year="(%d%d%d%d)')
             or card:match("data%-year='(%d%d%d%d)")
 
-        if (amount or tierText) and (not amount or amount < 500000)
+        if (amount or tierText)
             and nameMarkup and not string.find(string.lower(origin), "deletion", 1, true) then
             local name = decodeText(nameMarkup)
             if name ~= "" then
@@ -1659,13 +1659,16 @@ local function runCoreSelfTests()
     local syntheticHtml =
         '<div class="itemcolumn"><div class="itemhead">Test Gun</div><span>Value - 4,600</span></div>' ..
         '<div class="itemcolumn"><div class="itemhead">Fractional Knife</div><span>Value - 0.025</span></div>' ..
+        '<div class="itemcolumn"><div class="itemhead">High Value Trophy</div><span>Value - 1,000,000</span></div>' ..
         '<div class="itemcolumn"><div class="itemhead">Tier Item</div><span>Value - x1 T3 Godly</span></div>'
     local parsedEntries = {}
     local parsedCount, parsedTierCount = parseCategory("godlies", syntheticHtml, parsedEntries)
-    assert(parsedCount == 3 and parsedTierCount == 1, "synthetic Supreme card parsing failed")
+    assert(parsedCount == 4 and parsedTierCount == 1, "synthetic Supreme card parsing failed")
     assert(parsedEntries[1].v == 4600, "comma-separated card value was not preserved")
     assert(parsedEntries[2].v == 0.025, "fractional card value was not preserved")
-    assert(parsedEntries[3].v == nil and parsedEntries[3].t ~= nil,
+    assert(parsedEntries[3].v == 1000000,
+        "high numeric values must not be discarded by an arbitrary upper cap")
+    assert(parsedEntries[4].v == nil and parsedEntries[4].t ~= nil,
         "tier card was treated as a numeric value")
 
     local parserEdgeHtml =
