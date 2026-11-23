@@ -2085,8 +2085,18 @@ local function runCoreSelfTests()
         assert(ambiguousMapping.n == 0
             and ambiguousMapping.numericSourceCount == 1
             and ambiguousMapping.numericMatchedSourceCount == 0
-            and #ambiguousMapping.numericUnmatched == 1,
+            and #ambiguousMapping.numericUnmatched == 1
+            and ambiguousMapping.numericUnmatched[1].reason == "AMBIGUOUS_MATCH",
             "ambiguous database names must be reported as unmatched, never guessed")
+
+        local missingNameMapping = buildMapping({
+            {c = "godlies", n = "No Such MM2 Item", im = "No Such MM2 Item (Knife)",
+                v = 5, cl = "Godly"}
+        }, testDatabase)
+        assert(missingNameMapping.n == 0
+            and #missingNameMapping.numericUnmatched == 1
+            and missingNameMapping.numericUnmatched[1].reason == "NO_DB_NAME_CANDIDATE",
+            "missing database names must be diagnosed without inventing a mapping")
 
         local wrongRarityMapping = buildMapping({
             {c = "rares", n = "Test Gun", im = "Test Gun (Gun)", v = 999, cl = "Rare"}
