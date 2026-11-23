@@ -245,6 +245,17 @@ local function assetId(value)
     return text:match("(%d%d%d%d%d+)")
 end
 
+local function tileImageId(tile)
+    local container = tile and tile:FindFirstChild("Container")
+    local icon = container and container:FindFirstChild("Icon")
+    if not icon then return nil end
+    local isImage = type(icon.IsA) ~= "function"
+    if not isImage then
+        isImage = icon:IsA("ImageLabel") or icon:IsA("ImageButton")
+    end
+    return isImage and assetId(icon.Image) or nil
+end
+
 local function fetchPage(url)
     local errors = {}
     local function attempt(fn, label)
@@ -803,9 +814,7 @@ local function valueOf(tile, name)
 
     -- A globally unique database icon is the strongest identifier. Resolve it
     -- before the visible name because seasonal skins often share one label.
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
-    local imageId = iconObject and assetId(iconObject.Image)
+    local imageId = tileImageId(tile)
     local iconKey = imageId and mapped.icon[imageId]
     if iconKey then
         -- Never fall back to the regular weapon's price when a Chroma tile
@@ -861,9 +870,7 @@ local function recordCoverage(tile, name, quantity, group, value, tierText, reso
     local target = isTrade and state.coverageTrade or state.coverageInventory
     local displayName = clean(resolvedName or name)
     if displayName == "" then displayName = "UNKNOWN ITEM" end
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
-    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local imageId = tileImageId(tile) or "no-icon"
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
@@ -1089,9 +1096,7 @@ end
 
 local function recordUnmatched(tile, name, quantity, target)
     if type(target) ~= "table" then return end
-    local container = tile and tile:FindFirstChild("Container")
-    local iconObject = container and container:FindFirstChild("Icon")
-    local imageId = iconObject and assetId(iconObject.Image) or "no-icon"
+    local imageId = tileImageId(tile) or "no-icon"
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
