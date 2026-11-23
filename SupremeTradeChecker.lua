@@ -2311,9 +2311,10 @@ local function scanInventory()
     local weaponTierCount = moduleTierCount or 0
     weaponTotal, weaponKnown, weaponCount, visibleFrames = moduleTotal, moduleKnown, moduleCount, moduleVisible
 
-    -- Fallback for UI-only builds where InventoryModule does not expose frames.
-    -- Keep the explicit MainGUI/MainMobile paths as a secondary option.
-    if weaponCount == 0 then
+    -- Fallback for UI-only builds or data records whose GUI Frames are
+    -- missing/detached. Continue scanning visible cards for their badges,
+    -- while preserving the complete data-module total when it is available.
+    if weaponCount == 0 or visibleFrames == 0 then
         for _, guiName in ipairs({"MainGUI", "MainMobile"}) do
             local screen = playerGui:FindFirstChild(guiName)
             if screen and screen:IsA("ScreenGui") and screen.Enabled then
@@ -2327,8 +2328,10 @@ local function scanInventory()
                     local petRoot = pets and pets:FindFirstChild("Items")
                     local a,b,c,at = scanRootWithImageFallback(weaponRoot, "inventory")
                     local d,e,f,dt = scanRootWithImageFallback(petRoot, "inventory")
-                    weaponTotal, weaponKnown, weaponCount = a+d, b+e, c+f
-                    weaponTierCount = (at or 0) + (dt or 0)
+                    if weaponCount == 0 then
+                        weaponTotal, weaponKnown, weaponCount = a+d, b+e, c+f
+                        weaponTierCount = (at or 0) + (dt or 0)
+                    end
                     local label = makeLabel(inventory, "__SupremeInventoryTotal", "inventory")
                     label.AnchorPoint = Vector2.new(0, 1)
                     label.Position = UDim2.new(0, 4, 1, -5)
