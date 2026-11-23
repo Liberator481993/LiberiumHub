@@ -992,7 +992,7 @@ local function itemData(tile)
     local amountNode = container and container:FindFirstChild("Amount")
     local quantity = 1
     if amountNode and (amountNode:IsA("TextLabel") or amountNode:IsA("TextButton")) then
-        quantity = tonumber(tostring(amountNode.Text):match("%d+")) or 1
+        quantity = math.max(1, math.floor(tonumber(tostring(amountNode.Text):match("%d+")) or 1))
     end
     return name, quantity, label
 end
