@@ -718,7 +718,6 @@ local function buildMapping(entries, database)
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
         if #matches == 1 then
-            if numericSourceKey then numericMatchedSourceKeys[numericSourceKey] = true end
             local candidate = matches[1]
             local idKey = candidate.kind .. ":" .. candidate.id
             if not byKey[idKey] then
@@ -728,8 +727,12 @@ local function buildMapping(entries, database)
                     t = tierText ~= "" and tierText or nil,
                     n = 1,
                     name = name,
-                    category = category
+                    category = category,
+                    sourceKey = numericSourceKey
                 }
+            end
+            if numericSourceKey and byKey[idKey].sourceKey == numericSourceKey then
+                numericMatchedSourceKeys[numericSourceKey] = true
             end
         end
     end
@@ -3118,7 +3121,7 @@ local function buildDiagnostic()
                         .. " = " .. formatValue(item.value) .. " [" .. item.reason .. "]")
                 end
                 return tostring(#missing) .. " total"
-                    .. (#rows > 0 and "\\n" .. table.concat(rows, "\\n") or "")
+                    .. (#rows > 0 and "\n" .. table.concat(rows, "\n") or "")
             end)(),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
