@@ -1558,6 +1558,29 @@ local function runCoreSelfTests()
         state.mapped = swirlyMapping
         local swirlyValue = valueOf(fakeTile("rbxassetid://333333", false), "Swirly Gun")
         assert(swirlyValue == 55, "weapon name/type suffix alias mapping failed")
+
+        -- Regression: duplicate database names without a reliable discriminator
+        -- must stay unmapped instead of assigning one item's value to both skins.
+        local ambiguousDatabase = {
+            Item = {
+                AmbiguousKnifeA = {
+                    ItemName = "Ambiguous Knife", ItemType = "Knife",
+                    Rarity = "Godly", Image = "rbxassetid://444444"
+                },
+                AmbiguousKnifeB = {
+                    ItemName = "Ambiguous Knife", ItemType = "Knife",
+                    Rarity = "Godly", Image = "rbxassetid://555555"
+                }
+            },
+            Pets = {}
+        }
+        local ambiguousEntry = {
+            c = "godlies", n = "Ambiguous Knife", im = "Ambiguous Knife (Knife)",
+            v = 777, cl = "Godly"
+        }
+        local ambiguousMapping = buildMapping({ambiguousEntry}, ambiguousDatabase)
+        assert(ambiguousMapping.n == 0,
+            "ambiguous database names must not receive a guessed numeric value")
     end)
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
