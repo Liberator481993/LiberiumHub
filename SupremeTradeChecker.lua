@@ -1790,6 +1790,38 @@ local function runCoreSelfTests()
         assert(fullTitleValue == 55,
             "full weapon title must win over a shorter same-name database record")
 
+        -- Regression: the November 2026 Ember releases must resolve as
+        -- separate regular and Chroma records, never cross-inherit each other's value.
+        local emberDatabase = {
+            Item = {
+                Emberbow = {
+                    ItemName = "Emberbow", ItemType = "Knife",
+                    Rarity = "Godly", Image = "rbxassetid://20261101"
+                },
+                ChromaEmberbow = {
+                    ItemName = "Emberbow", ItemType = "Knife",
+                    Rarity = "Godly", Chroma = true, Image = "rbxassetid://20261102"
+                },
+                Emberscythe = {
+                    ItemName = "Emberscythe", ItemType = "Knife",
+                    Rarity = "Godly", Image = "rbxassetid://20261103"
+                }
+            },
+            Pets = {}
+        }
+        local emberMapping = buildMapping({
+            {c = "godlies", n = "Emberbow", im = "Emberbow (Knife)", v = 650, cl = "Godly"},
+            {c = "chromas", n = "Chroma Emberbow", im = "Emberbow (Knife)", v = 1850, cl = "Godly"},
+            {c = "godlies", n = "Emberscythe", im = "Emberscythe (Knife)", v = 650, cl = "Godly"}
+        }, emberDatabase)
+        state.mapped = emberMapping
+        local emberbowValue = valueOf(fakeTile("rbxassetid://20261101", false), "Emberbow")
+        local chromaEmberbowValue = valueOf(fakeTile("rbxassetid://20261102", true), "Emberbow")
+        local emberscytheValue = valueOf(fakeTile("rbxassetid://20261103", false), "Emberscythe")
+        assert(emberbowValue == 650 and chromaEmberbowValue == 1850
+            and emberscytheValue == 650,
+            "November 2026 Ember item and Chroma mappings failed")
+
         local aliasFallbackDatabase = {
             Item = {
                 WrongFullTitle = {
