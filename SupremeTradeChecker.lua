@@ -831,6 +831,14 @@ local function valueOf(tile, name)
     return nil
 end
 
+-- Resolve frame-less inventory records only through an exact MM2 database key.
+local function getMappedInventoryEntry(collectionName, itemKey)
+    local mapped = state.mapped
+    if type(mapped) ~= "table" or type(mapped.byKey) ~= "table" then return nil end
+    local prefix = collectionName == "Pets" and "p:" or "i:"
+    return mapped.byKey[prefix .. tostring(itemKey)]
+end
+
 -- Forward declaration: recordCoverage runs before the implementation below is assigned.
 local isTrackedValue
 
@@ -1734,6 +1742,30 @@ local function runCoreSelfTests()
         }, testDatabase)
         assert(wrongRarityMapping.n == 0,
             "an item must not inherit a value from a different rarity category")
+
+        state.mapped = fullMapping
+        local frameLessWeapon = getMappedInventoryEntry("Weapons", "TestGun")
+        assert(frameLessWeapon and frameLessWeapon.v == 10,
+            "frame-less weapon inventory lookup must use the exact database key")
+        assert(getMappedInventoryEntry("Weapons", "UnknownKey") == nil,
+            "frame-less inventory lookup must not guess an unknown database key")
+
+        local petDatabase = {
+            Item = {},
+            Pets = {
+                TestPet = {
+                    Name = "Test Pet", Year = "2021",
+                    Image = "rbxassetid://141414"
+                }
+            }
+        }
+        local petMapping = buildMapping({
+            {c = "pets", n = "Test Pet", im = "Test Pet", v = 20, y = "2021"}
+        }, petDatabase)
+        state.mapped = petMapping
+        local frameLessPet = getMappedInventoryEntry("Pets", "TestPet")
+        assert(frameLessPet and frameLessPet.v == 20,
+            "frame-less pet inventory lookup must use the pet database key")
     end)
     state.mapped = previousMapping
     if not mappingOk then error(mappingError) end
@@ -2023,6 +2055,7 @@ local function scanModuleInventory()
     local parentedFrames, detachedFrames, missingFrameEntries = 0, 0, 0
     local frameSamples = {}
     local seen = {}
+    local seenMissingKeys = {}
 
     local function instancePath(object, stopAt)
         local names = {}
@@ -2049,8 +2082,28 @@ local function scanModuleInventory()
                 local entryQuantity = hasStoredAmount and parseQuantity(entry.Amount) or 1
                 local tile = entry.Frame
                 if typeof(tile) ~= "Instance" or not tile:IsA("GuiObject") then
-                    -- No tile means no reliable Supreme value lookup; exclude it.
                     missingFrameEntries = missingFrameEntries + 1
+                    local missingKey = collectionName .. ":" .. tostring(itemKey)
+                    if seenMissingKeys[missingKey] then continue end
+                    seenMissingKeys[missingKey] = true
+
+                    -- A missing GUI frame must not erase a real inventory
+                    -- record. Use only an exact Database.Sync key; otherwise
+                    -- include it as unknown, never guess a price by name.
+                    local mappedEntry = getMappedInventoryEntry(collectionName, itemKey)
+                    local displayName = mappedEntry and mappedEntry.name or tostring(itemKey)
+                    local mappedValue = mappedEntry and mappedEntry.v or nil
+                    local mappedTier = mappedEntry and mappedEntry.t or nil
+                    count = count + entryQuantity
+                    recordCoverage(nil, displayName, entryQuantity, "inventory",
+                        mappedValue, mappedTier, mappedEntry and mappedEntry.name)
+                    if isTrackedValue(mappedValue) then
+                        total, known = addNumericValue(total, known, mappedValue, entryQuantity)
+                    elseif hasTierValue(mappedTier) then
+                        tierCount = tierCount + entryQuantity
+                    else
+                        recordUnmatched(nil, displayName, entryQuantity, state.unmatchedInventory)
+                    end
                     continue
                 end
                 if seen[tile] then continue end
