@@ -969,6 +969,20 @@ local function valueOf(tile, name)
     local mapped = state.mapped
     if not mapped then return nil end
 
+    -- InventoryModule supplies the exact MM2 database itemId for every owned
+    -- item. Prefer that authoritative key over icon/name heuristics: many
+    -- seasonal skins share visible names, and several icons are not unique.
+    local inventoryKey = state.inventoryFrameKeys and state.inventoryFrameKeys[tile]
+    if inventoryKey then
+        local exactEntry = mapped.byKey[inventoryKey]
+        if exactEntry then
+            return exactEntry.v, exactEntry.name, exactEntry.t, exactEntry.category
+        end
+        -- An exact inventory identity with no Supreme value must not inherit
+        -- a different same-name item's value through the fallback resolver.
+        return nil
+    end
+
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
     local chroma = chromaTag ~= nil and chromaTag.Visible == true
@@ -2624,6 +2638,8 @@ local function scanModuleInventory()
     local frameSamples = {}
     local seen = {}
     local seenMissingKeys = {}
+    -- Weak keys avoid retaining destroyed GUI cards between inventory scans.
+    state.inventoryFrameKeys = setmetatable({}, {__mode = "k"})
 
     local function instancePath(object, stopAt)
         local names = {}
@@ -2699,8 +2715,14 @@ local function scanModuleInventory()
                         .. "{Visible=" .. tostring(tile.Visible) .. "}")
                 end
 
-                -- Do not depend on ItemName text: PulseHub's inventory tiles
-                -- are reliably identified by Container.Icon -> MM2 database.
+                -- Preserve the exact Data.Weapons/Data.Pets itemId on the
+                -- frame. The GUI overlay scanner later visits the same tile;
+                -- valueOf() will then use this key instead of ambiguous names.
+                local itemPrefix = collectionName == "Pets" and "p:" or "i:"
+                state.inventoryFrameKeys[tile] = itemPrefix .. tostring(itemKey)
+
+                -- Do not depend on ItemName text when the authoritative itemId
+                -- is available from InventoryModule.
                 local name, quantity = itemData(tile)
                 if hasStoredAmount and quantity <= 1 then
                     quantity = entryQuantity
