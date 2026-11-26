@@ -2980,75 +2980,143 @@ local inputChangedConnection
 local teleportFailedConnection
 
 local function httpGetJson(url)
-    local body
-    local requestFn
-    if type(request) == "function" then
-        requestFn = request
-    elseif type(http_request) == "function" then
-        requestFn = http_request
-    elseif type(syn) == "table" and type(syn.request) == "function" then
-        requestFn = syn.request
+    local errors = {}
+    local providers = {
+        {fn = request, name = "request"},
+        {fn = http_request, name = "http_request"},
+        {fn = type(syn) == "table" and syn.request or nil, name = "syn.request"},
+        {fn = type(http) == "table" and http.request or nil, name = "http.request"}
+    }
+
+    local function decodeResponse(response, providerName)
+        local statusCode, body
+        if type(response) == "table" then
+            statusCode = tonumber(response.StatusCode or response.status_code
+                or response.statusCode or response.Status)
+            if not statusCode and type(response.Status) == "string" then
+                statusCode = tonumber(response.Status:match("^(%d%d%d)"))
+            end
+            body = response.Body or response.body or response.ResponseBody
+                or response.responseBody or response.response_body
+        elseif type(response) == "string" then
+            body = response
+        end
+
+        if statusCode and (statusCode < 200 or statusCode >= 300) then
+            return nil, providerName .. " HTTP " .. tostring(statusCode)
+        end
+        if type(body) ~= "string" or body == "" then
+            return nil, providerName .. " returned an empty response"
+        end
+
+        local ok, decoded = pcall(function()
+            return HttpService:JSONDecode(body)
+        end)
+        if not ok or type(decoded) ~= "table" then
+            return nil, providerName .. " returned invalid JSON"
+        end
+        if type(decoded.data) ~= "table" then
+            local apiError = decoded.errors and decoded.errors[1]
+            return nil, providerName .. " API response: "
+                .. tostring(type(apiError) == "table" and (apiError.message or apiError.code) or "missing data")
+        end
+        return decoded
     end
 
-    if requestFn then
-        local ok, response = pcall(requestFn, {Url = url, Method = "GET", Timeout = 8})
-        if ok and type(response) == "table" then
-            local statusCode = tonumber(response.StatusCode or response.Status or 200)
-            if statusCode and statusCode >= 200 and statusCode < 300 then
-                body = response.Body or response.body
+    for attempt = 1, 3 do
+        for _, provider in ipairs(providers) do
+            if type(provider.fn) == "function" then
+                local ok, response = pcall(provider.fn, {
+                    Url = url,
+                    Method = "GET",
+                    Headers = {
+                        ["Accept"] = "application/json",
+                        ["User-Agent"] = "Roblox/WinInet"
+                    },
+                    Timeout = 12
+                })
+                if ok then
+                    local decoded, err = decodeResponse(response, provider.name)
+                    if decoded then return decoded end
+                    table.insert(errors, err)
+                else
+                    table.insert(errors, provider.name .. " request error")
+                end
             end
         end
-    end
-    if type(body) ~= "string" or body == "" then
+
         local ok, response = pcall(function() return game:HttpGet(url) end)
-        if ok and type(response) == "string" then body = response end
+        if ok and type(response) == "string" and response ~= "" then
+            local decoded, err = decodeResponse(response, "game:HttpGet")
+            if decoded then return decoded end
+            table.insert(errors, err)
+        else
+            table.insert(errors, "game:HttpGet failed")
+        end
+
+        if attempt < 3 then task.wait(attempt * 1.25) end
     end
-    if type(body) ~= "string" or body == "" then
-        error("HTTP request unavailable in this executor")
-    end
-    return HttpService:JSONDecode(body)
+
+    error("Roblox server API unavailable: " .. table.concat(errors, " | "):sub(1, 420))
 end
 
 local function findHopServer()
-    -- Roblox's public-server endpoint only sorts by player count (Asc/Desc).
-    -- Sample both ends of the list, deduplicate, then choose uniformly at random.
+    -- Sample both ends of Roblox's public-server list, following cursors and
+    -- tolerating temporary rate limits/network failures through httpGetJson().
     local candidates = {}
     local seen = {}
     local sortOrders = {"Asc", "Desc"}
     for _, sortOrder in ipairs(sortOrders) do
         local cursor = nil
-        -- Keep mobile server hopping responsive: sample at most two pages
-        -- from each end instead of issuing up to sixteen sequential requests.
-        for page = 1, 2 do
+        for page = 1, 3 do
             local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
-                .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100&excludeFullGames=true"
+                .. "/servers/Public?sortOrder=" .. sortOrder
+                .. "&limit=100&excludeFullGames=true"
             if cursor and cursor ~= "" then
                 url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
             end
+
             local payload = httpGetJson(url)
-            for _, server in ipairs(payload.data or {}) do
-                local serverId = tostring(server.id or "")
-                local playing = tonumber(server.playing) or 0
-                local maximum = tonumber(server.maxPlayers) or 0
-                if serverId ~= "" and serverId ~= game.JobId
-                    and not seen[serverId] and playing < maximum and maximum > 0 then
+            for _, server in ipairs(payload.data) do
+                local serverId = type(server) == "table" and tostring(server.id or "") or ""
+                local playing = type(server) == "table" and tonumber(server.playing) or nil
+                local maximum = type(server) == "table" and tonumber(server.maxPlayers) or nil
+                if serverId ~= "" and serverId ~= tostring(game.JobId)
+                    and not seen[serverId] and playing and maximum
+                    and playing >= 0 and maximum > 0 and playing < maximum then
                     seen[serverId] = true
-                    table.insert(candidates, server)
+                    table.insert(candidates, {
+                        id = serverId,
+                        playing = playing,
+                        maxPlayers = maximum
+                    })
                 end
             end
+
             cursor = payload.nextPageCursor
-            if not cursor or cursor == "" then break end
+            if type(cursor) ~= "string" or cursor == "" then break end
         end
     end
+
     if #candidates == 0 then
-        error("No available public servers found")
+        error("No other public servers with free slots were returned by Roblox")
     end
-    local rng = Random.new()
-    return candidates[rng:NextInteger(1, #candidates)]
+
+    -- Prefer less populated servers, but retain some randomness to avoid
+    -- repeatedly selecting the same nearly-empty instance.
+    table.sort(candidates, function(a, b)
+        local aLoad = a.playing / a.maxPlayers
+        local bLoad = b.playing / b.maxPlayers
+        return aLoad < bLoad
+    end)
+    local shortlistSize = math.min(12, #candidates)
+    return candidates[Random.new():NextInteger(1, shortlistSize)]
 end
 
+local hopAttempt = 0
 teleportFailedConnection = TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
     if failedPlayer ~= player then return end
+    hopAttempt = hopAttempt + 1
     hopStatus = "Teleport failed: " .. tostring(teleportResult) .. " / " .. tostring(errorMessage)
     hopButton.Text = "↻   TRY AGAIN"
     hopBusy = false
@@ -3057,22 +3125,38 @@ end)
 hopButton.Activated:Connect(function()
     if hopBusy then return end
     hopBusy = true
+    hopAttempt = hopAttempt + 1
+    local thisAttempt = hopAttempt
     hopButton.Text = "◌   SEARCHING SERVERS..."
     hopButton.BackgroundColor3 = Color3.fromRGB(82, 43, 53)
     hopStatus = "Searching public servers..."
+
     task.spawn(function()
         local ok, result = pcall(function()
             local server = findHopServer()
+            if thisAttempt ~= hopAttempt then return end
+
             hopStatus = "Found server • " .. tostring(server.playing) .. "/" .. tostring(server.maxPlayers)
             hopButton.Text = "↗   TELEPORTING..."
             TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
             return server.id
         end)
-        if not ok then
+
+        if not ok and thisAttempt == hopAttempt then
             hopStatus = "Hop failed: " .. tostring(result)
             hopButton.Text = "↻   TRY AGAIN"
             hopBusy = false
             warn("[Supreme Trade Checker] Hop server failed: " .. tostring(result))
+        elseif ok and result and thisAttempt == hopAttempt then
+            -- If the executor/game silently ignores the teleport call, release
+            -- the button so the user can retry instead of getting stuck busy.
+            task.delay(18, function()
+                if hopBusy and thisAttempt == hopAttempt and player.Parent then
+                    hopStatus = "Teleport did not start — tap to retry"
+                    hopButton.Text = "↻   TRY AGAIN"
+                    hopBusy = false
+                end
+            end)
         end
     end)
 end)
