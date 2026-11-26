@@ -233,7 +233,7 @@ local function formatValue(value)
         sign = "-"
         integer = integer:sub(2)
     end
-    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):gsub(",$", ""):reverse()
     return sign .. integer .. (fraction or "")
 end
 
