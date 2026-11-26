@@ -233,7 +233,7 @@ local function formatValue(value)
         sign = "-"
         integer = integer:sub(2)
     end
-    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):gsub(",$", ""):reverse()
     return sign .. integer .. (fraction or "")
 end
 
@@ -264,11 +264,14 @@ end
 
 local function fetchPage(url)
     local errors = {}
+    local attempted = {}
     local function attempt(fn, label)
-        if type(fn) ~= "function" then return nil end
+        if type(fn) ~= "function" or attempted[fn] then return nil end
+        attempted[fn] = true
         local ok, response = pcall(fn, {
             Url = url,
             Method = "GET",
+            Timeout = 12,
             Headers = {
                 ["User-Agent"] = "Mozilla/5.0",
                 ["Accept"] = "text/html,application/xhtml+xml"
@@ -549,16 +552,38 @@ local function buildMapping(entries, database)
         if type(item) ~= "table" then continue end
         local entry = {kind = "p", id = tostring(id), item = item}
         addDiagnosticCandidate(item, id, "Pet")
+        -- Chroma Fire pets are listed on Supreme's Chromas page, not Pets.
+        -- Index pets by both their explicit pet key and plain display name;
+        -- category eligibility below still prevents cross-category matches.
         addIndex("pet:" .. normalize(item.Name), entry)
+        addIndex(normalize(item.Name), entry)
         table.insert(petEntries, entry)
     end
 
     local byKey, mappedCount = {}, 0
+    local numericSourceKeys, numericMatchedSourceKeys = {}, {}
+    local numericSourceDiagnostics = {}
     for entryIndex, value in ipairs(entries) do
         if entryIndex % 150 == 0 then task.wait() end
         local category, amount = value.c, tonumber(value.v)
         local tierText = clean(value.t)
+        -- Reject inconsistent Supreme class/category rows before alias matching.
+        local expectedRarity = RARITIES[category]
+        if expectedRarity and clean(value.cl) ~= ""
+            and normalize(value.cl) ~= normalize(expectedRarity) then
+            continue
+        end
         if type(category) ~= "string" or (not amount and tierText == "") then continue end
+        local numericSourceKey
+        if VALUE_CATEGORIES[category] and amount and amount >= 1 then
+            local sourceName = clean(value.n)
+            if sourceName ~= "" then
+                numericSourceKey = category .. ":" .. normalize(sourceName)
+                numericSourceKeys[numericSourceKey] = {
+                    name = sourceName, category = category, value = amount
+                }
+            end
+        end
 
         -- Parse both the value title and image label; the image label often
         -- carries the exact weapon type/year while the value title is generic.
@@ -583,6 +608,14 @@ local function buildMapping(entries, database)
 
         local name, kind, titleYear = splitVariant(value.n)
         local year = value.y or titleYear
+        local isScratchAlias = name == "Blue Scratch" or name == "Red Scratch"
+        if isScratchAlias then
+            -- MM2 stores both as ItemName="Scratch"; Year distinguishes them.
+            local scratchYear = name == "Blue Scratch" and "2017" or "2016"
+            name = "Scratch"
+            kind = kind or "Knife"
+            year = scratchYear
+        end
         if value.y and titleYear and tostring(value.y) ~= tostring(titleYear) then
             continue
         end
@@ -599,6 +632,7 @@ local function buildMapping(entries, database)
         end
 
         local event = clean(value.e)
+        if isScratchAlias then event = "Halloween" end
         if event == "" and value.o then
             event = clean(tostring(value.o):match("^(.-)%s+20%d%d") or "")
         end
@@ -624,6 +658,17 @@ local function buildMapping(entries, database)
         -- Do not strip the first word from legendary names: that can
         -- collide with a different weapon and assign its value incorrectly.
 
+        local function canonicalMetadata(field, raw)
+            local normalized = normalize(raw)
+            -- Supreme uses both "Valentine" and "Valentines" for the same
+            -- MM2 event label. Normalize only this harmless plural variant;
+            -- year, item type, rarity and chroma checks remain strict.
+            if field == "Event" then
+                normalized = normalized:gsub("s$", "")
+            end
+            return normalized
+        end
+
         local function preferExactMetadata(candidates, field, wanted)
             if not wanted or clean(wanted) == "" then return candidates, true end
             local exact, unknown = {}, {}
@@ -631,7 +676,7 @@ local function buildMapping(entries, database)
                 local actual = clean(candidate.item[field])
                 if actual == "" then
                     table.insert(unknown, candidate)
-                elseif normalize(actual) == normalize(wanted) then
+                elseif canonicalMetadata(field, actual) == canonicalMetadata(field, wanted) then
                     table.insert(exact, candidate)
                 end
             end
@@ -640,6 +685,7 @@ local function buildMapping(entries, database)
         end
 
         local matches = {}
+        local diagnosticCandidates, diagnosticEligible = {}, {}
         local bestMetadataScore = -1
         local yearWanted = year ~= nil and clean(year) ~= ""
         local eventWanted = event ~= nil and clean(event) ~= ""
@@ -650,7 +696,15 @@ local function buildMapping(entries, database)
             local aliasMatches = {}
             for _, candidate in ipairs(candidates) do
                 local item = candidate.item
+                local diagnosticKey = candidate.kind .. ":" .. candidate.id
+                diagnosticCandidates[diagnosticKey] = candidate
                 local eligible = false
+                local knownBatwingRarityAlias = category == "godlies"
+                    and name == "Batwing" and candidate.kind == "i"
+                    and candidate.id == "Scythe"
+                    and tostring(item.ItemName or "") == "Batwing"
+                    and item.ItemType == "Knife" and item.Rarity == "Ancient"
+                    and item.Chroma ~= true
                 if candidate.kind == "p" then
                     eligible = (item.Chroma == true) == chroma
                         and (category == "pets" or category == "chromas")
@@ -661,18 +715,35 @@ local function buildMapping(entries, database)
                     elseif chroma then
                         eligible = item.Chroma == true
                     else
-                        eligible = item.Chroma ~= true and item.Rarity == RARITIES[category]
+                        eligible = item.Chroma ~= true
+                            and (item.Rarity == RARITIES[category] or knownBatwingRarityAlias)
                     end
                 end
                 if eligible
                     and (not kind or item.ItemType == kind)
-                    and (not value.cl or normalize(item.Rarity) == normalize(value.cl)) then
+                    and (not value.cl or normalize(item.Rarity) == normalize(value.cl)
+                        or knownBatwingRarityAlias) then
+                    diagnosticEligible[diagnosticKey] = candidate
                     table.insert(aliasMatches, candidate)
                 end
             end
             local yearExact, eventExact
+            local beforeYearCount = #aliasMatches
             aliasMatches, yearExact = preferExactMetadata(aliasMatches, "Year", year)
+            local afterYearCount = #aliasMatches
             aliasMatches, eventExact = preferExactMetadata(aliasMatches, "Event", event)
+            local afterEventCount = #aliasMatches
+            if numericSourceKey then
+                local diagnostic = numericSourceDiagnostics[numericSourceKey] or {}
+                diagnostic.beforeYearCount = math.max(diagnostic.beforeYearCount or 0, beforeYearCount)
+                diagnostic.afterYearCount = math.max(diagnostic.afterYearCount or 0, afterYearCount)
+                diagnostic.afterEventCount = math.max(diagnostic.afterEventCount or 0, afterEventCount)
+                diagnostic.yearExact = yearExact
+                diagnostic.eventExact = eventExact
+                diagnostic.yearWanted = year and tostring(year) or ""
+                diagnostic.eventWanted = event
+                numericSourceDiagnostics[numericSourceKey] = diagnostic
+            end
             if #aliasMatches > 0 then
                 local score = (yearWanted and yearExact and 2 or 0)
                     + (eventWanted and eventExact and 1 or 0)
@@ -683,6 +754,7 @@ local function buildMapping(entries, database)
                 if score >= targetMetadataScore then break end
             end
         end
+
 
         if category == "pets" and year then
             local correct = {}
@@ -704,6 +776,28 @@ local function buildMapping(entries, database)
             if #correct > 0 then matches = correct end
         end
 
+        if numericSourceKey then
+            local candidateDetails, candidateCount, eligibleCount = {}, 0, 0
+            for key, candidate in pairs(diagnosticCandidates) do
+                candidateCount = candidateCount + 1
+                local item = candidate.item
+                table.insert(candidateDetails, key .. ":" .. tostring(item.ItemName or item.Name or "")
+                    .. "[" .. tostring(item.Rarity or "?") .. "/" .. tostring(item.ItemType or "Pet")
+                    .. (item.Chroma and "/Chroma" or "")
+                    .. (item.Year and "/Year=" .. tostring(item.Year) or "")
+                    .. (item.Event and "/Event=" .. tostring(item.Event) or "") .. "]")
+            end
+            for _ in pairs(diagnosticEligible) do eligibleCount = eligibleCount + 1 end
+            table.sort(candidateDetails)
+            local diagnostic = numericSourceDiagnostics[numericSourceKey] or {}
+            diagnostic.aliases = table.concat(aliases, " / ")
+            diagnostic.candidateCount = candidateCount
+            diagnostic.eligibleCount = eligibleCount
+            diagnostic.matchCount = #matches
+            diagnostic.candidates = table.concat(candidateDetails, "; ")
+            numericSourceDiagnostics[numericSourceKey] = diagnostic
+        end
+
         -- Never fan one Supreme value out to several MM2 records. Ambiguous
         -- names remain unvalued until metadata makes the match unique.
         if #matches == 1 then
@@ -716,8 +810,26 @@ local function buildMapping(entries, database)
                     t = tierText ~= "" and tierText or nil,
                     n = 1,
                     name = name,
-                    category = category
+                    category = category,
+                    sourceKey = numericSourceKey
                 }
+            end
+            if numericSourceKey and byKey[idKey].sourceKey == numericSourceKey then
+                numericMatchedSourceKeys[numericSourceKey] = true
+            elseif numericSourceKey then
+                -- Preserve the first mapping, but expose the exact prior source
+                -- row when another Supreme entry resolves to the same MM2 key.
+                -- This makes collisions auditable without overwriting a value.
+                local diagnostic = numericSourceDiagnostics[numericSourceKey]
+                    or {aliases = "", candidateCount = 0, eligibleCount = 0,
+                        matchCount = #matches, candidates = ""}
+                local existing = byKey[idKey]
+                diagnostic.occupiedBy = idKey .. " <- "
+                    .. tostring(existing and existing.category or "unknown") .. ":"
+                    .. tostring(existing and existing.name or "unknown")
+                    .. " = " .. tostring(existing and existing.v or "nil")
+                    .. " [sourceKey=" .. tostring(existing and existing.sourceKey or "none") .. "]"
+                numericSourceDiagnostics[numericSourceKey] = diagnostic
             end
         end
     end
@@ -793,10 +905,53 @@ local function buildMapping(entries, database)
         end
     end
 
+    local numericUnmatched = {}
+    local numericSourceCount, numericMatchedSourceCount = 0, 0
+    for sourceKey, sourceItem in pairs(numericSourceKeys) do
+        numericSourceCount = numericSourceCount + 1
+        if numericMatchedSourceKeys[sourceKey] then
+            numericMatchedSourceCount = numericMatchedSourceCount + 1
+        else
+            local diagnostic = numericSourceDiagnostics[sourceKey] or {}
+            local reason = diagnostic.candidateCount == 0 and "NO_DB_NAME_CANDIDATE"
+                or diagnostic.eligibleCount == 0 and "FILTERED_BY_RARITY_TYPE_CHROMA"
+                or diagnostic.matchCount > 1 and "AMBIGUOUS_MATCH"
+                or (diagnostic.beforeYearCount or 0) > 0 and (diagnostic.afterYearCount or 0) == 0
+                    and "METADATA_YEAR_MISMATCH"
+                or (diagnostic.afterYearCount or 0) > 0 and (diagnostic.afterEventCount or 0) == 0
+                    and "METADATA_EVENT_MISMATCH"
+                or "NO_UNIQUE_MAPPING"
+            table.insert(numericUnmatched, {
+                name = sourceItem.name,
+                category = sourceItem.category,
+                value = sourceItem.value,
+                reason = reason,
+                aliases = diagnostic.aliases or "",
+                candidateCount = diagnostic.candidateCount or 0,
+                eligibleCount = diagnostic.eligibleCount or 0,
+                candidates = diagnostic.candidates or "none",
+                occupiedBy = diagnostic.occupiedBy or "none",
+                resolvedCandidates = diagnostic.resolvedCandidates or "none",
+                yearWanted = diagnostic.yearWanted or "",
+                eventWanted = diagnostic.eventWanted or "",
+                beforeYearCount = diagnostic.beforeYearCount or 0,
+                afterYearCount = diagnostic.afterYearCount or 0,
+                afterEventCount = diagnostic.afterEventCount or 0
+            })
+        end
+    end
+    table.sort(numericUnmatched, function(a, b)
+        if a.category ~= b.category then return a.category < b.category end
+        return a.name:lower() < b.name:lower()
+    end)
+
     local iconCount = 0
     for _ in pairs(icon) do iconCount = iconCount + 1 end
     return {
         byKey = byKey,
+        numericSourceCount = numericSourceCount,
+        numericMatchedSourceCount = numericMatchedSourceCount,
+        numericUnmatched = numericUnmatched,
         icon = icon,
         chromaOf = chromaOf,
         dbByName = dbByName,
@@ -813,6 +968,20 @@ end
 local function valueOf(tile, name)
     local mapped = state.mapped
     if not mapped then return nil end
+
+    -- InventoryModule supplies the exact MM2 database itemId for every owned
+    -- item. Prefer that authoritative key over icon/name heuristics: many
+    -- seasonal skins share visible names, and several icons are not unique.
+    local inventoryKey = state.inventoryFrameKeys and state.inventoryFrameKeys[tile]
+    if inventoryKey then
+        local exactEntry = mapped.byKey[inventoryKey]
+        if exactEntry then
+            return exactEntry.v, exactEntry.name, exactEntry.t, exactEntry.category
+        end
+        -- An exact inventory identity with no Supreme value must not inherit
+        -- a different same-name item's value through the fallback resolver.
+        return nil
+    end
 
     local tags = tile and tile:FindFirstChild("Tags")
     local chromaTag = tags and tags:FindFirstChild("Chroma")
@@ -934,7 +1103,7 @@ local function loadValues(force)
                     end
                 end)
             end
-            local fetchDeadline = os.clock() + 45
+            local fetchDeadline = os.clock() + 55
             while not stopped do
                 local complete = true
                 for index = 1, #CATEGORIES do
@@ -1300,21 +1469,28 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     end
 
     local label = makeLabel(container, "__SupremeItemValue", group)
-    label.BackgroundTransparency = 0.06
+    local isTradeCard = group == "trade"
+    label.BackgroundTransparency = isTradeCard and 1 or 0.06
     label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
     label.BorderSizePixel = 0
-    label.Font = Enum.Font.Roboto
+    label.Font = isTradeCard and Enum.Font.GothamSemibold or Enum.Font.Roboto
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.TextScaled = true
     label.TextYAlignment = Enum.TextYAlignment.Center
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextSize = 11
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = isTradeCard and 0.48 or 1
     label.ZIndex = 100
     label.AnchorPoint = Vector2.new(1, 0)
     label.Position = UDim2.new(1, -3, 0, 3)
-    label.Size = UDim2.new(0, 58, 0, 19)
+    label.Size = UDim2.new(0, 52, 0, 16)
+    if isTradeCard then
+        stripDefaultLabelDecorations(label)
+        local stroke = label:FindFirstChild("SupremeStroke")
+        if stroke then stroke:Destroy() end
+    end
 
     if numericValue then
         local accent = VALUE_TEXT_COLORS[category] or Color3.fromRGB(190, 196, 207)
@@ -1468,6 +1644,50 @@ local function findTrade()
     return nil
 end
 
+-- Report the trade UI lifecycle independently from whether a trade partner exists.
+-- This never creates or modifies trade GUI objects.
+local function getTradeGuiStatus()
+    local foundGui, enabledGui, visibleTrade, yourOffer, theirOffer = false, false, false, false, false
+    local details = {}
+    for _, guiName in ipairs({"TradeGUI", "TradeGUI_Phone"}) do
+        local screen = playerGui:FindFirstChild(guiName)
+        if screen then
+            foundGui = true
+            local enabled = screen:IsA("ScreenGui") and screen.Enabled
+            if enabled then enabledGui = true end
+            local trade = screen:FindFirstChild("Trade", true)
+                or screen:FindFirstChild("Container")
+                    and screen.Container:FindFirstChild("Trade")
+            local isVisible = enabled and trade ~= nil and trade:IsA("GuiObject") and visible(trade)
+            if isVisible then visibleTrade = true end
+            local yours = screen:FindFirstChild("YourOffer", true)
+            local theirs = screen:FindFirstChild("TheirOffer", true)
+            if yours then yourOffer = true end
+            if theirs then theirOffer = true end
+            table.insert(details, guiName .. "(enabled=" .. tostring(enabled)
+                .. ",tradeFrame=" .. tostring(trade ~= nil)
+                .. ",tradeVisible=" .. tostring(isVisible)
+                .. ",yourOffer=" .. tostring(yours ~= nil)
+                .. ",theirOffer=" .. tostring(theirs ~= nil) .. ")")
+        end
+    end
+    local status
+    if not foundGui then
+        status = "TRADE_GUI_ABSENT"
+    elseif not enabledGui then
+        status = "TRADE_GUI_PRESENT_DISABLED"
+    elseif not visibleTrade then
+        status = "TRADE_GUI_LOADED_HIDDEN"
+    elseif not yourOffer and not theirOffer then
+        status = "TRADE_UI_VISIBLE_NO_OFFER_PANELS"
+    elseif not yourOffer or not theirOffer then
+        status = "TRADE_UI_VISIBLE_PARTIAL_OFFER_STRUCTURE"
+    else
+        status = "TRADE_UI_VISIBLE_BOTH_OFFER_PANELS"
+    end
+    return status .. (#details > 0 and " | " .. table.concat(details, " ; ") or "")
+end
+
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
@@ -1562,32 +1782,24 @@ local function setSummary(parent, name, title, total, known, count, group, tierC
     local label = makeLabel(parent, name, group)
     stripDefaultLabelDecorations(label)
     label.AnchorPoint = Vector2.new(0.5, 0)
-    label.Position = UDim2.new(0.5, 0, 0, 5)
-    label.Size = UDim2.new(1, -12, 0, 32)
-    label.BackgroundTransparency = 0.04
-    label.BackgroundColor3 = title == "ОТДАЁШЬ"
-        and Color3.fromRGB(43, 34, 31) or Color3.fromRGB(29, 40, 43)
-    label.TextSize = 17
+    label.Position = UDim2.new(0.5, 0, 0, 4)
+    label.Size = UDim2.new(1, -16, 0, 22)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.TextSize = 13
     label.TextScaled = false
-    label.Font = Enum.Font.Roboto
-    label.TextStrokeTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = 0.58
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextColor3 = title == "ОТДАЁШЬ"
-        and Color3.fromRGB(226, 164, 119) or Color3.fromRGB(119, 196, 190)
+        and Color3.fromRGB(231, 171, 130) or Color3.fromRGB(126, 207, 194)
     local unknownCount = getUnknownItemCount(known, count, tierCount)
     label.Text = title .. ": " .. formatValue(total)
         .. ((tierCount or 0) > 0 and " + TIER(" .. tostring(tierCount) .. ")" or "")
         .. (unknownCount > 0 and " + ?(" .. tostring(unknownCount) .. ")" or "")
-    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 9)
-    corner.Parent = label
-    local stroke = label:FindFirstChild("SupremeStroke") or Instance.new("UIStroke")
-    stroke.Name = "SupremeStroke"
-    stroke.Color = title == "ОТДАЁШЬ"
-        and Color3.fromRGB(151, 105, 78) or Color3.fromRGB(77, 139, 137)
-    stroke.Transparency = 0.35
-    stroke.Thickness = 1
-    stroke.Parent = label
+    -- Trade totals are typography, not cards: no filled plate, border or corner.
+    stripDefaultLabelDecorations(label)
     label.Visible = count > 0
 end
 
@@ -1711,19 +1923,32 @@ local function runCoreSelfTests()
     assert(formatValue(0.025) == "0.025", "fraction formatting failed")
     assert(formatValue(-4600) == "-4,600", "negative difference formatting failed")
 
+    local winVerdict = getVerdict(10, 12)
+    local loseVerdict = getVerdict(12, 10)
+    local fairVerdict = getVerdict(100, 101)
+    assert(winVerdict == "WIN" and loseVerdict == "LOSE" and fairVerdict == "FAIR",
+        "trade verdict direction or two-percent FAIR tolerance failed")
+
+    local duplicateTotal, duplicateKnown = addNumericValue(0, 0, 25, 3)
+    assert(duplicateTotal == 75 and duplicateKnown == 3,
+        "duplicate item quantities must multiply the total and known count")
+
     local numericAuditTest = buildNumericItemAudit({
         {c = "godlies", n = "Test Knife", v = 5},
         {c = "godlies", n = " test   knife ", v = 5},
         {c = "godlies", n = "Test Knife", v = 6},
         {c = "chromas", n = "Test Knife", v = 10},
+        {c = "commons", n = "Value One", v = 1},
+        {c = "commons", n = "Below One", v = 0.99},
         {c = "commons", n = "Tier Only", t = "x1 T1 Common"},
         {c = "sets", n = "Aggregate Set", v = 500}
     })
-    assert(#numericAuditTest.items == 2 and numericAuditTest.rawNumeric == 4
+    assert(#numericAuditTest.items == 3 and numericAuditTest.rawNumeric == 5
         and numericAuditTest.duplicates == 2 and numericAuditTest.conflicts == 1,
         "numeric item audit must deduplicate by category/name and detect conflicting values")
     assert(numericAuditTest.categoryCounts.godlies == 1
-        and numericAuditTest.categoryCounts.chromas == 1,
+        and numericAuditTest.categoryCounts.chromas == 1
+        and numericAuditTest.categoryCounts.commons == 1,
         "numeric item audit category counts are incorrect")
 
     local syntheticHtml =
@@ -1807,6 +2032,10 @@ local function runCoreSelfTests()
     local previousMapping = state.mapped
     local mappingOk, mappingError = pcall(function()
         local fullMapping = buildMapping({regularEntry, chromaEntry}, testDatabase)
+        assert(fullMapping.numericSourceCount == 2
+            and fullMapping.numericMatchedSourceCount == 2
+            and #fullMapping.numericUnmatched == 0,
+            "Supreme numeric mapping coverage audit missed unique regular/Chroma entries")
         state.mapped = fullMapping
         local regularValue = valueOf(fakeTile("rbxassetid://111111", false), "Test Gun")
         local chromaValue = valueOf(fakeTile("rbxassetid://111111", true), "Test Gun")
@@ -1850,6 +2079,66 @@ local function runCoreSelfTests()
         state.mapped = swirlyMapping
         local swirlyValue = valueOf(fakeTile("rbxassetid://333333", false), "Swirly Gun")
         assert(swirlyValue == 55, "weapon name/type suffix alias mapping failed")
+
+        -- Regression: two differently titled Supreme rows may resolve to the
+        -- same MM2 key. Keep the first mapping and expose the prior source row
+        -- for the unmatched row instead of silently losing the collision.
+        local metadataMismatchMapping = buildMapping({
+            {c = "godlies", n = "Test Gun", im = "Test Gun", v = 10,
+                cl = "Godly", y = "2026"}
+        }, {
+            Item = {
+                TestGun = {ItemName = "Test", ItemType = "Gun", Rarity = "Godly",
+                    Year = "2025", Image = "rbxassetid://444444"}
+            },
+            Pets = {}
+        })
+        assert(metadataMismatchMapping.numericMatchedSourceCount == 0
+            and metadataMismatchMapping.numericUnmatched[1].reason == "METADATA_YEAR_MISMATCH",
+            "year mismatch must be reported separately from a name collision")
+
+        local scratchMapping = buildMapping({
+            {c = "legendaries", n = "Blue Scratch", im = "Blue Scratch (Knife)",
+                v = 2, cl = "Legendary", o = "Halloween 2017"},
+            {c = "legendaries", n = "Red Scratch", im = "Red Scratch (Knife)",
+                v = 3, cl = "Legendary", o = "Halloween 2016"}
+        }, {
+            Item = {
+                Scratch = {ItemName = "Scratch", ItemType = "Knife", Rarity = "Legendary",
+                    Year = "2016", Event = "Halloween", Image = "rbxassetid://445001"},
+                ScratchBlue = {ItemName = "Scratch", ItemType = "Knife", Rarity = "Legendary",
+                    Year = "2017", Event = "Halloween", Image = "rbxassetid://445002"}
+            },
+            Pets = {}
+        })
+        assert(scratchMapping.numericMatchedSourceCount == 2
+            and scratchMapping.byKey["i:Scratch"].v == 3
+            and scratchMapping.byKey["i:ScratchBlue"].v == 2,
+            "Blue/Red Scratch aliases must resolve to their exact year-specific MM2 records")
+
+        local batwingMapping = buildMapping({
+            {c = "godlies", n = "Batwing", im = "Batwing (Knife)",
+                v = 1000000, cl = "Godly", o = "Halloween 2018"}
+        }, {
+            Item = {
+                Scythe = {ItemName = "Batwing", ItemType = "Knife", Rarity = "Ancient",
+                    Year = "2018", Event = "Halloween", Image = "rbxassetid://445003"}
+            },
+            Pets = {}
+        })
+        assert(batwingMapping.numericMatchedSourceCount == 1
+            and batwingMapping.byKey["i:Scythe"].v == 1000000,
+            "the verified Batwing Supreme/Database rarity alias must map only to Scythe")
+
+        local collisionMapping = buildMapping({
+            {c = "godlies", n = "Test", im = "Test Gun", v = 10, cl = "Godly"},
+            {c = "godlies", n = "Test Gun", im = "Test Gun", v = 20, cl = "Godly"}
+        }, testDatabase)
+        assert(collisionMapping.numericSourceCount == 2
+            and collisionMapping.numericMatchedSourceCount == 1
+            and #collisionMapping.numericUnmatched == 1
+            and collisionMapping.numericUnmatched[1].occupiedBy:find("godlies:Test", 1, true),
+            "same-MM2-key mapping collision must retain and report the existing source row")
 
         local fullTitleDatabase = {
             Item = {
@@ -1982,8 +2271,21 @@ local function runCoreSelfTests()
             v = 777, cl = "Godly"
         }
         local ambiguousMapping = buildMapping({ambiguousEntry}, ambiguousDatabase)
-        assert(ambiguousMapping.n == 0,
-            "ambiguous database names must not receive a guessed numeric value")
+        assert(ambiguousMapping.n == 0
+            and ambiguousMapping.numericSourceCount == 1
+            and ambiguousMapping.numericMatchedSourceCount == 0
+            and #ambiguousMapping.numericUnmatched == 1
+            and ambiguousMapping.numericUnmatched[1].reason == "AMBIGUOUS_MATCH",
+            "ambiguous database names must be reported as unmatched, never guessed")
+
+        local missingNameMapping = buildMapping({
+            {c = "godlies", n = "No Such MM2 Item", im = "No Such MM2 Item (Knife)",
+                v = 5, cl = "Godly"}
+        }, testDatabase)
+        assert(missingNameMapping.n == 0
+            and #missingNameMapping.numericUnmatched == 1
+            and missingNameMapping.numericUnmatched[1].reason == "NO_DB_NAME_CANDIDATE",
+            "missing database names must be diagnosed without inventing a mapping")
 
         local wrongRarityMapping = buildMapping({
             {c = "rares", n = "Test Gun", im = "Test Gun (Gun)", v = 999, cl = "Rare"}
@@ -2039,6 +2341,15 @@ local function runCoreSelfTests()
         "fully valued trade should not be flagged")
     assert(tradeHasNumericValues(1, 0), "one valued side should still produce a comparison")
     assert(not tradeHasNumericValues(0, 0), "two sides without numeric values cannot be compared")
+    assert(getVerdict(0, 0) == "FAIR",
+        "zero-versus-zero pure arithmetic baseline must remain neutral")
+    assert(getVerdict(0, 25) == "WIN" and getVerdict(25, 0) == "LOSE",
+        "a single numeric side must produce the correct directional verdict")
+    local ignoredTotal, ignoredKnown = addNumericValue(7, 2, nil, 9)
+    ignoredTotal, ignoredKnown = addNumericValue(ignoredTotal, ignoredKnown, 0, 4)
+    ignoredTotal, ignoredKnown = addNumericValue(ignoredTotal, ignoredKnown, math.huge, 3)
+    assert(ignoredTotal == 7 and ignoredKnown == 2,
+        "missing, zero and infinite values must never enter numeric totals")
     assert(getUnknownItemCount(2, 5, 1) == 2,
         "unknown item quantity should exclude numeric and tier entries")
     assert(getUnknownItemCount(0, 2, 2) == 0,
@@ -2077,6 +2388,12 @@ local function runCoreSelfTests()
         "valued items must produce a result even when other items are unvalued")
     local fairVerdict = getVerdict(100, 101)
     assert(fairVerdict == "FAIR", "fair tolerance calculation failed")
+    assert(getVerdict(100, 102) == "FAIR",
+        "the exact two-percent boundary must be classified FAIR")
+    -- Tolerance is 2% of the larger side, so compare against the symmetric threshold.
+    assert(getVerdict(100, 102.05) == "WIN"
+        and getVerdict(102.05, 100) == "LOSE",
+        "values outside the two-percent-of-larger-side tolerance must classify directionally")
     local tinyVerdict, tinyDifference = getVerdict(0.00001, 0)
     assert(tinyVerdict == "LOSE" and math.abs(tinyDifference + 0.00001) < 0.000000001,
         "tiny numeric values must not be hidden by a coarse fair tolerance")
@@ -2097,16 +2414,17 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
     local oldGradient = label:FindFirstChild("SupremeTextGradient")
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -34)
-    label.Size = UDim2.new(0.86, 0, 0, 34)
-    label.BackgroundTransparency = 0.05
-    label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
+    label.Position = UDim2.new(0.5, 0, 1, -31)
+    label.Size = UDim2.new(0.92, 0, 0, 22)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
     label.ZIndex = 150
-    label.Font = Enum.Font.Roboto
-    label.TextSize = 18
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 16
     label.TextScaled = false
     label.TextWrapped = false
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = 0.48
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -2121,7 +2439,7 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
         verdict, difference = getVerdict(yourTotal, theirTotal)
         local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
             or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
-        local marker = incomplete and "ПО VALUE • " or ""
+        local marker = incomplete and "ПРЕДВАРИТЕЛЬНО • " or ""
         if verdict == "WIN" then
             caption = marker .. "ПЛЮС  +" .. formatValue(difference)
             color = Color3.fromRGB(102, 183, 143)
@@ -2136,15 +2454,8 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
 
     label.TextColor3 = color
     label.Text = caption
-    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = label
-    local stroke = label:FindFirstChild("SupremeStroke") or Instance.new("UIStroke")
-    stroke.Name = "SupremeStroke"
-    stroke.Color = color
-    stroke.Transparency = 0.4
-    stroke.Thickness = 1.1
-    stroke.Parent = label
+    -- Keep the verdict floating over the native trade UI without a giant panel.
+    stripDefaultLabelDecorations(label)
     label.Visible = true
 end
 
@@ -2155,17 +2466,18 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     local gradient = label:FindFirstChild("SupremeTextGradient")
     if gradient then gradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -8)
-    label.Size = UDim2.new(0.94, 0, 0, 24)
-    label.BackgroundTransparency = 0.10
-    label.BackgroundColor3 = Color3.fromRGB(24, 27, 33)
+    label.Position = UDim2.new(0.5, 0, 1, -7)
+    label.Size = UDim2.new(0.94, 0, 0, 18)
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
     label.ZIndex = 150
-    label.Font = Enum.Font.Roboto
-    label.TextSize = 13
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 11
     label.TextScaled = false
     label.TextWrapped = false
     label.TextTruncate = Enum.TextTruncate.AtEnd
-    label.TextStrokeTransparency = 1
+    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 19)
+    label.TextStrokeTransparency = 0.62
     label.TextXAlignment = Enum.TextXAlignment.Center
     label.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -2207,9 +2519,8 @@ local function setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown
     end
     label.TextColor3 = color
     label.Text = advice
-    local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = label
+    -- Advice remains a subtle secondary line, never another boxed banner.
+    stripDefaultLabelDecorations(label)
     label.Visible = true
 end
 
@@ -2220,7 +2531,7 @@ local function scanTrade()
     state.coverageSeenTrade = {}
     local screen, container, trade = findTrade()
     if not screen then
-        state.latestTrade = "No active trade detected."
+        state.latestTrade = "No active trade detected. Trade UI: " .. getTradeGuiStatus()
         return nil
     end
 
@@ -2255,7 +2566,7 @@ local function scanTrade()
             local verdict, difference = getVerdict(yourTotal, theirTotal)
             local incomplete = tradeNeedsManualReview(yourKnown, yourCount, yourTierCount)
                 or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
-            table.insert(lines, "РЕЗУЛЬТАТ: " .. verdict .. " | Разница: "
+            table.insert(lines, (incomplete and "РЕЗУЛЬТАТ: ПРЕДВАРИТЕЛЬНО • " or "РЕЗУЛЬТАТ: ") .. verdict .. " | Разница: "
                 .. (difference > 0 and "+" or "") .. formatValue(difference)
                 .. (incomplete and " | только по предметам с числовым Value; без Value/Tier не учтены" or ""))
         end
@@ -2327,6 +2638,8 @@ local function scanModuleInventory()
     local frameSamples = {}
     local seen = {}
     local seenMissingKeys = {}
+    -- Weak keys avoid retaining destroyed GUI cards between inventory scans.
+    state.inventoryFrameKeys = setmetatable({}, {__mode = "k"})
 
     local function instancePath(object, stopAt)
         local names = {}
@@ -2402,8 +2715,14 @@ local function scanModuleInventory()
                         .. "{Visible=" .. tostring(tile.Visible) .. "}")
                 end
 
-                -- Do not depend on ItemName text: PulseHub's inventory tiles
-                -- are reliably identified by Container.Icon -> MM2 database.
+                -- Preserve the exact Data.Weapons/Data.Pets itemId on the
+                -- frame. The GUI overlay scanner later visits the same tile;
+                -- valueOf() will then use this key instead of ambiguous names.
+                local itemPrefix = collectionName == "Pets" and "p:" or "i:"
+                state.inventoryFrameKeys[tile] = itemPrefix .. tostring(itemKey)
+
+                -- Do not depend on ItemName text when the authoritative itemId
+                -- is available from InventoryModule.
                 local name, quantity = itemData(tile)
                 if hasStoredAmount and quantity <= 1 then
                     quantity = entryQuantity
@@ -2980,7 +3299,7 @@ local function formatUnmatchedItems(items)
         return a.name < b.name
     end)
     local output = {}
-    for index = 1, math.min(#rows, 25) do
+    for index = 1, math.min(#rows, 80) do
         local entry = rows[index]
         table.insert(output, entry.name .. " [x" .. tostring(entry.count)
             .. ", icon=" .. tostring(entry.image)
@@ -3038,10 +3357,116 @@ local function buildNumericAuditSummary()
         .. ", BY_CATEGORY=" .. HttpService:JSONEncode(audit.categoryCounts)
 end
 
+local function buildRuntimeEnvironmentReport()
+    local rows = {}
+    local environment = _G
+    pcall(function()
+        if type(getgenv) == "function" then
+            local executorEnvironment = getgenv()
+            if type(executorEnvironment) == "table" then environment = executorEnvironment end
+        end
+    end)
+    local function add(name, value)
+        table.insert(rows, name .. "=" .. tostring(value))
+    end
+    local function globalType(name)
+        local ok, value = pcall(function() return environment[name] end)
+        if ok then return type(value) end
+        return "unavailable"
+    end
+    add("PlaceId", game.PlaceId)
+    add("GameId", game.GameId)
+    add("JobId", game.JobId ~= "" and "present" or "empty")
+    add("RobloxVersion", version and version() or "unknown")
+    add("Platform", UserInputService.TouchEnabled and "touch"
+        or (UserInputService.GamepadEnabled and "gamepad" or "mouse/keyboard"))
+    add("Viewport", workspace.CurrentCamera and tostring(workspace.CurrentCamera.ViewportSize) or "unknown")
+    local coreOk, coreName = pcall(function() return game:GetService("CoreGui"):GetFullName() end)
+    add("CoreGui", coreOk and coreName or "blocked: " .. tostring(coreName))
+    for _, name in ipairs({
+        "request", "http_request", "syn", "http", "gethui", "get_hidden_gui",
+        "protect_gui", "cloneref", "getcustomasset", "getsynasset", "identifyexecutor",
+        "setclipboard", "toclipboard", "setrbxclipboard", "Clipboard",
+        "readfile", "writefile", "isfile", "makefolder", "Drawing",
+        "debug", "hookfunction", "getconnections"
+    }) do
+        add("API." .. name, globalType(name))
+    end
+    local ok, executorName = pcall(function()
+        if type(identifyexecutor) == "function" then return identifyexecutor() end
+        return "not exposed"
+    end)
+    add("Executor", ok and executorName or ("error: " .. tostring(executorName)))
+    add("PlayerGui", playerGui and playerGui:GetFullName() or "missing")
+    add("InventoryModule", state.inventoryModuleStatus)
+    add("InventoryPath", state.inventoryGuiPath)
+    add("InventoryScreens", state.inventoryScreenList)
+    add("InventoryGuiStructure", state.inventoryGuiStructure)
+    add("InventoryFrameParents", state.inventoryFrameParents)
+    add("TradeGuiStatus", getTradeGuiStatus())
+    return table.concat(rows, "\n")
+end
+
+local guiStructureCache, guiStructureCacheAt = nil, 0
+local function buildGuiStructureReport()
+    if guiStructureCache and os.clock() - guiStructureCacheAt < 12 then
+        return guiStructureCache
+    end
+    local rows, seen = {}, {}
+    local roots = {}
+    for _, child in ipairs(playerGui:GetChildren()) do
+        if child:IsA("LayerCollector") then
+            table.insert(roots, child)
+            local enabled = child:IsA("ScreenGui") and tostring(child.Enabled) or "n/a"
+            table.insert(rows, "SCREEN " .. child.Name .. " [" .. child.ClassName .. "] enabled=" .. enabled)
+        end
+    end
+    local patterns = {"trade", "offer", "item", "inventory", "accept", "decline",
+        "container", "weapon", "pet", "confirm", "player", "main", "frame", "mobile"}
+    local function relevant(name)
+        local lower = string.lower(name)
+        for _, pattern in ipairs(patterns) do
+            if string.find(lower, pattern, 1, true) then return true end
+        end
+        return false
+    end
+    for _, root in ipairs(roots) do
+        local descendants = root:GetDescendants()
+        for _, node in ipairs(descendants) do
+            if #rows >= 170 then break end
+            if relevant(node.Name) then
+                local pathOk, path = pcall(function() return node:GetFullName() end)
+                path = pathOk and path or node.Name
+                if not seen[path] then
+                    seen[path] = true
+                    local details = path .. " [" .. node.ClassName .. "]"
+                    if node:IsA("GuiObject") then
+                        details = details .. " vis=" .. tostring(node.Visible)
+                            .. " abs=" .. tostring(node.AbsoluteSize)
+                    elseif node:IsA("LayerCollector") then
+                        details = details .. " enabled=" .. tostring(node.Enabled)
+                    end
+                    if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
+                        local label = clean(node.Text)
+                        if label ~= "" then details = details .. ' text="' .. label:sub(1, 70) .. '"' end
+                    elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
+                        details = details .. " image=" .. tostring(assetId(node.Image) or "none")
+                    end
+                    table.insert(rows, details)
+                end
+            end
+        end
+    end
+    if #rows == 0 then return "no relevant PlayerGui nodes found" end
+    return table.concat(rows, "\n")
+end
+
 local function buildDiagnostic()
     local lines = {
         "SUPREME TRADE CHECKER — PULSEHUB MAPPING",
         "Time: " .. os.date("%Y-%m-%d %H:%M:%S"),
+        "RUNTIME / EXECUTOR CAPABILITIES:\n" .. buildRuntimeEnvironmentReport(),
+        "PLAYERGUI STRUCTURE SNAPSHOT (filtered nodes):\n" .. buildGuiStructureReport(),
         "Status: " .. tostring(state.status),
         "Core self-tests: " .. tostring(state.selfTestStatus),
         "Load time: " .. string.format("%.2f", tonumber(state.loadDuration) or 0) .. "s",
@@ -3066,6 +3491,31 @@ local function buildDiagnostic()
         "MM2 weapon records: " .. tostring(state.dbItems),
         "MM2 pet records: " .. tostring(state.dbPets),
         "Matched item records: " .. tostring(state.mappedCount),
+        "SUPREME NUMERIC MAPPING COVERAGE (Value >= 1): "
+            .. tostring(state.mapped and state.mapped.numericMatchedSourceCount or 0)
+            .. "/" .. tostring(state.mapped and state.mapped.numericSourceCount or 0)
+            .. " unique source items matched unambiguously",
+        "UNMATCHED SUPREME NUMERIC ITEMS (top 60): "
+            .. (function()
+                local rows = {}
+                local missing = state.mapped and state.mapped.numericUnmatched or {}
+                for index = 1, math.min(#missing, 120) do
+                    local item = missing[index]
+                    table.insert(rows, item.category .. ": " .. item.name
+                        .. " = " .. formatValue(item.value) .. " [" .. item.reason
+                        .. "; candidates=" .. tostring(item.candidateCount or 0)
+                        .. "; eligible=" .. tostring(item.eligibleCount or 0)
+                        .. "; DB=" .. tostring(item.candidates or "none")
+                        .. "; year=" .. tostring(item.yearWanted or "none")
+                        .. "; event=" .. tostring(item.eventWanted or "none")
+                        .. "; metadata=" .. tostring(item.beforeYearCount or 0) .. ">"
+                        .. tostring(item.afterYearCount or 0) .. ">" .. tostring(item.afterEventCount or 0)
+                        .. "; resolved=" .. tostring(item.resolvedCandidates or "none")
+                        .. "; occupied=" .. tostring(item.occupiedBy or "none") .. "]")
+                end
+                return tostring(#missing) .. " total"
+                    .. (#rows > 0 and "\n" .. table.concat(rows, "\n") or "")
+            end)(),
         "Icon mappings: " .. tostring(state.iconCount),
         "Fetch methods: " .. HttpService:JSONEncode(state.fetchMethods),
         "Failed pages: " .. (#state.failedPages > 0 and table.concat(state.failedPages, " | ") or "none"),
@@ -3075,6 +3525,7 @@ local function buildDiagnostic()
         "",
         "Trade scan status: " .. tostring(state.tradeScanStatus),
         "Trade scan error: " .. tostring(state.tradeScanError),
+        "Trade GUI lifecycle: " .. getTradeGuiStatus(),
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "",
