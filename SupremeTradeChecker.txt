@@ -2172,17 +2172,23 @@ end
 
 local function setTradeVerdict(screen, trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
     if not screen or not trade then return end
-    -- Keep the verdict above the native trade UI instead of inside a clipped
-    -- Trade frame; mobile layouts can cover or clip children at the bottom.
-    local label = makeLabel(screen, "__SupremeTradeVerdict", "trade")
+    -- Prefer the ScreenGui overlay when enabled. If the mobile executor/game
+    -- leaves ScreenGui.Enabled stale while the offer tree is live, parent the
+    -- verdict to the visible Trade frame instead of an inactive ScreenGui.
+    local verdictParent = screen.Enabled and screen or trade
+    local label = makeLabel(verdictParent, "__SupremeTradeVerdict", "trade")
     stripDefaultLabelDecorations(label)
     local oldGradient = label:FindFirstChild("SupremeTextGradient")
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
     local verdictWidth = math.max(220, math.min(420, trade.AbsoluteSize.X * 0.86))
-    label.Position = UDim2.fromOffset(
-        trade.AbsolutePosition.X + trade.AbsoluteSize.X / 2,
-        trade.AbsolutePosition.Y + trade.AbsoluteSize.Y - 38)
+    if verdictParent == screen then
+        label.Position = UDim2.fromOffset(
+            trade.AbsolutePosition.X + trade.AbsoluteSize.X / 2,
+            trade.AbsolutePosition.Y + trade.AbsoluteSize.Y - 38)
+    else
+        label.Position = UDim2.new(0.5, 0, 1, -38)
+    end
     label.Size = UDim2.fromOffset(verdictWidth, 34)
     label.BackgroundTransparency = 0.05
     label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
