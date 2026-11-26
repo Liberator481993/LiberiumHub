@@ -155,6 +155,7 @@ local state = {
     latestTrade = "No active trade detected.",
     tradeScanStatus = "not scanned",
     tradeScanError = "none",
+    tradeGuiDiagnostics = "not scanned",
     latestInventory = "Inventory not scanned yet.",
     unmatchedInventory = {},
     unmatchedTrade = {},
@@ -1453,21 +1454,79 @@ local function visible(object)
 end
 
 local function findTrade()
-    for _, guiName in ipairs({"TradeGUI", "TradeGUI_Phone"}) do
-        local screen = playerGui:FindFirstChild(guiName)
-        if screen and screen:IsA("ScreenGui") and screen.Enabled then
-            local container = screen:FindFirstChild("Container")
-            local trade = container and container:FindFirstChild("Trade")
-            if trade and visible(trade) then return screen, container, trade end
-            -- Fallback for layouts where the Trade frame is nested or renamed.
-            local yourOffer = screen:FindFirstChild("YourOffer", true)
-            local theirOffer = screen:FindFirstChild("TheirOffer", true)
-            if yourOffer or theirOffer then return screen, container or screen, screen end
+    local roots = {playerGui}
+    -- Some mobile executors expose Roblox trade layers under CoreGui.
+    pcall(function()
+        local core = game:GetService("CoreGui")
+        if core and core ~= playerGui then table.insert(roots, core) end
+    end)
+
+    local candidates, diagnostics = {}, {}
+    local function offerCardCount(offer)
+        local container = offer and offer:FindFirstChild("Container")
+        if not container then return 0 end
+        local count, seen = 0, {}
+        for _, node in ipairs(container:GetDescendants()) do
+            if node:IsA("GuiObject") then
+                local card = node:FindFirstChild("Container")
+                local icon = card and card:FindFirstChild("Icon")
+                if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton"))
+                    and not seen[node] then
+                    seen[node] = true
+                    if visible(node) then count = count + 1 end
+                end
+            end
+        end
+        return count
+    end
+
+    for _, root in ipairs(roots) do
+        for _, guiName in ipairs({"TradeGUI", "TradeGUI_Phone"}) do
+            local screen = root:FindFirstChild(guiName)
+            if screen and screen:IsA("ScreenGui") then
+                local container = screen:FindFirstChild("Container")
+                local trade = container and container:FindFirstChild("Trade")
+                local yourOffer = screen:FindFirstChild("YourOffer", true)
+                local theirOffer = screen:FindFirstChild("TheirOffer", true)
+                local screenEnabled = screen.Enabled
+                local tradeVisible = trade and visible(trade) or false
+                local yourVisible = yourOffer and visible(yourOffer) or false
+                local theirVisible = theirOffer and visible(theirOffer) or false
+                local yourCards = offerCardCount(yourOffer)
+                local theirCards = offerCardCount(theirOffer)
+                local validOffers = yourOffer and theirOffer
+                    and yourOffer:FindFirstChild("Container")
+                    and theirOffer:FindFirstChild("Container")
+                local score = 0
+                if screenEnabled then score = score + 10 end
+                if tradeVisible then score = score + 40 end
+                if yourVisible then score = score + 20 end
+                if theirVisible then score = score + 20 end
+                score = score + math.min(yourCards + theirCards, 20)
+                table.insert(diagnostics,
+                    guiName .. "@" .. (root == playerGui and "PlayerGui" or "CoreGui")
+                    .. "(enabled=" .. tostring(screenEnabled)
+                    .. ",trade=" .. tostring(tradeVisible)
+                    .. ",offers=" .. tostring(yourVisible) .. "/" .. tostring(theirVisible)
+                    .. ",cards=" .. tostring(yourCards) .. "/" .. tostring(theirCards)
+                    .. ",score=" .. tostring(score) .. ")")
+                if screenEnabled and validOffers and yourVisible and theirVisible then
+                    table.insert(candidates, {
+                        screen = screen, container = container or screen,
+                        trade = (trade and tradeVisible) and trade or screen,
+                        score = score
+                    })
+                end
+            end
         end
     end
+    state.tradeGuiDiagnostics = #diagnostics > 0 and table.concat(diagnostics, " | ")
+        or "TradeGUI/TradeGUI_Phone not found in PlayerGui or CoreGui"
+    table.sort(candidates, function(a, b) return a.score > b.score end)
+    local best = candidates[1]
+    if best then return best.screen, best.container, best.trade end
     return nil
 end
-
 local function scanOffer(offer, group)
     local container = offer and offer:FindFirstChild("Container")
     if not container then return {}, 0, 0, 0, 0 end
@@ -3081,6 +3140,7 @@ local function buildDiagnostic()
         "",
         "Trade scan status: " .. tostring(state.tradeScanStatus),
         "Trade scan error: " .. tostring(state.tradeScanError),
+        "TRADE GUI CANDIDATES: " .. tostring(state.tradeGuiDiagnostics),
         "CURRENT TRADE:",
         tostring(state.latestTrade),
         "",
