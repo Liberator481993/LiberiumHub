@@ -1312,8 +1312,15 @@ local function updateTileBadge(tile, value, quantity, group, tierText, category,
     end
 
     local label = makeLabel(container, "__SupremeItemValue", group)
-    label.BackgroundTransparency = 0.06
-    label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
+    -- Trade values should sit directly on the item card: no pill, fill, corner, or outline.
+    -- Inventory keeps its compact dark badge for readability.
+    if group == "trade" then
+        stripDefaultLabelDecorations(label)
+        label.BackgroundTransparency = 1
+    else
+        label.BackgroundTransparency = 0.06
+        label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
+    end
     label.BorderSizePixel = 0
     label.Font = Enum.Font.Roboto
     label.TextWrapped = false
