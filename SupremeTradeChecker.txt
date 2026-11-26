@@ -233,7 +233,7 @@ local function formatValue(value)
         sign = "-"
         integer = integer:sub(2)
     end
-    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    integer = integer:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
     return sign .. integer .. (fraction or "")
 end
 
@@ -1679,6 +1679,7 @@ local function runCoreSelfTests()
         assert(parseDisplayedValue(testCase[1]) == testCase[2],
             "numeric parser failed: " .. testCase[1])
     end
+    assert(formatValue(110) == "110" and formatValue(135) == "135", "three-digit formatting must not start with a comma")
     assert(formatValue(4600) == "4,600", "thousands formatting failed")
     assert(formatValue(1000000) == "1,000,000", "large value formatting failed")
     assert(formatValue(0.00001) == "0.00001", "tiny positive value formatting failed")
@@ -2090,18 +2091,23 @@ local function runCoreSelfTests()
     return true
 end
 
-local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
-    if not trade then return end
-    local label = makeLabel(trade, "__SupremeTradeVerdict", "trade")
+local function setTradeVerdict(screen, trade, yourTotal, theirTotal, yourKnown, theirKnown, yourCount, theirCount, yourTierCount, theirTierCount)
+    if not screen or not trade then return end
+    -- Keep the verdict above the native trade UI instead of inside a clipped
+    -- Trade frame; mobile layouts can cover or clip children at the bottom.
+    local label = makeLabel(screen, "__SupremeTradeVerdict", "trade")
     stripDefaultLabelDecorations(label)
     local oldGradient = label:FindFirstChild("SupremeTextGradient")
     if oldGradient then oldGradient:Destroy() end
     label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Position = UDim2.new(0.5, 0, 1, -34)
-    label.Size = UDim2.new(0.86, 0, 0, 34)
+    local verdictWidth = math.max(220, math.min(420, trade.AbsoluteSize.X * 0.86))
+    label.Position = UDim2.fromOffset(
+        trade.AbsolutePosition.X + trade.AbsoluteSize.X / 2,
+        trade.AbsolutePosition.Y + trade.AbsoluteSize.Y - 38)
+    label.Size = UDim2.fromOffset(verdictWidth, 34)
     label.BackgroundTransparency = 0.05
     label.BackgroundColor3 = Color3.fromRGB(27, 30, 37)
-    label.ZIndex = 150
+    label.ZIndex = 10000
     label.Font = Enum.Font.Roboto
     label.TextSize = 18
     label.TextScaled = false
@@ -2123,13 +2129,13 @@ local function setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKno
             or tradeNeedsManualReview(theirKnown, theirCount, theirTierCount)
         local marker = incomplete and "ПО VALUE • " or ""
         if verdict == "WIN" then
-            caption = marker .. "ПЛЮС  +" .. formatValue(difference)
+            caption = marker .. "WIN  •  +" .. formatValue(difference)
             color = Color3.fromRGB(102, 183, 143)
         elseif verdict == "LOSE" then
-            caption = marker .. "МИНУС  " .. formatValue(difference)
+            caption = marker .. "LOSE  •  " .. formatValue(difference)
             color = Color3.fromRGB(201, 111, 124)
         else
-            caption = marker .. "РОВНЫЙ ОБМЕН  " .. formatValue(difference)
+            caption = marker .. "FAIR  •  " .. (difference > 0 and "+" or "") .. formatValue(difference)
             color = Color3.fromRGB(130, 166, 190)
         end
     end
@@ -2233,7 +2239,7 @@ local function scanTrade()
     local theirItems, theirTotal, theirKnown, theirCount, theirTierCount = scanOffer(theirs, "trade")
     setSummary(yours, "__SupremeOfferTotal", "ОТДАЁШЬ", yourTotal, yourKnown, yourCount, "trade", yourTierCount)
     setSummary(theirs, "__SupremeOfferTotal", "ПОЛУЧАЕШЬ", theirTotal, theirKnown, theirCount, "trade", theirTierCount)
-    setTradeVerdict(trade, yourTotal, theirTotal, yourKnown, theirKnown,
+    setTradeVerdict(screen, trade, yourTotal, theirTotal, yourKnown, theirKnown,
         yourCount, theirCount, yourTierCount, theirTierCount)
     setTradeAdvice(trade, yourItems, yourTotal, theirTotal, yourKnown, theirKnown,
         yourCount, theirCount, yourTierCount, theirTierCount)
