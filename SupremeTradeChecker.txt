@@ -1453,6 +1453,23 @@ local function visible(object)
     return current ~= nil
 end
 
+-- Some mobile MM2 trade overlays report ScreenGui.Enabled=false while their
+-- offer panels/cards remain the live rendered layer. For trade detection, trust
+-- the actual GuiObject visibility chain and verify the offer contents separately.
+local function visibleGuiTree(object)
+    local current = object
+    local reachedRoot = false
+    while current do
+        if current:IsA("GuiObject") and not current.Visible then return false end
+        if current:IsA("ScreenGui") then
+            reachedRoot = true
+            break
+        end
+        current = current.Parent
+    end
+    return reachedRoot
+end
+
 local function findTrade()
     local roots = {playerGui}
     -- Some mobile executors expose Roblox trade layers under CoreGui.
@@ -1473,7 +1490,7 @@ local function findTrade()
                 if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton"))
                     and not seen[node] then
                     seen[node] = true
-                    if visible(node) then count = count + 1 end
+                    if visibleGuiTree(node) then count = count + 1 end
                 end
             end
         end
@@ -1489,9 +1506,9 @@ local function findTrade()
                 local yourOffer = screen:FindFirstChild("YourOffer", true)
                 local theirOffer = screen:FindFirstChild("TheirOffer", true)
                 local screenEnabled = screen.Enabled
-                local tradeVisible = trade and visible(trade) or false
-                local yourVisible = yourOffer and visible(yourOffer) or false
-                local theirVisible = theirOffer and visible(theirOffer) or false
+                local tradeVisible = trade and visibleGuiTree(trade) or false
+                local yourVisible = yourOffer and visibleGuiTree(yourOffer) or false
+                local theirVisible = theirOffer and visibleGuiTree(theirOffer) or false
                 local yourCards = offerCardCount(yourOffer)
                 local theirCards = offerCardCount(theirOffer)
                 local validOffers = yourOffer and theirOffer
@@ -1510,7 +1527,8 @@ local function findTrade()
                     .. ",offers=" .. tostring(yourVisible) .. "/" .. tostring(theirVisible)
                     .. ",cards=" .. tostring(yourCards) .. "/" .. tostring(theirCards)
                     .. ",score=" .. tostring(score) .. ")")
-                if screenEnabled and validOffers and yourVisible and theirVisible then
+                if validOffers and yourVisible and theirVisible
+                    and (screenEnabled or tradeVisible or (yourCards + theirCards) > 0) then
                     table.insert(candidates, {
                         screen = screen, container = container or screen,
                         trade = (trade and tradeVisible) and trade or screen,
@@ -1574,7 +1592,9 @@ local function scanOffer(offer, group)
         local reachedOffer = false
         while current do
             if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            -- Do not reject a card solely because its parent ScreenGui.Enabled flag
+            -- is stale on mobile; its GuiObject ancestors and offer membership
+            -- are the authoritative visibility checks for this trade layer.
             if current == offer then reachedOffer = true end
             current = current.Parent
         end
