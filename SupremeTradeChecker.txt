@@ -673,7 +673,18 @@ local function buildMapping(entries, database)
             end
             local yearExact, eventExact
             aliasMatches, yearExact = preferExactMetadata(aliasMatches, "Year", year)
+            -- Keep the exact-year candidate set before applying Event metadata.
+            -- Supreme's event labels can differ slightly from Database.Sync
+            -- (for example "Valentine's Day" vs "Valentines"). If the exact
+            -- year, category, rarity and weapon type leave exactly one record,
+            -- that unique record is safe even when the event string differs.
+            local exactYearMatches = aliasMatches
             aliasMatches, eventExact = preferExactMetadata(aliasMatches, "Event", event)
+            if #aliasMatches == 0 and yearWanted and yearExact
+                and #exactYearMatches == 1 then
+                aliasMatches = exactYearMatches
+                eventExact = false
+            end
             if #aliasMatches > 0 then
                 local score = (yearWanted and yearExact and 2 or 0)
                     + (eventWanted and eventExact and 1 or 0)
@@ -1902,6 +1913,31 @@ local function runCoreSelfTests()
             "nameless inventory/trade cards must resolve through unique icon mappings")
         assert(unnamedUnknownValue == nil,
             "nameless cards with unknown icons must remain unvalued, never guessed")
+
+        -- Regression: event labels may differ while the exact year plus
+        -- category/rarity/type still identify one unique seasonal item.
+        local seasonalDatabase = {
+            Item = {
+                Blossom_K_2026 = {
+                    ItemName = "Blossom",
+                    ItemType = "Knife",
+                    Rarity = "Uncommon",
+                    Year = 2026,
+                    Event = "Valentines",
+                    Image = "rbxassetid://444444"
+                }
+            },
+            Pets = {}
+        }
+        local seasonalEntry = {
+            c = "uncommons", n = "Blossom", im = "Blossom",
+            t = "x2 T1 Uncommons", y = "2026",
+            e = "Valentine's Day", o = "Valentine's 2026 (Unboxed)"
+        }
+        local seasonalMapping = buildMapping({seasonalEntry}, seasonalDatabase)
+        assert(seasonalMapping.byKey["i:Blossom_K_2026"]
+            and seasonalMapping.byKey["i:Blossom_K_2026"].t == "x2 T1 Uncommons",
+            "unique exact-year seasonal item must survive a harmless event-label mismatch")
 
         local regularOnlyMapping = buildMapping({regularEntry}, testDatabase)
         state.mapped = regularOnlyMapping
