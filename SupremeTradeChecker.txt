@@ -3061,53 +3061,31 @@ local function httpGetJson(url)
 end
 
 local function findHopServer()
-    -- Sample both ends of Roblox's public-server list, following cursors and
-    -- tolerating temporary rate limits/network failures through httpGetJson().
+    -- Keep mobile search bounded: try one page in each sort direction at most.
     local candidates = {}
     local seen = {}
-    local sortOrders = {"Asc", "Desc"}
-    for _, sortOrder in ipairs(sortOrders) do
-        local cursor = nil
-        for page = 1, 3 do
-            local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
-                .. "/servers/Public?sortOrder=" .. sortOrder
-                .. "&limit=100&excludeFullGames=true"
-            if cursor and cursor ~= "" then
-                url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+    for _, sortOrder in ipairs({"Asc", "Desc"}) do
+        hopStatus = "Checking public servers (" .. sortOrder .. ")..."
+        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+            .. "/servers/Public?sortOrder=" .. sortOrder
+            .. "&limit=100&excludeFullGames=true"
+        local payload = httpGetJson(url)
+        for _, server in ipairs(payload.data) do
+            local serverId = type(server) == "table" and tostring(server.id or "") or ""
+            local playing = type(server) == "table" and tonumber(server.playing) or nil
+            local maximum = type(server) == "table" and tonumber(server.maxPlayers) or nil
+            if serverId ~= "" and serverId ~= tostring(game.JobId)
+                and not seen[serverId] and playing and maximum
+                and playing >= 0 and maximum > 0 and playing < maximum then
+                seen[serverId] = true
+                table.insert(candidates, {id = serverId, playing = playing, maxPlayers = maximum})
             end
-
-            local payload = httpGetJson(url)
-            for _, server in ipairs(payload.data) do
-                local serverId = type(server) == "table" and tostring(server.id or "") or ""
-                local playing = type(server) == "table" and tonumber(server.playing) or nil
-                local maximum = type(server) == "table" and tonumber(server.maxPlayers) or nil
-                if serverId ~= "" and serverId ~= tostring(game.JobId)
-                    and not seen[serverId] and playing and maximum
-                    and playing >= 0 and maximum > 0 and playing < maximum then
-                    seen[serverId] = true
-                    table.insert(candidates, {
-                        id = serverId,
-                        playing = playing,
-                        maxPlayers = maximum
-                    })
-                end
-            end
-
-            cursor = payload.nextPageCursor
-            if type(cursor) ~= "string" or cursor == "" then break end
         end
+        if #candidates > 0 then break end
     end
-
-    if #candidates == 0 then
-        error("No other public servers with free slots were returned by Roblox")
-    end
-
-    -- Prefer less populated servers, but retain some randomness to avoid
-    -- repeatedly selecting the same nearly-empty instance.
-    table.sort(candidates, function(a, b)
-        local aLoad = a.playing / a.maxPlayers
-        local bLoad = b.playing / b.maxPlayers
-        return aLoad < bLoad
+    if #candidates == 0 then error("Roblox returned no other public servers with free slots") end
+    table.sort(candidates, function(x, y)
+        return (x.playing / x.maxPlayers) < (y.playing / y.maxPlayers)
     end)
     local shortlistSize = math.min(12, #candidates)
     return candidates[Random.new():NextInteger(1, shortlistSize)]
@@ -3130,6 +3108,16 @@ hopButton.Activated:Connect(function()
     hopButton.Text = "◌   SEARCHING SERVERS..."
     hopButton.BackgroundColor3 = Color3.fromRGB(82, 43, 53)
     hopStatus = "Searching public servers..."
+
+    -- Watchdog also covers executors whose HTTP request never returns.
+    task.delay(28, function()
+        if hopBusy and thisAttempt == hopAttempt and player.Parent then
+            hopAttempt = hopAttempt + 1
+            hopStatus = "Search timed out after 28s — tap to retry"
+            hopButton.Text = "↻   TRY AGAIN"
+            hopBusy = false
+        end
+    end)
 
     task.spawn(function()
         local ok, result = pcall(function()
