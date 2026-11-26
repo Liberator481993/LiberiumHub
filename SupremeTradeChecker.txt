@@ -3061,33 +3061,45 @@ local function httpGetJson(url)
 end
 
 local function findHopServer()
-    -- Keep mobile search bounded: try one page in each sort direction at most.
+    -- Prefer busy servers, but only servers with at least one free slot.
+    -- First pass targets 7+ players; fallback accepts any non-empty server.
     local candidates = {}
     local seen = {}
-    for _, sortOrder in ipairs({"Asc", "Desc"}) do
-        hopStatus = "Checking public servers (" .. sortOrder .. ")..."
-        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
-            .. "/servers/Public?sortOrder=" .. sortOrder
-            .. "&limit=100&excludeFullGames=true"
-        local payload = httpGetJson(url)
+    local function collect(payload, minimumPlayers)
         for _, server in ipairs(payload.data) do
             local serverId = type(server) == "table" and tostring(server.id or "") or ""
             local playing = type(server) == "table" and tonumber(server.playing) or nil
             local maximum = type(server) == "table" and tonumber(server.maxPlayers) or nil
             if serverId ~= "" and serverId ~= tostring(game.JobId)
                 and not seen[serverId] and playing and maximum
-                and playing >= 0 and maximum > 0 and playing < maximum then
+                and playing >= minimumPlayers and maximum > 0 and playing < maximum then
                 seen[serverId] = true
                 table.insert(candidates, {id = serverId, playing = playing, maxPlayers = maximum})
             end
         end
-        if #candidates > 0 then break end
     end
-    if #candidates == 0 then error("Roblox returned no other public servers with free slots") end
+    -- Descending order returns the most populated public servers first.
+    hopStatus = "Finding busy servers with free slots..."
+    local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+        .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true"
+    local payload = httpGetJson(url)
+    collect(payload, 7)
+    if #candidates == 0 then
+        -- If no server has 7+ players, do not fail: try any available server.
+        hopStatus = "No 7+ player server found — checking other servers..."
+        local fallbackUrl = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+            .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true"
+        local fallbackPayload = httpGetJson(fallbackUrl)
+        collect(fallbackPayload, 1)
+    end
+    if #candidates == 0 then error("No other public server with a free slot was returned") end
     table.sort(candidates, function(x, y)
-        return (x.playing / x.maxPlayers) < (y.playing / y.maxPlayers)
+        if x.playing ~= y.playing then return x.playing > y.playing end
+        return (x.playing / x.maxPlayers) > (y.playing / y.maxPlayers)
     end)
-    local shortlistSize = math.min(12, #candidates)
+    -- Select randomly only among the top 5 busiest matches to avoid always
+    -- sending the player to the exact same public server.
+    local shortlistSize = math.min(5, #candidates)
     return candidates[Random.new():NextInteger(1, shortlistSize)]
 end
 
